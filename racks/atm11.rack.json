@@ -1,0 +1,30 @@
+{
+  "$schema": "./rack.schema.json",
+  "id": "atm11",
+  "name": "All the Mods11",
+  "description": "All the Mods 11 Minecraft Modpack-Server (NeoForge)",
+  "icon": "minecraft",
+  "game": "minecraft",
+  "loader": "neoforge",
+  "tier": "free",
+  "licenseRequired": false,
+  "installMethod": "curseforge",
+  "defaultRoot": "/opt/minecraft",
+  "configFile": "server.properties",
+  "startScript": "startserver.sh",
+  "ports": {
+    "game": 25566,
+    "rcon": 25576
+  },
+  "source": {
+    "type": "curseforge",
+    "projectId": null
+  },
+  "javaRequired": 21,
+  "eula": "required",
+  "packMarkers": [
+    "mods",
+    "libraries",
+    "startserver.sh"
+  ]
+}

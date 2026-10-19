@@ -1,0 +1,3792 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Game-Armory</title>
+  <style>
+    :root {
+      --bg: #0f1115; --card: #1a1d24; --border: #2a2f3a;
+      --text: #e6e8ee; --muted: #8b93a7; --accent: #7c5cff; --green: #35c46a;
+      --red: #e5484d; --yellow: #e5a93d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    header { padding: 16px 28px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 19px; letter-spacing: .5px; }
+    header .logo { font-size: 23px; }
+    header .spacer { flex: 1; }
+    header .who { font-size: 13px; color: var(--muted); }
+    /* Klickbarer Name im Header -> oeffnet das Profil-Modal */
+    button.who { font-size: 13px; color: var(--muted); padding: 6px 10px; display: flex;
+      align-items: center; gap: 4px; }
+    button.who:hover { color: var(--text); border-color: var(--accent); }
+    .modal .box.tabbed { max-width: 560px; }
+    .tabpane { display: none; }
+    .tabpane.active { display: block; }
+    .profile-box { display: flex; flex-direction: column; gap: 6px; }
+    .profile-box .k { color: var(--muted); font-size: 12px; text-transform: uppercase;
+      letter-spacing: .06em; }
+    .profile-box .v { font-size: 16px; }
+    .rolechip { font-size: 11px; padding: 2px 8px; border-radius: 99px;
+      border: 1px solid var(--accent); color: var(--accent); margin-left: 6px; }
+    main { padding: 24px 28px; max-width: 1100px; }
+
+    /* Zweispaltiges App-Layout: Rack-Sidebar links, Inhalt rechts. */
+    .app-shell { display: grid; grid-template-columns: 250px 1fr; min-height: calc(100vh - 62px); }
+    .app-shell > main { max-width: none; }
+    .sidebar { border-right: 1px solid var(--border); padding: 18px 14px; background: rgba(255,255,255,.02); }
+    .sidebar h3 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+    .sidebar .rack-list { display: flex; flex-direction: column; gap: 4px; }
+    .sidebar .rack-btn { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+      padding: 9px 10px; border-radius: 8px; border: 1px solid transparent; background: transparent;
+      color: var(--text); cursor: pointer; font: inherit; font-size: 13.5px; }
+    .sidebar .rack-btn:hover { background: rgba(255,255,255,.05); }
+    .sidebar .rack-btn.active { background: rgba(120,170,255,.14); border-color: var(--accent); }
+    .sidebar .rack-btn .rack-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar .rack-btn .count { font-size: 11px; color: var(--muted); }
+    .sidebar .rack-sep { height: 1px; background: var(--border); margin: 10px 4px; }
+    .sidebar .rack-group { margin: 12px 4px 4px; font-size: 10.5px; letter-spacing: .7px;
+      text-transform: uppercase; color: var(--muted); }
+    .sidebar .rack-row { display: flex; align-items: center; gap: 4px; }
+    .sidebar .rack-row .rack-btn { flex: 1; min-width: 0; }
+    .sidebar .rack-remove { flex: 0 0 auto; width: 26px; height: 26px; padding: 0;
+      border-radius: 6px; border: 1px solid transparent; background: transparent;
+      color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+      line-height: 1; }
+    .sidebar .rack-remove:hover { background: rgba(255,80,80,.16); border-color: rgba(255,80,80,.5); color: #ff8c8c; }
+    .sidebar .rack-add { display: flex; align-items: center; justify-content: center; gap: 6px;
+      width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+      border: 1px dashed var(--border); background: transparent; color: var(--muted);
+      cursor: pointer; font: inherit; font-size: 13px; }
+    .sidebar .rack-add:hover { border-color: var(--accent); color: var(--text); }
+    /* Shop-Overlay: verfuegbare Racks zum Dazuholen */
+    .shop-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+      align-items: center; justify-content: center; z-index: 60; }
+    .shop-overlay.open { display: flex; }
+    .shop-box { background: var(--panel, #14161c); border: 1px solid var(--border); border-radius: 12px;
+      width: min(520px, 92vw); max-height: 80vh; overflow: auto; padding: 18px 20px; }
+    .shop-box h3 { margin: 0 0 4px; font-size: 16px; }
+    .shop-box .shop-sub { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); }
+    .shop-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--border); margin-bottom: 8px; cursor: pointer; }
+    .shop-item:hover { border-color: var(--accent); }
+    .shop-item.already { opacity: .5; cursor: default; }
+    .shop-item .si-name { flex: 1; }
+    .shop-item .si-meta { font-size: 11.5px; color: var(--muted); }
+    .sidebar .hint { margin-top: 14px; font-size: 11.5px; line-height: 1.5; }
+    @media (max-width: 820px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
+      .sidebar .rack-list { flex-direction: row; flex-wrap: wrap; }
+      .sidebar .rack-btn { width: auto; }
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+    .card h2 { margin: 0 0 4px; font-size: 17px; }
+    .card .desc { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+    .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 99px;
+      border: 1px solid var(--border); color: var(--muted); }
+    .badge.premium { border-color: var(--accent); color: var(--accent); }
+    .ver { font-size: 12px; font-weight: 500; opacity: .6; margin-left: 6px; }
+    /* Versions-Gegenprobe (2026-10-18): gruen = aktuell, gelb = Update da,
+       grau = Quelle sagt nichts (unbekannt). Nie gruen ohne Beleg. */
+    .ver.v-current { opacity: 1; color: #3fb950; font-weight: 600; }
+    .ver.v-outdated { opacity: 1; color: #d29922; font-weight: 600; }
+    .ver.v-unknown { opacity: .55; color: inherit; }
+    .ver .v-hint { font-size: 11px; opacity: .8; font-weight: 400; margin-left: 4px; }
+    /* Header-Badge (2026-10-19): traegt .ver fuer die Farben, soll aber wie ein
+       Badge sitzen. Kein Aussenabstand, keine abgesenkte Deckkraft. */
+    #versionBadge { cursor: pointer; margin-left: 0; opacity: 1; font-size: 11px; }
+    #versionBadge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* API-Setup-Guide im Einstellungs-Tab: aufklappbare Bloecke, damit der
+       Tab nicht mit Text ueberladen ist. */
+    .api-guide { border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 14px; margin: 10px 0; background: rgba(127,127,127,.05); }
+    .api-guide > summary { cursor: pointer; font-weight: 600; }
+    .api-guide > summary:hover { color: var(--accent); }
+    .api-guide[open] > summary { margin-bottom: 8px; }
+    .api-guide ol { margin: 8px 0 8px 18px; padding: 0; }
+    .api-guide li { margin: 4px 0; }
+    .state { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 14px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+    .dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .dot.stopped { background: var(--red); }
+    .dot.unknown { background: var(--yellow); }
+    .state .meta { color: var(--muted); font-size: 12px; margin-left: auto; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    /* Dropdown fuer sekundaere Aktionen in der Sword-Karte */
+    .menu { position: relative; }
+    .menu > button { display: flex; align-items: center; gap: 6px; }
+    .menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 4px; min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,.45); display: none; }
+    .menu.open .menu-list { display: block; }
+    .menu-list button { display: block; width: 100%; text-align: left; background: transparent;
+      border: 0; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+    .menu-list button:hover { background: #23272f; border-color: transparent; }
+    .menu-list button.danger { color: var(--red); }
+    .menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+    button { background: #23272f; color: var(--text); border: 1px solid var(--border);
+      padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.ghost { background: transparent; }
+    button.active { border-color: var(--green); color: var(--green); }
+    .locked { color: var(--muted); font-size: 13px; margin-top: 12px; }
+    .hint { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .console-wrap { margin-top: 24px; }
+    .console-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    .console-status { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+    pre#console { background: #0b0d11; border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px; height: 340px; overflow: auto; font-size: 12.5px; line-height: 1.5;
+      white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; }
+    select { background: #23272f; color: var(--text); border: 1px solid var(--border);
+      padding: 8px; border-radius: 8px; }
+    label.chk { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none;
+      align-items: center; justify-content: center; padding: 20px; }
+    .modal.open { display: flex; }
+    .modal .box { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 22px; width: 100%; max-width: 480px; max-height: 80vh; overflow: auto; }
+    .modal h3 { margin: 0 0 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+    /* Nutzerverwaltung: feste Spaltenbreiten + saubere Felder statt Gequetsche */
+    table.users-tbl th:nth-child(1), table.users-tbl td:nth-child(1) { width: 30%; }
+    table.users-tbl th:nth-child(2), table.users-tbl td:nth-child(2) { width: 20%; }
+    table.users-tbl th:nth-child(3), table.users-tbl td:nth-child(3) { width: 30%; }
+    table.users-tbl th:last-child, table.users-tbl td:last-child { width: 20%; white-space: nowrap; }
+    table.users-tbl input[type=email] { width: 100%; box-sizing: border-box; padding: 6px 8px;
+      background: #23272f; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+      font: inherit; font-size: 12.5px; }
+    table.users-tbl input[type=email]:focus { outline: none; border-color: var(--accent); }
+    table.users-tbl input[type=email]::placeholder { color: var(--muted); opacity: .8; }
+    table.users-tbl select { width: 100%; box-sizing: border-box; }
+    th { color: var(--muted); font-weight: 500; }
+    .row-actions button { padding: 4px 9px; font-size: 12px; }
+    /* Rechte-Matrix: Raster aus Rollen (Spalten) x Rechte (Zeilen).
+       superuser-Spalte ist sichtbar, aber gesperrt (Haken + Hinweis). */
+    .perms-wrap { overflow-x: auto; margin: 10px 0; }
+    table.perms { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    table.perms th, table.perms td { padding: 5px 7px; border-bottom: 1px solid var(--border); }
+    table.perms th { color: var(--muted); font-weight: 500; text-align: center; white-space: nowrap; }
+    table.perms th.perm-col, table.perms td.perm-col { text-align: left; color: var(--text); }
+    table.perms td { text-align: center; }
+    table.perms tr.grouprow td { color: var(--accent); font-weight: 600; padding-top: 12px;
+      border-bottom: 1px solid var(--accent); }
+    table.perms input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+    table.perms input[type=checkbox]:disabled { cursor: not-allowed; opacity: .65; }
+    table.perms td.fixed-col { background: rgba(124,92,255,.06); }
+    table.perms .perm-label { display: block; }
+    table.perms .perm-key { display: block; color: var(--muted); font-size: 11px; }
+    form.inline input, form.inline select { width: 100%; padding: 9px; margin: 6px 0;
+      background: #0b0d11; border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+    .toast { position: fixed; bottom: 20px; right: 20px; background: #23272f;
+      border: 1px solid var(--border); border-left: 3px solid var(--accent);
+      padding: 12px 16px; border-radius: 8px; font-size: 13px; display: none; z-index: 50; }
+    /* --- Einstellungen / Update / Neuer Server (v0.3.0) --- */
+    .modal .box.wide { max-width: 620px; }
+    .modal .box h4 { margin: 18px 0 6px; font-size: 14px; }
+    .modal .box h4:first-of-type { margin-top: 4px; }
+    .modal input[type="text"], .modal input[type="password"], .modal input[type="number"] {
+      width: 100%; padding: 9px; margin: 6px 0; background: #0b0d11;
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+    .modal .row2 { display: flex; gap: 10px; flex-wrap: wrap; }
+    .modal .row2 > * { flex: 1; min-width: 150px; }
+    .tabs { display: flex; gap: 8px; margin: 10px 0 4px; }
+    .tabs button.active { border-color: var(--accent); color: var(--accent); }
+    .warn { color: var(--yellow); font-size: 13px; margin: 10px 0;
+      border: 1px solid var(--yellow); border-radius: 8px; padding: 8px 10px; }
+    .list { max-height: 240px; overflow: auto; border: 1px solid var(--border);
+      border-radius: 8px; margin-top: 8px; }
+    .list .item { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+      border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+    .list .item:last-child { border-bottom: none; }
+    .list .item:hover { background: #23272f; }
+    .list .item.sel { background: #23272f; border-left: 3px solid var(--accent); }
+    .list .item img { width: 34px; height: 34px; border-radius: 6px; flex: none;
+      background: #0b0d11; object-fit: cover; }
+    .list .item .meta { color: var(--muted); font-size: 11.5px; }
+    .list .item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .badge.rel { border-color: var(--green); color: var(--green); }
+    .badge.beta { border-color: var(--yellow); color: var(--yellow); }
+    .badge.alpha { border-color: var(--red); color: var(--red); }
+    .progress { height: 10px; background: #0b0d11; border: 1px solid var(--border);
+      border-radius: 99px; overflow: hidden; margin: 10px 0 6px; }
+    .progress > div { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+    .status-box { font-size: 13px; color: var(--muted); }
+    .dropzone { border: 2px dashed var(--border); border-radius: 10px; padding: 22px 14px;
+      text-align: center; cursor: pointer; color: var(--muted); font-size: 14px;
+      margin: 6px 0; transition: border-color .15s, background .15s; }
+    .dropzone:hover { border-color: var(--accent); }
+    .dropzone.over { border-color: var(--accent); background: #1a1d24; }
+    .dropzone.ok { border-color: var(--green); }
+    .status-box .phase { color: var(--text); }
+    .status-box.error .phase { color: var(--red); }
+    .status-box.done .phase { color: var(--green); }
+    .modal-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    code.pathhint { background: #0b0d11; border: 1px solid var(--border);
+      border-radius: 6px; padding: 1px 5px; font-size: 12px; }
+  
+    .cfg-grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 12px; }
+    .cfg-row { display: grid; grid-template-columns: 1fr 1.2fr; gap: 10px; align-items: center; }
+
+    /* --- Rack-Editor (Rack-Verwaltung im Panel) --- */
+    .rack-editor label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 2px; }
+    .rack-editor input, .rack-editor select, .rack-editor textarea {
+      width: 100%; padding: 8px; background: #0b0d11; border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 13px; box-sizing: border-box; }
+    .rack-editor .re-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .rack-editor .re-hint { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+    .rack-editor .re-sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0 4px; }
+    .rack-editor .re-sep-title { font-size: 12px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .04em; margin: 0 0 4px; }
+    .rack-editor .re-chk { display: flex; align-items: center; gap: 8px; font-size: 13px;
+      color: var(--text); margin-top: 10px; }
+    .rack-editor .re-chk input { width: auto; margin: 0; }
+    .rack-editor input:disabled { opacity: .55; }
+    .rack-editor .re-err { color: var(--red); font-size: 13px; margin: 10px 0 0;
+      border: 1px solid var(--red); border-radius: 8px; padding: 8px 10px; display: none; }
+    .rack-manage-row { display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+      border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+    .rack-manage-row .rm-name { flex: 1; min-width: 0; }
+    .rack-manage-row .rm-name b { display: block; }
+    .rack-manage-row .rm-name .si-meta { font-size: 11.5px; color: var(--muted); }
+    .rack-manage-row button { padding: 5px 10px; font-size: 12px; }
+    button.danger { color: var(--red); border-color: var(--red); }
+    .cfg-row label { font-size: 13px; }
+    .cfg-row input, .cfg-row select { width: 100%; }
+    .cfg-bool { display: flex; gap: 6px; align-items: center; }
+
+    /* Admin-Schluessel nach TS-Erstinstall: kopierbarer Einmal-Key */
+    #upAdminKey { margin-top: 10px; padding: 10px; border: 1px solid var(--green, #2e7d32);
+      border-radius: 8px; background: rgba(46,125,50,.08); }
+    .adminkey-label { font-weight: 600; margin-bottom: 6px; }
+    .adminkey-row { display: flex; gap: 8px; align-items: center; }
+    .adminkey-row code { flex: 1; padding: 6px 8px; border-radius: 6px;
+      background: var(--bg, #111); font-size: 12px; word-break: break-all;
+      user-select: all; }
+    .adminkey-hint { margin-top: 6px; font-size: 12px; opacity: .8; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="logo">⚔️</span>
+    <h1>Game-Armory</h1>
+    <span class="badge" id="versionBadge" title="Version wird geladen…">v–</span>
+    <span class="spacer"></span>
+    <button class="ghost who" id="who" title="Profil öffnen" aria-haspopup="dialog"></button>
+    <button class="ghost" id="reloadSwordsBtn" style="display:none;">↻ Swords neu laden</button>
+    <button class="ghost" id="newRackBtn" style="display:none;">＋ Neuer Server</button>
+    <button class="ghost" id="logoutBtn">Logout</button>
+  </header>
+
+  <div class="app-shell">
+  <aside class="sidebar">
+    <h3>Racks</h3>
+    <div class="rack-list" id="rackList">
+      <div class="item"><span class="meta">Racks werden geladen…</span></div>
+    </div>
+    <div class="hint">Ein <b>Rack</b> ist die Schablone (Spiel, Loader, Install-Quelle).
+      Wähle eins, um nur dessen Server zu sehen und neue anzulegen.</div>
+  </aside>
+
+  <main>
+    <div id="swords" class="grid"></div>
+    <p class="hint" id="hint">Swords werden geladen…</p>
+
+    <div class="console-wrap">
+      <h2 style="font-size:16px;margin:0 0 10px;">Live-Konsole</h2>
+      <div class="console-bar">
+        <select id="swordSelect"></select>
+        <button id="connectBtn" class="primary">Verbinden</button>
+        <button id="disconnectBtn" disabled>Trennen</button>
+        <button id="clearBtn">Leeren</button>
+        <label class="chk"><input type="checkbox" id="autoscroll" checked /> Auto-Scroll</label>
+        <label class="chk"><input type="checkbox" id="timestamps" /> Zeitstempel</label>
+        <span class="console-status" id="consoleStatus">nicht verbunden</span>
+      </div>
+      <pre id="console">[armory] Wähle ein Sword und klicke "Verbinden".</pre>
+    </div>
+  </main>
+  </div>
+
+  <!-- Profil-Modal: Tabs [Profil] [Nutzer] [Einstellungen].
+       Nutzer/Einstellungen nur fuer Admin sichtbar. Die bestehenden IDs
+       (#newUserForm, #usersList, #cfKeyState, ...) bleiben unveraendert,
+       damit alle Event-Handler weiter funktionieren. -->
+  <!-- Shop: verfuegbare Racks zum Dazuholen in die Sidebar -->
+  <div class="shop-overlay" id="rackShop">
+    <div class="shop-box">
+      <h3>Racks hinzufügen</h3>
+      <p class="shop-sub">Wähle Racks, die in der Sidebar erscheinen sollen. Bereits
+        sichtbare sind ausgegraut.</p>
+      <div id="rackShopList"><div class="meta">Lade…</div></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+        <button class="ghost" id="rackShopAll">Alle zurücksetzen</button>
+        <button class="primary" id="rackShopClose">Fertig</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rack-Verwaltung: Racks anlegen/bearbeiten/loeschen (nur rack.create/delete).
+       Liste -> Editor. Ein Rack ist die SCHABLONE (Spiel, Loader, Install-Quelle,
+       Zielpfad) - nicht mit dem Sword-Install ("Neuer Server") verwechseln. -->
+  <div class="modal" id="rackManageModal">
+    <div class="box wide">
+      <h3>Racks verwalten</h3>
+      <p class="shop-sub">Eine Schablone für einen Server-Typ: Spiel, Loader,
+        Install-Quelle und Zielpfad. Bestehende Server (Swords) bleiben unberührt.</p>
+      <div id="rackManageList"><div class="meta">Lade…</div></div>
+      <div style="display:flex; gap:8px; justify-content:space-between; margin-top:14px;">
+        <button class="ghost" id="rackManageNew">＋ Neues Rack</button>
+        <button class="primary" id="rackManageClose">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rack-Editor: Formular fuer ein einzelnes Rack (neu oder bearbeiten). -->
+  <div class="modal" id="rackEditModal">
+    <div class="box wide rack-editor">
+      <h3 id="reTitle">Neues Rack</h3>
+      <div class="re-grid2">
+        <div>
+          <label for="reId">id (Dateiname)</label>
+          <input type="text" id="reId" placeholder="z.B. atm12" autocomplete="off" />
+          <div class="re-hint">Nur a–z, 0–9, . _ - ; muss mit Buchstabe/Zahl beginnen.</div>
+        </div>
+        <div>
+          <label for="reName">Name</label>
+          <input type="text" id="reName" placeholder="z.B. AllTheMods 12" autocomplete="off" />
+        </div>
+      </div>
+      <label for="reDescription">Beschreibung</label>
+      <textarea id="reDescription" rows="2"></textarea>
+      <div class="re-grid2">
+        <div>
+          <label for="reIcon">Icon</label>
+          <input type="text" id="reIcon" placeholder="z.B. minecraft" autocomplete="off" />
+        </div>
+        <div>
+          <label for="reGame">Spiel</label>
+          <select id="reGame">
+            <option value="minecraft">minecraft</option>
+            <option value="7d2d">7d2d</option>
+            <option value="teamspeak6">teamspeak6</option>
+            <option value="teamspeak3">teamspeak3</option>
+          </select>
+        </div>
+      </div>
+      <div class="re-grid2">
+        <div>
+          <label for="reLoader">Loader</label>
+          <select id="reLoader">
+            <option value="vanilla">vanilla</option>
+            <option value="neoforge">neoforge</option>
+            <option value="forge">forge</option>
+            <option value="fabric">fabric</option>
+            <option value="quilt">quilt</option>
+            <option value="paper">paper</option>
+            <option value="spigot">spigot</option>
+            <option value="purpur">purpur</option>
+            <option value="native">native</option>
+          </select>
+        </div>
+        <div>
+          <label for="reInstallMethod">Install-Methode</label>
+          <select id="reInstallMethod">
+            <option value="curseforge">curseforge</option>
+            <option value="steamcmd">steamcmd</option>
+            <option value="zip">zip</option>
+            <option value="upload">upload</option>
+            <option value="url">url</option>
+          </select>
+        </div>
+      </div>
+      <div class="re-grid2">
+        <div>
+          <label for="reTier">Tier</label>
+          <select id="reTier">
+            <option value="free">free</option>
+            <option value="premium">premium</option>
+          </select>
+        </div>
+        <div>
+          <label for="reDefaultRoot">Zielpfad (defaultRoot)</label>
+          <input type="text" id="reDefaultRoot" placeholder="/opt/meinserver" autocomplete="off" />
+          <div class="re-hint">Muss unter /opt liegen. Der Server erhält /opt/…/&lt;id&gt;.</div>
+        </div>
+      </div>
+      <div class="re-chk">
+        <input type="checkbox" id="reLicenseRequired" />
+        <label for="reLicenseRequired" style="margin:0;">Lizenz erforderlich (premium)</label>
+      </div>
+      <div class="re-chk">
+        <input type="checkbox" id="reSingleton" />
+        <label for="reSingleton" style="margin:0;">Einmal-Rack (nur eine Instanz erlaubt)</label>
+      </div>
+
+      <hr class="re-sep" />
+      <p class="re-sep-title">Bezugsquelle (source)</p>
+      <div class="re-grid2">
+        <div>
+          <label for="reSourceType">source.type</label>
+          <select id="reSourceType">
+            <option value="curseforge">curseforge</option>
+            <option value="modrinth">modrinth</option>
+            <option value="ftb">ftb</option>
+            <option value="steam">steam</option>
+            <option value="url">url</option>
+            <option value="local">local</option>
+          </select>
+        </div>
+        <div>
+          <label for="reProjectId">source.projectId</label>
+          <input type="text" id="reProjectId" placeholder="(leer lassen, wenn unbekannt)" autocomplete="off" />
+        </div>
+      </div>
+      <div class="re-grid2">
+        <div>
+          <label for="reAppId">source.appId (nur steamcmd)</label>
+          <input type="text" id="reAppId" placeholder="z.B. 294420" autocomplete="off" />
+        </div>
+        <div>
+          <label for="reBranch">source.branch</label>
+          <input type="text" id="reBranch" placeholder="public" autocomplete="off" />
+        </div>
+      </div>
+      <label for="reSourceUrl">source.url (nur installMethod url)</label>
+      <input type="text" id="reSourceUrl" placeholder="https://github.com/…" autocomplete="off" />
+
+      <hr class="re-sep" />
+      <p class="re-sep-title">Dateien &amp; Ports (optional)</p>
+      <div class="re-grid2">
+        <div>
+          <label for="reConfigFile">configFile (relativ)</label>
+          <input type="text" id="reConfigFile" placeholder="server.properties" autocomplete="off" />
+        </div>
+        <div>
+          <label for="reStartScript">startScript (relativ)</label>
+          <input type="text" id="reStartScript" placeholder="startserver.sh" autocomplete="off" />
+        </div>
+      </div>
+      <label for="reLogFile">logFile (absolut, {id} wird ersetzt)</label>
+      <input type="text" id="reLogFile" placeholder="/var/log/{id}/{id}.log" autocomplete="off" />
+      <div class="re-grid2">
+        <div>
+          <label for="reJavaRequired">javaRequired</label>
+          <input type="text" id="reJavaRequired" placeholder="z.B. 21 (leer = kein Java)" autocomplete="off" />
+        </div>
+        <div>
+          <label for="reEula">EULA</label>
+          <select id="reEula">
+            <option value="none">none</option>
+            <option value="required">required</option>
+          </select>
+        </div>
+      </div>
+      <label for="rePorts">ports (JSON, optional)</label>
+      <input type="text" id="rePorts" placeholder='{"game":25565,"rcon":25575}' autocomplete="off" />
+
+      <div class="re-err" id="reError"></div>
+      <div class="modal-foot">
+        <button class="ghost" id="reCancel">Abbrechen</button>
+        <button class="primary" id="reSave">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="profileModal">
+    <div class="box tabbed">
+      <h3>Profil</h3>
+      <div class="tabs" id="profileTabs">
+        <button class="ghost active" data-ptab="profile">Profil</button>
+        <button class="ghost" data-ptab="users" data-need="user.read" style="display:none;">Nutzer</button>
+        <button class="ghost" data-ptab="settings" data-need="settings.read" style="display:none;">Einstellungen</button>
+        <button class="ghost" data-ptab="updates" data-need="settings.read" style="display:none;">Updates</button>
+        <button class="ghost" data-ptab="diagnose" data-need="system.diagnostics" style="display:none;">Diagnose</button>
+          <button class="ghost" data-ptab="perms" data-need="user.role" style="display:none;">Rechte</button>
+      </div>
+
+      <!-- Tab: Profil -->
+      <div class="tabpane active" id="pTabProfile">
+        <div class="profile-box">
+          <span class="k">Name</span>
+          <span class="v" id="profileName">–</span>
+          <span class="k" style="margin-top:8px;">Rolle</span>
+          <span class="v" id="profileRole">–</span>
+        </div>
+        <h4>Eigenes Passwort ändern</h4>
+        <form class="inline" id="selfPasswordForm">
+          <input id="sp_current" type="password" placeholder="Aktuelles Passwort" autocomplete="current-password" />
+          <input id="sp_new" type="password" placeholder="Neues Passwort (min. 8 Zeichen)" autocomplete="new-password" />
+          <input id="sp_new2" type="password" placeholder="Neues Passwort wiederholen" autocomplete="new-password" />
+          <button class="primary" type="submit" style="margin-top:8px;">Passwort ändern</button>
+        </form>
+        <h4>E-Mail-Adresse (für Passwort-Reset)</h4>
+        <form class="inline" id="selfEmailForm">
+          <input id="se_email" type="email" placeholder="du@beispiel.de" autocomplete="email" />
+          <button class="primary" type="submit" style="margin-top:8px;">E-Mail speichern</button>
+        </form>
+        <div class="hint" id="seHint"></div>
+      </div>
+
+      <!-- Tab: Nutzerverwaltung (bestehender Inhalt aus #usersModal) -->
+      <div class="tabpane" id="pTabUsers">
+        <h4>Nutzer anlegen</h4>
+        <form class="inline" id="newUserForm">
+          <input id="nu_name" placeholder="Benutzername" />
+          <input id="nu_pass" type="password" placeholder="Passwort (min. 8 Zeichen)" />
+          <input id="nu_email" type="email" placeholder="E-Mail (optional, für Reset)" autocomplete="off" />
+          <select id="nu_role">
+            <option value="friend">Freund</option>
+            <option value="moderator">Moderator</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button class="primary" type="submit" style="margin-top:8px;">Anlegen</button>
+        </form>
+        <div id="usersList" style="margin-top:16px;"></div>
+
+      </div>
+
+      <!-- Tab: Nutzer-Passwort zuruecksetzen (Admin, aus der Nutzerliste geoeffnet) -->
+      <div class="tabpane" id="pTabReset">
+        <h4>Passwort zurücksetzen</h4>
+        <div class="hint" id="rpUserInfo"></div>
+        <form class="inline" id="resetPasswordForm">
+          <input id="rp_new" type="password" placeholder="Neues Passwort (min. 8 Zeichen)" autocomplete="new-password" />
+          <input id="rp_new2" type="password" placeholder="Neues Passwort wiederholen" autocomplete="new-password" />
+          <div class="modal-foot">
+            <button class="ghost" type="button" id="rpCancel">Abbrechen</button>
+            <button class="primary" type="submit">Passwort setzen</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tab: Einstellungen (bestehender Inhalt aus #settingsModal) -->
+      <div class="tabpane" id="pTabSettings">
+        <h4>CurseForge API-Key</h4>
+        <div id="cfKeyState" class="status-box">Wird geladen…</div>
+        <div id="cfKeyChange" style="display:none;">
+          <input id="cfKeyInput" type="password" placeholder="Neuen CurseForge API-Key einfügen" autocomplete="off" />
+          <p class="hint">Der Key wird nur serverseitig gespeichert und nie im Klartext ausgeliefert.</p>
+        </div>
+        <div class="modal-foot">
+          <button class="ghost" id="cfKeyReplace">Key ersetzen</button>
+          <button class="primary" id="cfKeySave">Speichern</button>
+        </div>
+
+        <h4>Brute-Force-Schutz</h4>
+        <p class="hint">Fehlgeschlagene Login-Versuche je IP. Wer das Limit im
+          Zeitfenster ueberschreitet, wird fuer die Sperrdauer blockiert.</p>
+        <div id="bfgState" class="status-box">Wird geladen…</div>
+        <div id="bfgFields">
+          <label for="bfgMaxFails">Fehlversuche bis Sperre</label>
+          <input id="bfgMaxFails" type="number" min="1" max="100" step="1" inputmode="numeric" />
+          <label for="bfgWindow">Zeitfenster (Minuten)</label>
+          <input id="bfgWindow" type="number" min="1" max="1440" step="1" inputmode="numeric" />
+          <label for="bfgBan">Sperrdauer (Minuten)</label>
+          <input id="bfgBan" type="number" min="1" max="10080" step="1" inputmode="numeric" />
+          <label for="bfgWhitelist">IPs, die nie gesperrt werden (kommagetrennt)</label>
+          <input id="bfgWhitelist" type="text" placeholder="z.B. 192.0.2.10, 198.51.100.7" />
+          <p class="hint">Leer = nur 127.0.0.1 und ::1. Trage hier deine eigene Adresse ein,
+            damit du dich nicht selbst aussperren kannst.</p>
+        </div>
+        <div class="modal-foot">
+          <button class="primary" id="bfgSave">Speichern</button>
+        </div>
+
+        <h4>E-Mail-Versand (SMTP)</h4>
+        <p class="hint">Jeder Betreiber hinterlegt hier seine eigenen SMTP-Zugangsdaten
+          (Ionos, Brevo, eigener Server - alles was SMTP spricht).</p>
+        <div id="smtpState" class="status-box">Wird geladen…</div>
+        <label for="smtpEnabled" style="display:inline-flex;align-items:center;gap:.4rem;">
+          <input id="smtpEnabled" type="checkbox" /> E-Mail-Versand aktiv
+        </label>
+        <label for="smtpHost">SMTP-Server</label>
+        <input id="smtpHost" type="text" placeholder="smtp.beispiel.de" autocomplete="off" />
+        <label for="smtpPort">Port</label>
+        <input id="smtpPort" type="number" min="1" max="65535" step="1" inputmode="numeric" placeholder="587" />
+        <label for="smtpSecure">Verschluesselung</label>
+        <select id="smtpSecure">
+          <option value="false">STARTTLS (587)</option>
+          <option value="true">TLS (465)</option>
+        </select>
+        <label for="smtpUser">Benutzername</label>
+        <input id="smtpUser" type="text" placeholder="Benutzername" autocomplete="off" />
+        <label for="smtpPass">Passwort</label>
+        <input id="smtpPass" type="password" placeholder="Passwort - leer lassen = unveraendert" autocomplete="new-password" />
+        <label for="smtpFromName">Absendername</label>
+        <input id="smtpFromName" type="text" placeholder="Game-Armory" autocomplete="off" />
+        <label for="smtpFromAddress">Absenderadresse</label>
+        <input id="smtpFromAddress" type="text" placeholder="armory@beispiel.de" autocomplete="off" />
+        <div class="modal-foot">
+          <button class="primary" id="smtpSave">Speichern</button>
+        </div>
+
+        <h4>Testmail</h4>
+        <label for="smtpTestTo">Empfaenger</label>
+        <input id="smtpTestTo" type="text" placeholder="du@beispiel.de" autocomplete="off" />
+        <div class="modal-foot">
+          <button class="ghost" id="smtpTest">Testmail senden</button>
+        </div>
+        <div id="smtpTestResult" class="status-box" style="display:none;"></div>
+
+        <h4>API-Zugänge einrichten</h4>
+        <p class="hint">Welche Quelche welchen Zugang braucht - und was ohne Zugang trotzdem geht.
+          Die Anleitung steht direkt hier, damit niemand eine Doku suchen muss.</p>
+        <details class="api-guide">
+          <summary>CurseForge (Modpacks: atm10, atm11)</summary>
+          <p><strong>Was die Armory braucht:</strong> einen <em>Application API Key</em>.
+            Nicht den Studio-Key — der funktioniert hier nicht.</p>
+          <ol>
+            <li>Bei <code>curseforge.com</code> einloggen.</li>
+            <li><code>authors.curseforge.com</code> → <strong>Settings</strong> → <strong>API Tokens</strong>.</li>
+            <li><strong>Create Token</strong> → der Key wird <strong>nur einmal</strong> angezeigt.
+              Sofort kopieren und hier einfügen; er lässt sich danach nicht erneut anzeigen.</li>
+            <li>Oben unter „CurseForge API-Key“ einfügen und <strong>Speichern</strong>.
+              Die Armory prüft den Key sofort live gegen die API — ein falscher Key wird abgelehnt,
+              nicht stillschweigend gespeichert.</li>
+          </ol>
+          <p class="hint"><strong>Ohne Key:</strong> Modpack-<em>Suche</em> und automatische
+            <em>Update-Prüfung</em> entfallen. Installieren per ZIP-Upload geht weiter.
+            Die Versionsanzeige bleibt grau, bis eine Soll-Version von Hand eingetragen ist.
+            Ist der Schlüssel ein <code>$2a$…</code>-String, ist es ein Studio-Key — abgelehnt.</p>
+        </details>
+        <details class="api-guide">
+          <summary>Steam (7 Days to Die)</summary>
+          <p><strong>Für die Installation:</strong> kein Key nötig. SteamCMD lädt anonym,
+            solange das App kein Login verlangt (bei 7d2d der Fall).</p>
+          <p><strong>Für die Update-Prüfung:</strong> Die Armory liest den lokalen Build aus
+            <code>steamapps/appmanifest_294420.acf</code>. Der offizielle Vergleichs-Endpunkt
+            (<code>ISteamApps/UpToDateCheck</code>) antwortet für dieses App mit
+            <code>version_is_listable: false</code> — er ist also <em>nicht</em> nutzbar.
+            Deshalb bleibt 7d2d grau, statt fälschlich „veraltet“ zu behaupten.</p>
+        </details>
+        <details class="api-guide">
+          <summary>GitHub (TeamSpeak 6)</summary>
+          <p><strong>Kein Key nötig.</strong> Die Armory liest die öffentliche
+            <code>/tags</code>-Schnittstelle. Ein Tag ist der ausgelieferte Stand — auch
+            ohne Release. Das Rate-Limit (60 Abfragen/Stunde pro IP) reicht bei einem
+            Prüfintervall ab 15 Minuten problemlos.</p>
+          <p class="hint">Tags können umbenannt werden. Passt das Format danach nicht mehr
+            zur installierten Version, bleibt die Anzeige grau statt fälschlich „veraltet“.</p>
+        </details>
+              </div>
+
+      <!-- Tab: Rechte-Matrix. Steuert ALLE Berechtigungen des Panels.
+           superuser erscheint sichtbar mit allen Haken, ist aber gesperrt -
+           damit klar ist, dass der Superuser alles darf und nichts entzogen
+           werden kann. -->
+      <!-- Tab: Updates. Alles, was Versionen betrifft: die Armory selbst
+           und die Swords (Gameserver). Getrennt von den Einstellungen, weil
+           dort sonst zwei Update-Bloecke ohne gemeinsamen Rahmen standen. -->
+      <div class="tabpane" id="pTabUpdates">
+
+        <h4>Armory selbst</h4>
+        <p class="hint">Das Panel aktualisiert sich auf einen Release-Stand.
+          Es wechselt dabei auf einen <b>Tag</b> (unveränderlicher Stand), sichert vorher
+          den alten Zustand und rollt automatisch zurück, wenn das Panel danach nicht
+          antwortet. Datenbank, Passwörter und Swords bleiben unberührt.</p>
+        <div id="suRights" class="status-box">Rechte werden geprüft…</div>
+        <div class="modal-foot" style="justify-content:flex-start;">
+          <button class="ghost mini" id="suRecheck">Rechte neu prüfen</button>
+        </div>
+        <div id="suVersion" class="status-box">Version wird gelesen…</div>
+        <div id="suState" class="status-box">Prüfung läuft…</div>
+        <div class="modal-foot" style="justify-content:flex-start;">
+          <button class="ghost mini" id="suCheckNow">Jetzt auf neue Version prüfen</button>
+        </div>
+        <div id="suTagsWrap" style="display:none;">
+          <label for="suTagSelect">Verfügbare Version</label>
+          <select id="suTagSelect"></select>
+          <div class="modal-foot" style="justify-content:flex-start;">
+            <button class="ghost" id="suCheck">Trockenlauf prüfen</button>
+            <button class="primary" id="suApply">Update starten</button>
+          </div>
+          <div id="suResult" class="status-box" style="display:none;"></div>
+        </div>
+
+        <h4>Deine Server</h4>
+        <p class="hint">Versionen der Swords gegen ihre Quelle prüfen
+          (Steam, GitHub, CurseForge). 0 = nur auf Knopfdruck.</p>
+        <label for="vcMinutes">Prüf-Intervall (Minuten, 0 = nur manuell)</label>
+        <input id="vcMinutes" type="number" min="0" max="1440" step="1" inputmode="numeric" />
+        <div class="modal-foot" style="justify-content:flex-start;">
+          <button class="primary" id="vcSave">Speichern</button>
+          <button class="ghost" id="vcCheckAll">Jetzt alle prüfen</button>
+        </div>
+        <div id="vcAllResult" class="status-box" style="display:none;"></div>
+
+        <details class="api-guide">
+          <summary>Was die Farben bedeuten</summary>
+          <p><span class="ver v-current">grün</span> — Quelle bestätigt: installierte Version ist aktuell.<br />
+            <span class="ver v-outdated">gelb</span> — Quelle oder Soll-Version meldet eine andere Version;
+            die neuere steht daneben.<br />
+            <span class="ver v-unknown">grau</span> — keine belastbare Aussage möglich. Der Tooltip nennt den Grund.</p>
+          <p class="hint">Grau ist kein Fehler. Es heißt: die Armory weiß es nicht —
+            und sagt das, statt zu raten.</p>
+        </details>
+
+      </div>
+
+      <div class="tabpane" id="pTabPerms">
+        <h4>Rechte-Matrix</h4>
+        <p class="hint">Bestimmt, wer was darf. Gespeicherte Änderungen wirken
+          sofort serverseitig; das Frontend zeigt Knöpfe entsprechend.</p>
+        <div id="permsMatrix" class="perms-wrap">Wird geladen…</div>
+        <div class="modal-foot">
+          <button class="primary" id="permsSave" disabled>Änderungen speichern</button>
+          <span id="permsState" class="hint"></span>
+        </div>
+      </div>
+
+      <!-- Tab: Diagnose. Beantwortet "warum laedt mein Rack/Sword nicht?"
+           im Panel, statt dass der Kunde den Server-Log per SSH holen muss.
+           Racks/Swords werden beim Oeffnen frisch von der Platte geladen. -->
+      <div class="tabpane" id="pTabDiagnose">
+        <h4>Racks &amp; Swords</h4>
+        <p class="hint">Prueft die Konfigurationsdateien auf der Platte. Ein
+          <b>Fehler</b> heisst: die Datei wird nicht geladen (z.B. ungültiger
+          Wert). Ein <b>Hinweis</b> heisst: die Datei laeuft, enthaelt aber
+          Ungewoehnliches (z.B. ein unbekanntes Feld).</p>
+        <div class="modal-foot">
+          <button class="primary" id="diagReload">Erneut pruefen</button>
+        </div>
+        <div id="diagResult" class="status-box">Wird geladen…</div>
+      </div>
+
+      <div class="modal-foot">
+        <button class="ghost" id="profileClose">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Update / Neuer Server: Quelle + Version wählen, dann Fortschritt -->
+  <div class="modal" id="updateModal">
+    <div class="box wide">
+      <h3 id="upTitle">Sword aktualisieren</h3>
+
+      <div id="upForm">
+        <div class="warn" id="upRunningWarn" style="display:none;"></div>
+
+        <!-- Wizard Stufe 2 (2026-10-18): zeigt VOR dem Start, was gleich
+             passiert - damit niemand blind auf "Update starten" drueckt. -->
+        <div id="upPreflight" style="display:none;">
+          <div class="status-box" id="upPreflightBox">
+            <div class="grow" id="upPreflightText"></div>
+          </div>
+        </div>
+
+        <div id="rackPicker" style="display:none;">
+          <h4>1. Rack wählen</h4>
+          <div class="list" id="rackResults"><div class="item"><span class="meta">Racks werden geladen…</span></div></div>
+          <p class="hint">Ein <b>Rack</b> ist die Schablone (Spiel, Loader, Install-Quelle). Der daraus
+            erstellte Server heißt <b>Sword</b>.</p>
+        </div>
+
+        <div class="tabs" id="upTabs">
+          <button class="ghost" data-tab="cf">CurseForge</button>
+          <button class="ghost" data-tab="zip">ZIP-Pfad</button>
+          <button class="ghost" data-tab="upload">ZIP hochladen</button>
+          <button class="ghost" data-tab="steam">Steam</button>
+        </div>
+
+        <div id="upTabCf">
+          <h4>1. Modpack suchen</h4>
+          <div class="row2">
+            <input type="text" id="cfQuery" placeholder="z.B. AllTheMods 10" />
+            <button class="ghost" id="cfSearchBtn">Suchen</button>
+          </div>
+          <div class="list" id="cfResults"><div class="item"><span class="meta">Noch keine Suche.</span></div></div>
+          <p class="hint">Es werden nur Minecraft-Modpacks durchsucht.</p>
+
+          <h4>2. Version wählen</h4>
+          <div class="list" id="cfFiles"><div class="item"><span class="meta">Erst ein Modpack auswählen.</span></div></div>
+          <p class="hint">Neueste zuerst. <span class="badge rel">release</span>
+            <span class="badge beta">beta</span> <span class="badge alpha">alpha</span></p>
+        </div>
+
+        <div id="upTabZip" style="display:none;">
+          <h4>Serverpack-ZIP auf dem Server</h4>
+          <input type="text" id="zipPath" placeholder="/root/packs/meinpack-server.zip" />
+          <p class="hint">Die ZIP muss bereits auf dem Server liegen (z.B. unter
+            <code class="pathhint">/root/packs/</code>). Es wird nichts hochgeladen.</p>
+        </div>
+
+        <div id="upTabUpload" style="display:none;">
+          <h4>ZIP-Datei hochladen</h4>
+          <div id="upDrop" class="dropzone">
+            <div id="upDropHint">Archiv hierher ziehen oder klicken zum Auswählen</div>
+            <input type="file" id="upFile" accept=".zip,.tar.gz,.tar.xz,.tar.bz2,.tgz,.txz" style="display:none;" />
+          </div>
+          <div id="upFileInfo" class="status-box" style="display:none;">
+            <div class="grow">
+              <div id="upFileName"></div>
+              <div class="meta" id="upFileMeta"></div>
+            </div>
+            <button class="ghost" id="upFileClear">Entfernen</button>
+          </div>
+          <div class="progress" id="upUploadWrap" style="display:none;"><div id="upUploadBar"></div></div>
+          <div class="meta" id="upUploadMsg" style="display:none;"></div>
+          <p class="hint">Die Datei wird geprüft, einmalig für diesen Vorgang verwendet und danach
+            automatisch gelöscht. Akzeptiert: <code class="pathhint">.zip</code>,
+            <code class="pathhint">.tar.gz</code>, <code class="pathhint">.tar.xz</code>,
+            <code class="pathhint">.tar.bz2</code>, <code class="pathhint">.tgz</code> und
+            <code class="pathhint">.txz</code>, maximal 2 GB.</p>
+        </div>
+
+          <div id="upTabSteam" style="display:none;">
+            <h4>SteamCMD-Installation</h4>
+            <p class="hint">Dieses Rack wird per SteamCMD installiert (z. B. 7 Days to Die).
+              Fehlt SteamCMD auf dem Server, wird es beim Start <b>automatisch eingerichtet</b>.</p>
+            <div class="status-box" id="steamInfo" style="display:none;">
+              <div class="grow"><div id="steamInfoText"></div></div>
+            </div>
+          </div>
+
+        <div id="upRackFields" style="display:none;">
+          <h4>Sword</h4>
+          <div class="row2">
+            <input type="text" id="nrId" placeholder="id (Slug), z.B. atm11" />
+            <input type="text" id="nrName" placeholder="Anzeigename, z.B. AllTheMods 11" />
+            <input type="number" id="nrPort" min="1024" max="65535" placeholder="Port 1024-65535" />
+          </div>
+          <div class="row2" style="margin-top:8px;">
+            <input type="text" id="nrRoot" placeholder="Ziel-Pfad, z.B. /opt/7d2d" />
+          </div>
+          <p class="hint">Ziel-Pfad: Wurzel für die Instanz (aus dem Rack vorbelegt, überschreibbar).
+            Der Server landet unter <code class="pathhint">&lt;Ziel-Pfad&gt;/&lt;id&gt;</code>.</p>
+          <p class="hint">id: <code class="pathhint">^[a-z0-9][a-z0-9-]{1,30}$</code></p>
+          <label id="nrEulaWrap" class="hint" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;">
+            <input type="checkbox" id="nrEula" style="margin-top:3px;" />
+            <span>Ich akzeptiere die <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener">Minecraft EULA</a>
+              und bestätige, dass ich berechtigt bin, diesen Server zu betreiben. Damit wird
+              <code class="pathhint">eula=true</code> gesetzt.</span>
+          </label>
+        </div>
+
+        <p class="hint">Bei laufendem Server wird dieser vor dem Update gestoppt und danach nicht
+          automatisch gestartet.</p>
+        <div class="modal-foot">
+          <button class="ghost" id="upCancel">Abbrechen</button>
+          <button class="primary" id="upStart">Update starten</button>
+        </div>
+      </div>
+
+      <div id="upProgress" style="display:none;">
+        <div class="progress"><div id="upBar"></div></div>
+        <div class="status-box" id="upStatus">
+          <div class="phase" id="upPhase">…</div>
+          <div id="upMessage"></div>
+          <div class="meta" id="upTimer"></div>
+          <!-- Wizard Stufe 2: Ergebnis (Backup-Pfad, ob Server hochkam). -->
+          <div id="upResult" style="display:none;">
+            <div id="upResultText"></div>
+          </div>
+          <div id="upAdminKey" style="display:none;">
+            <div class="adminkey-label">Admin-Schlüssel (nur EINMAL sichtbar)</div>
+            <div class="adminkey-row">
+              <code id="upAdminKeyValue"></code>
+              <button class="ghost" id="upAdminKeyCopy">Kopieren</button>
+            </div>
+            <div class="adminkey-hint">Mit diesem Schlüssel im TeamSpeak-Client den Server als Admin übernehmen. Danach ist er ungültig.</div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="ghost" id="upProgressClose">Schließen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sword entfernen: Bestaetigung, optional auch Server-Ordner + Welt loeschen -->
+  <div class="modal" id="removeModal">
+    <div class="box">
+      <h3>Sword entfernen</h3>
+      <div class="warn" id="removeWarn"></div>
+      <p class="hint">Der Server wird dafuer zuerst gestoppt. Danach werden systemd-Unit,
+        Sword-Datei und Logs entfernt.</p>
+      <label class="chk" style="align-items:flex-start;margin-top:12px;">
+        <input type="checkbox" id="removeFiles" style="margin-top:3px;" />
+        <span>Auch Server-Ordner und Welt löschen (unwiderruflich)</span>
+      </label>
+      <div class="modal-foot">
+        <button class="ghost" id="removeCancel">Abbrechen</button>
+        <button class="primary" id="removeConfirm">Sword entfernen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EULA nachtragen: explizite Betreiber-Zustimmung, danach eula=true -->
+  <div class="modal" id="eulaModal">
+    <div class="box">
+      <h3>EULA nachtragen</h3>
+      <div class="hint" id="eulaSwordInfo" style="margin-bottom:10px;"></div>
+      <p class="warn" id="eulaWarn">Ohne akzeptierte EULA startet der Server nicht.</p>
+      <label class="chk" style="align-items:flex-start;margin-top:12px;">
+        <input type="checkbox" id="eulaAccept" style="margin-top:3px;" />
+        <span>Ich akzeptiere die <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener">Minecraft EULA</a>
+          und bestätige, dass ich berechtigt bin, diesen Server zu betreiben.</span>
+      </label>
+      <div class="modal-foot">
+        <button class="ghost" id="eulaCancel">Abbrechen</button>
+        <button class="primary" id="eulaConfirm" disabled>EULA akzeptieren</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Version nachtragen: fuer Faelle, in denen die Automatik keine Version
+       findet (z.B. Kundenpack mit unbekanntem Dateinamen). Pflichtfeld. -->
+  <div class="modal" id="versionModal">
+    <div class="box">
+      <h3>Version eintragen</h3>
+      <div class="hint" id="versionSwordInfo" style="margin-bottom:10px;"></div>
+      <p>Keine Version automatisch erkannt? Dann hier von Hand eintragen, z.B.
+        <code>8.1</code>, <code>6.0.0-beta13.1</code> oder <code>neoforge 21.1.251</code>.</p>
+      <label for="versionInput">Installierte Version</label>
+      <input type="text" id="versionInput" maxlength="120" placeholder="z.B. 8.1" autocomplete="off" />
+
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
+      <label for="targetInput">Soll-Version (optional)</label>
+      <p class="hint">Nur für Quellen, die nicht selbst abfragen können (CurseForge ohne API-Key).
+        Ist sie eingetragen, wird dagegen verglichen: gleich = grün, anders = gelb.
+        Leer lassen = keine Soll-Version, Anzeige bleibt grau.</p>
+      <input type="text" id="targetInput" maxlength="120" placeholder="z.B. 8.4" autocomplete="off" />
+
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
+      <label for="projectIdInput">CurseForge-Pack-Nummer (optional)</label>
+      <p class="hint">Die Projekt-Nummer des Modpacks auf CurseForge, z.B. <code>123456</code>.
+        Sie steht <em>nicht</em> im Serverpack und muss einmal von Hand eingetragen werden.
+        Nur nötig, wenn der Versionsstand direkt bei CurseForge abgefragt werden soll —
+        dafür braucht es zusätzlich einen eigenen API-Key in den Einstellungen.</p>
+      <input type="text" id="projectIdInput" maxlength="80" placeholder="z.B. 123456" autocomplete="off" inputmode="numeric" />
+
+      <div class="modal-foot">
+        <button class="ghost" id="versionCancel">Abbrechen</button>
+        <button class="primary" id="versionConfirm" disabled>Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Generischer Bestaetigungs-Dialog (Promise-basiert). Genutzt u.a. fuer die
+       Frage nach einem Neustart, wenn die Config eines laufenden Servers
+       gespeichert wurde. Eigener Dialog, weil confirm() im Browser nicht
+       stylbar ist und "Abbrechen" hier "Spaeter" bedeutet. -->
+  <div class="modal" id="confirmModal">
+    <div class="box">
+      <h3 id="confirmTitle">Best\u00e4tigen</h3>
+      <p id="confirmText" style="white-space:pre-line;"></p>
+      <div class="modal-foot">
+        <button class="ghost" id="confirmCancel">Abbrechen</button>
+        <button class="primary" id="confirmOk">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Config-Editor (serverconfig.xml u.a.). MUSS vor dem Scriptblock stehen:
+       der Code bindet #configCancel/#configSave direkt beim Laden. -->
+  <div class="modal" id="configModal">
+    <div class="box wide">
+      <h3 id="configTitle">Konfiguration</h3>
+      <div id="configBody" style="max-height:60vh;overflow:auto;"></div>
+      <div class="modal-foot">
+        <button class="ghost" id="configCancel">Abbrechen</button>
+        <button class="primary" id="configSave">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const RANGEN = { strangerdanger: 'Stranger Danger', friend: 'Freund', moderator: 'Moderator', admin: 'Admin', superuser: 'Superuser' };
+    const RANG_LEVEL = { strangerdanger: 0, friend: 1, moderator: 2, admin: 3, superuser: 4 };
+    const MAX_BUFFER = 20000;      // Zeichen-Puffer im Konsolenfenster (ältestes fliegt raus)
+    const MAX_LINES = 800;         // harte Obergrenze Zeilen
+    let me = null, ws = null;
+    let logLines = [];
+    let lastLogAt = null;
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+
+    async function api(path, opts = {}) {
+      const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+      let data = {};
+      try { data = await r.json(); } catch {}
+      return { status: r.status, data };
+    }
+
+    // Versions-Gegenprobe (2026-10-18): Die Karte zeigt gruen nur mit Beleg.
+    // versionState kommt vom Server (current | outdated | unknown).
+    function versionHint(sword) {
+      if (sword.versionState === 'outdated' && sword.availableVersion) {
+        return ` <span class="v-hint">→ v${esc(sword.availableVersion)}</span>`;
+      }
+      return '';
+    }
+    function versionTooltip(sword) {
+      const parts = [`Installiert: ${sword.installedVersion ?? 'unbekannt'}`];
+      if (sword.installedVersionSource) parts.push(`Quelle: ${sword.installedVersionSource}`);
+      if (sword.availableVersion) parts.push(`Verfuegbar: ${sword.availableVersion}`);
+      if (sword.versionState === 'current') parts.push('Status: aktuell');
+      else if (sword.versionState === 'outdated') parts.push('Status: Update verfuegbar');
+      else if (sword.versionState === 'unknown') parts.push('Status: unbekannt');
+      if (sword.versionCheckReason) parts.push(sword.versionCheckReason);
+      if (sword.versionCheckedAt) {
+        parts.push(`Geprueft: ${new Date(sword.versionCheckedAt).toLocaleString('de-DE')}`);
+      }
+      return parts.join(' · ');
+    }
+    function toast(t) {
+      const el = document.getElementById('toast');
+      el.textContent = t; el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 2600);
+    }
+    function can(need) {
+      // Prueft die aufgeloesten Rechte (perms) statt der alten Rang-Leiter.
+      // me.perms kommt aus /api/auth/me (Rechte-Matrix). Fallback auf die
+      // Rang-Leiter nur, falls perms (noch) nicht geladen ist.
+      if (!me) return false;
+      if (Array.isArray(me.perms)) return me.perms.includes(need);
+      return RANG_LEVEL[me.role] >= RANG_LEVEL[need];
+    }
+    function clampLabel(s) { return /^\[(\d{2}:\d{2}:\d{2})\]/.exec(s); }
+
+    // Promise-basierter Bestaetigungs-Dialog. Liefert true/false.
+    // options: { ok, cancel, title } - Texte sind anpassbar.
+    function confirmModal(text, options = {}) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        const okBtn = document.getElementById('confirmOk');
+        const cancelBtn = document.getElementById('confirmCancel');
+        document.getElementById('confirmTitle').textContent = options.title ?? 'Best\u00e4tigen';
+        document.getElementById('confirmText').textContent = text;
+        okBtn.textContent = options.ok ?? 'OK';
+        cancelBtn.textContent = options.cancel ?? 'Abbrechen';
+        modal.classList.add('open');
+        const done = (result) => {
+          modal.classList.remove('open');
+          okBtn.removeEventListener('click', onOk);
+          cancelBtn.removeEventListener('click', onCancel);
+          resolve(result);
+        };
+        const onOk = () => done(true);
+        const onCancel = () => done(false);
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+      });
+    }
+
+    // Swords in der Ansicht neu laden (nach Neustart/Merker-Aenderung).
+    // Kleiner Aufschub, damit der Server den neuen Zustand schon liefert.
+    let swordsRefreshTimer = null;
+    function scheduleSwordsRefresh(delay = 1200) {
+      if (swordsRefreshTimer) clearTimeout(swordsRefreshTimer);
+      swordsRefreshTimer = setTimeout(() => { reloadSwords().catch(() => {}); }, delay);
+    }
+
+    function dotClass(state) {
+      if (state === 'active') return 'dot running';
+      if (state === 'inactive' || state === 'failed') return 'dot stopped';
+      return 'dot unknown';
+    }
+
+    async function refreshStatus(id, el) {
+      const { status, data } = await api(`/api/swords/${id}/status`);
+      if (status !== 200) { el.querySelector('.label').textContent = data.error ?? 'Fehler'; return; }
+      el.querySelector('.dot').className = dotClass(data.state);
+      el.querySelector('.label').textContent = data.running ? 'Läuft' : 'Gestoppt';
+      const meta = el.querySelector('.meta');
+      if (meta && data.since) meta.textContent = 'seit ' + fmtSince(data.since);
+
+      // Merker "Neustart ausstehend" live nachziehen. Der Server liefert das
+      // Flag in /status mit und raeumt es selbst weg, sobald der Server
+      // gestoppt ist (dann greifen die neuen Werte beim naechsten Start ohnehin).
+      const card = el.closest('.card');
+      const shown = card.querySelector('.restart-pending');
+      if (data.pendingRestart && !shown) {
+        const div = document.createElement('div');
+        div.className = 'warn restart-pending';
+        div.title = 'Gespeicherte Einstellungen greifen erst nach einem Neustart';
+        div.innerHTML = '⚠ Neustart ausstehend <button class="ghost mini" data-restart-now="1">Jetzt neustarten</button>';
+        div.querySelector('[data-restart-now]').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          e.currentTarget.disabled = true;
+          const r = await api(`/api/swords/${id}/restart`, { method: 'POST' });
+          if (r.status !== 200) toast('Fehler: ' + (r.data.error ?? r.status));
+          setTimeout(() => refreshStatus(id, el), 800);
+        });
+        el.insertAdjacentElement('afterend', div);
+      } else if (!data.pendingRestart && shown) {
+        shown.remove();
+      }
+    }
+
+    function fmtSince(ts) {
+      if (!ts) return '';
+      const d = new Date(ts * 1000);
+      const s = Math.floor((Date.now() - d.getTime()) / 1000);
+      if (s < 60) return s + 's';
+      if (s < 3600) return Math.floor(s / 60) + ' min';
+      return Math.floor(s / 3600) + ' h ' + Math.floor((s % 3600) / 60) + ' min';
+    }
+
+    function renderSwords(swords) {
+      const swordsEl = document.getElementById('swords');
+      swordsEl.innerHTML = '';
+      document.getElementById('hint').textContent = `${swords.length} Sword(s) geladen.`;
+      const editable = can('sword.config.read');
+      const mayStart = can('sword.control.start');
+
+      for (const sword of swords) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <h2>${sword.name} <span class="ver ${sword.versionState ? 'v-' + esc(sword.versionState) : 'v-unknown'}" title="${esc(versionTooltip(sword))}">v${esc(sword.installedVersion ?? '—')}${versionHint(sword)}</span></h2>
+          <div class="desc">${sword.description ?? ''}</div>
+          <span class="badge ${sword.tier === 'premium' ? 'premium' : ''}">${sword.tier}</span>
+          <div class="state"><span class="dot unknown"></span><span class="label">…</span><span class="meta"></span></div>
+          <div class="actions">
+            <button data-a="start" ${(!mayStart || sword.locked) ? 'disabled' : ''}>▶ Start</button>
+            <button data-a="stop" ${(!editable || sword.locked) ? 'disabled' : ''}>■ Stop</button>
+            <div class="menu" data-menu>
+              <button data-menu-toggle="1">⚙ Aktionen ▾</button>
+              <div class="menu-list">
+                <button data-a="restart" ${(!editable || sword.locked) ? 'disabled' : ''}>↻ Restart</button>
+                ${!!editable && !sword.locked ? '<button data-update="1">⬆ Update</button>' : ''}
+                ${!sword.locked ? '<button data-config="1">⚙ Konfiguration</button>' : ''}
+                ${can('sword.config.write') && !sword.locked ? '<button data-version="1">🏷 Version eintragen</button>' : ''}
+                ${/* EULA nachtragen: nur bei Racks mit eula === 'required' (z.B.
+                     Minecraft). Der Sword-Datensatz wird vom Loader aus dem Rack
+                     angereichert (swords.js), daher kein Spiel-Hardcode hier. */
+                  can('sword.eula') && sword.eula === 'required'
+                    ? '<button data-eula="1">✔ EULA nachtragen</button>' : ''}
+                ${can('sword.delete') ? '<div class="menu-sep"></div><button class="danger" data-remove="1">🗑 Sword entfernen</button>' : ''}
+              </div>
+            </div>
+          </div>
+          ${sword.javaWarning ? `<div class="warn" title="Java-Version passt nicht">⚠ ${esc(sword.javaWarning)}</div>` : ''}
+          ${sword.restartPending ? '<div class="warn restart-pending" title="Gespeicherte Einstellungen greifen erst nach einem Neustart">⚠ Neustart ausstehend <button class="ghost mini" data-restart-now="1">Jetzt neustarten</button></div>' : ''}
+          ${sword.locked ? '<div class="locked">🔒 Lizenz erforderlich</div>'
+            : (!editable ? '<div class="locked">Nur Ansicht (Rang zu niedrig)</div>' : '')}
+        `;
+        const stateEl = card.querySelector('.state');
+
+        // Dropdown-Menue: oeffnen/schliessen, Klick ausserhalb schliesst.
+        const menu = card.querySelector('[data-menu]');
+        if (menu) {
+          const toggle = menu.querySelector('[data-menu-toggle]');
+          toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = menu.classList.contains('open');
+            document.querySelectorAll('.menu.open').forEach((m) => m.classList.remove('open'));
+            if (!isOpen) menu.classList.add('open');
+          });
+          // Klick auf einen Menueintrag schliesst das Menue.
+          menu.querySelectorAll('.menu-list button').forEach((b) => {
+            b.addEventListener('click', () => menu.classList.remove('open'));
+          });
+        }
+
+        const updateBtn = card.querySelector('[data-update]');
+        if (updateBtn) {
+          updateBtn.addEventListener('click', () => {
+            let running = false;
+            const dot = stateEl.querySelector('.dot');
+            const label = stateEl.querySelector('.label');
+            const meta = stateEl.querySelector('.meta');
+            if (dot) running = dot.classList.contains('running');
+            openUpdateModal(sword, {
+              running,
+              stateText: label ? label.textContent : '',
+              since: meta ? meta.textContent : '',
+            });
+          });
+        }
+        const removeBtn = card.querySelector('[data-remove]');
+        if (removeBtn) {
+          removeBtn.addEventListener('click', () => openRemoveModal(sword));
+        }
+        const eulaBtn = card.querySelector('[data-eula]');
+        if (eulaBtn) {
+          eulaBtn.addEventListener('click', () => openEulaModal(sword));
+        }
+        const versionBtn = card.querySelector('[data-version]');
+        if (versionBtn) {
+          versionBtn.addEventListener('click', () => openVersionModal(sword));
+        }
+        const configBtn = card.querySelector('[data-config]');
+        if (configBtn) {
+          configBtn.addEventListener('click', () => openConfigModal(sword));
+        }
+        // "Jetzt neustarten" aus dem Merker-Hinweis auf der Karte.
+        const restartNowBtn = card.querySelector('[data-restart-now]');
+        if (restartNowBtn) {
+          restartNowBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            restartNowBtn.disabled = true;
+            const { status, data } = await api(`/api/swords/${sword.id}/restart`, { method: 'POST' });
+            if (status !== 200) toast('Fehler: ' + (data.error ?? status));
+            setTimeout(() => refreshStatus(sword.id, stateEl), 800);
+          });
+        }
+        card.querySelectorAll('[data-a]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            const { status, data } = await api(`/api/swords/${sword.id}/${btn.dataset.a}`, { method: 'POST' });
+            btn.disabled = false;
+            if (status !== 200) toast('Fehler: ' + (data.error ?? status));
+            setTimeout(() => refreshStatus(sword.id, stateEl), 800);
+          });
+        });
+        swordsEl.appendChild(card);
+        refreshStatus(sword.id, stateEl);
+        setInterval(() => refreshStatus(sword.id, stateEl), 10000);
+      }
+
+      // Select NACH dem Aufbau einmal sauber neu befuellen (verhindert
+      // Vervielfaeltigung bei mehrfachem renderSwords, z.B. "Swords neu laden").
+      fillSwordSelect(swords);
+    }
+
+    // Befuellt die Livekonsolen-Auswahl (#swordSelect) frisch. Wird aus
+    // renderSwords() aufgerufen; das Select wird vorher geleert.
+    function fillSwordSelect(swords) {
+      const sel = document.getElementById('swordSelect');
+      const prev = sel.value;
+      sel.innerHTML = '';
+      for (const sword of swords) {
+        const opt = document.createElement('option');
+        opt.value = sword.id; opt.textContent = sword.name;
+        sel.appendChild(opt);
+      }
+      // Vorherige Auswahl beibehalten, falls das Sword noch existiert.
+      if (prev && swords.some((r) => r.id === prev)) sel.value = prev;
+    }
+
+    // --- Konsole ------------------------------------------------------------
+    // APPEND-ONLY: Beim Stop schiesst der Server viele Zeilen gleichzeitig herein.
+    // Ein komplettes Neu-Rendern pro Zeile laesst die Ansicht flackern und die
+    // Scrollposition springen. Darum haengen wir einzelne Zeilen nur an den DOM an.
+    function makeLineEl(line) {
+      const showTs = document.getElementById('timestamps').checked;
+      const div = document.createElement('div');
+      div.className = 'logline';
+      div.textContent = showTs ? ('[' + line.at + '] ' + line.raw) : line.raw;
+      return div;
+    }
+
+    function appendLine(line) {
+      const box = document.getElementById('console');
+      if (box.dataset.placeholder === '1') { box.textContent = ''; box.dataset.placeholder = '0'; }
+      box.appendChild(makeLineEl(line));
+      while (box.childElementCount > MAX_LINES) box.removeChild(box.firstChild);
+      let textLen = box.textContent.length;
+      while (box.childElementCount > 200 && textLen > MAX_BUFFER) {
+        const first = box.firstChild;
+        textLen -= first.textContent.length + 1;
+        box.removeChild(first);
+      }
+      if (document.getElementById('autoscroll').checked) box.scrollTop = box.scrollHeight;
+    }
+
+    function renderConsoleAll() {
+      const box = document.getElementById('console');
+      box.innerHTML = '';
+      for (const l of logLines) box.appendChild(makeLineEl(l));
+      if (document.getElementById('autoscroll').checked) box.scrollTop = box.scrollHeight;
+      updateConsoleStatus();
+    }
+
+    function updateConsoleStatus() {
+      const st = document.getElementById('consoleStatus');
+      if (!ws) { st.textContent = 'nicht verbunden'; return; }
+      // Echte Log-Zeit nutzen (ATM10 praefix [HH:MM:SS]), nicht die Empfangszeit.
+      const last = logLines[logLines.length - 1];
+      let agoTxt = '';
+      const m = last && /^\[(\d{2}):(\d{2}):(\d{2})\]/.exec(last.raw);
+      if (m) {
+        const now = new Date();
+        const t = new Date();
+        t.setHours(+m[1], +m[2], +m[3], 0);
+        let secs = Math.floor((now - t) / 1000);
+        if (secs < 0) secs += 86400; // Tageswechsel
+        agoTxt = secs < 60 ? secs + 's' : Math.floor(secs / 60) + ' min';
+        st.textContent = `${logLines.length} Zeilen · letzter Log-Eintrag vor ${agoTxt}`;
+        return;
+      }
+      st.textContent = `${logLines.length} Zeilen`;
+    }
+
+    function pushLog(raw) {
+      const now = new Date();
+      const at = now.toLocaleTimeString('de-DE');
+      // ATM10-Logs bringen eigenen [HH:MM:SS]-Präfix; Zeitstempel-Toggle zeigt Empfangszeit
+      for (const line of raw.split('\n')) {
+        if (line.length === 0) continue;
+        const entry = { raw: line, ts: Date.now(), at };
+        logLines.push(entry);
+        appendLine(entry);
+      }
+      if (logLines.length > MAX_LINES) logLines = logLines.slice(-MAX_LINES);
+    }
+
+    setInterval(() => { if (ws) updateConsoleStatus(); }, 5000); // "letzte vor Xs" aktualisieren
+
+    // --- Nutzerverwaltung ---------------------------------------------------
+    async function loadUsers() {
+      const { data } = await api('/api/auth/users');
+      const el = document.getElementById('usersList');
+      if (!Array.isArray(data)) { el.textContent = 'Keine Daten.'; return; }
+      el.innerHTML = `<table class="users-tbl"><thead><tr><th>Benutzer</th><th>Rang</th><th>E-Mail</th><th></th></tr></thead><tbody>
+        ${data.map((u) => `<tr>
+          <td>${u.username}${u.id === me.id ? ' (du)' : ''}</td>
+          <td>
+            <select data-uid="${u.id}" class="roleSel">
+              ${Object.entries(RANGEN).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
+            </select>
+          </td>
+          <td>${can('user.email')
+            ? `<input class="emailInp" data-uid="${u.id}" type="email" value="${esc(u.email ?? '')}" placeholder="keine E-Mail" />`
+            : esc(u.email ?? '–')}</td>
+          <td class="row-actions">
+            ${can('user.password') && u.id !== me.id ? `<button data-reset="${u.id}">Passwort zurücksetzen</button> ` : ''}
+            ${u.id === me.id ? '' : `<button class="danger" data-del="${u.id}">Löschen</button>`}
+          </td>
+        </tr>`).join('')}
+      </tbody></table>`;
+
+      el.querySelectorAll('.roleSel').forEach((sel) => {
+        sel.addEventListener('change', async () => {
+          const { status, data } = await api(`/api/auth/users/${sel.dataset.uid}`, {
+            method: 'PATCH', body: JSON.stringify({ role: sel.value }),
+          });
+          if (status !== 200) toast('Fehler: ' + (data.error ?? status));
+          else toast('Rang geändert.');
+        });
+      });
+      // E-Mail je Nutzer speichern (Admin, Recht user.email).
+      el.querySelectorAll('.emailInp').forEach((inp) => {
+        let last = inp.value;
+        const save = async () => {
+          if (inp.value === last) return;
+          const { status, data } = await api(`/api/auth/users/${inp.dataset.uid}/email`, {
+            method: 'POST', body: JSON.stringify({ email: inp.value }),
+          });
+          if (status !== 200) { toast('Fehler: ' + (data.error ?? status)); inp.value = last; }
+          else { last = inp.value; toast('E-Mail gespeichert.'); }
+        };
+        inp.addEventListener('blur', save);
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+      });
+      el.querySelectorAll('[data-reset]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const user = data.find((u) => String(u.id) === String(btn.dataset.reset));
+          if (user) openPasswordReset(user);
+        });
+      });
+      el.querySelectorAll('[data-del]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Nutzer löschen?')) return;
+          const { status, data } = await api(`/api/auth/users/${btn.dataset.del}`, { method: 'DELETE' });
+          if (status !== 200) toast('Fehler: ' + (data.error ?? status));
+          else { toast('Nutzer gelöscht.'); loadUsers(); }
+        });
+      });
+    }
+
+    // --- Einstellungen (nur Admin) ------------------------------------------
+    let keyLoaded = false;   // true = ein Key ist gesetzt und die Vorschau wird angezeigt
+    let keyEditing = false;  // true = Eingabefeld ist offen (ersetzen)
+
+    // SMTP: Die API maskiert ALLE Nicht-Zahlen-Settings ueber {set, preview} -
+    // auch smtp_host/smtp_user/from_*. Der Klartext ist also absichtlich nicht
+    // abrufbar. Deshalb fuellen wir die Felder NICHT vor, sondern zeigen den
+    // maskierten preview nur als Platzhalter-Hinweis und senden beim Speichern
+    // ausschliesslich die vom Nutzer tatsaechlich geaenderten Felder.
+    const SMTP_FIELDS = ['smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user',
+      'smtp_pass', 'smtp_from_name', 'smtp_from_address', 'smtp_enabled'];
+    // Zuletzt vom Server geladener Zustand (nur fuer den Changed-Vergleich).
+    let smtpLoaded = false;        // true = erster GET war erfolgreich
+    let smtpBaseline = {};         // { key: {set,preview} } aus GET /api/settings
+    // Eingabefeld-ID -> Settings-Key.
+    const SMTP_INPUT = {
+      smtpHost: 'smtp_host', smtpPort: 'smtp_port', smtpSecure: 'smtp_secure',
+      smtpUser: 'smtp_user', smtpPass: 'smtp_pass',
+      smtpFromName: 'smtp_from_name', smtpFromAddress: 'smtp_from_address',
+    };
+
+    // Ist der Wert des Feldes nicht mehr der beim Laden gesetzte? Fuer leere
+    // Felder gilt: leer = unveraendert (Server behaelt seinen Wert, nichts senden).
+    // WICHTIG: Die API maskiert ALLE Nicht-Zahlen-Settings (auch smtp_secure),
+    // der echte Wert ist also nie abrufbar. Deshalb vergleichen wir nur gegen
+    // "hat der Nutzer etwas eingetippt" - nicht gegen einen bekannten Rohwert.
+    function smtpChanged(id) {
+      const val = String(document.getElementById(id).value ?? '').trim();
+      return val === '' ? null : val;   // leer = unveraendert
+    }
+
+    function renderSmtp(data) {
+      const g = (k) => data[k] ?? {};
+      smtpBaseline = {};
+      SMTP_FIELDS.forEach((k) => { smtpBaseline[k] = g(k); });
+        const pass = g('smtp_pass');
+        const el = (id) => document.getElementById(id);
+        // Konfigurationswerte liefert das Backend im Klartext als {set, value};
+        // nur ECHTE Secrets (smtp_pass) kommen maskiert als {set, preview}.
+        const val = (k) => (g(k).value ?? '');
+        el('smtpHost').value = val('smtp_host');
+        el('smtpPort').value = val('smtp_port');
+        el('smtpUser').value = val('smtp_user');
+        el('smtpFromName').value = val('smtp_from_name');
+        el('smtpFromAddress').value = val('smtp_from_address');
+        el('smtpSecure').value = val('smtp_secure') === 'true' ? 'true' : 'false';
+        el('smtpEnabled').checked = val('smtp_enabled') === 'true';
+        // Das Passwort ist ein Secret: Feld bleibt LEER, nur der Hinweis zeigt,
+        // DASS eines gesetzt ist. Leer lassen = unveraendert.
+        el('smtpPass').value = '';
+        el('smtpPass').placeholder = pass.set
+          ? `gesetzt (${pass.preview ?? '••••'}) - leer lassen = unveraendert`
+          : 'Passwort';
+      const state = el('smtpState');
+      const bits = [
+        pass.set ? 'Passwort gesetzt' : 'kein Passwort',
+        host.set ? 'Server hinterlegt' : 'kein Server',
+        from.set ? 'Absender gesetzt' : 'kein Absender',
+      ];
+      state.textContent = 'Status: ' + bits.join(' | ');
+      smtpLoaded = true;
+    }
+
+    // --- Diagnose -----------------------------------------------------------
+    // Zeigt Ladefehler/-hinweise der Racks und Swords im Panel. Die Dateien
+    // werden serverseitig frisch von der Platte geprueft (GET /api/diagnostics).
+    async function loadDiagnostics() {
+      const box = document.getElementById('diagResult');
+      if (!box) return;
+      box.textContent = 'Wird geprueft…';
+      const { status, data } = await api('/api/diagnostics');
+      if (status !== 200) {
+        box.innerHTML = '<div class="warn">Diagnose nicht abrufbar: ' + esc(data.error ?? ('HTTP ' + status)) + '</div>';
+        return;
+      }
+      box.innerHTML = renderDiagnostics(data);
+    }
+
+    function diagSection(title, part) {
+      const errs = part?.errors ?? [];
+      const warns = part?.warnings ?? [];
+      let html = '<h5 style="margin:12px 0 4px;">' + esc(title) + ' <span class="meta">'
+        + (part?.count ?? 0) + ' geladen</span></h5>';
+      if (errs.length === 0 && warns.length === 0) {
+        html += '<div class="meta">Keine Fehler, keine Hinweise.</div>';
+        return html;
+      }
+      html += '<ul style="margin:4px 0 0;padding-left:18px;">';
+      for (const e of errs) {
+        html += '<li class="warn"><b>' + esc(e.file) + '</b>: ' + esc(e.message) + '</li>';
+      }
+      for (const w of warns) {
+        html += '<li class="meta"><b>' + esc(w.file) + '</b>: ' + esc(w.message) + '</li>';
+      }
+      html += '</ul>';
+      return html;
+    }
+
+    function renderDiagnostics(data) {
+      let html = '<div class="meta">Stand: ' + esc(fmtTime(data.checkedAt)) + '</div>';
+      html += diagSection('Racks (Schablonen)', data.racks);
+      html += diagSection('Swords (Instanzen)', data.swords);
+      return html;
+    }
+
+    function fmtTime(iso) {
+      if (!iso) return '–';
+      const d = new Date(iso);
+      return d.toLocaleTimeString('de-DE') + ' Uhr';
+    }
+
+    // --- Rechte-Matrix --------------------------------------------------------
+    // laedt die Matrix per GET /api/auth/permissions. Aenderungen werden lokal
+    // gesammelt und erst per "Speichern" als PUT geschickt (changes[]).
+    let permsData = null;
+    let permsDirty = new Set();
+
+    async function loadPermissions() {
+      const box = document.getElementById('permsMatrix');
+      if (!box) return;
+      box.textContent = 'Wird geladen…';
+      permsDirty.clear();
+      updatePermsSaveBtn();
+      const { status, data } = await api('/api/auth/permissions');
+      if (status !== 200) {
+        box.innerHTML = '<div class="warn">Matrix nicht abrufbar: '
+          + esc(data.error ?? ('HTTP ' + status)) + '</div>';
+        return;
+      }
+      permsData = data;
+      renderPermsMatrix(data);
+    }
+
+    function permCellKey(role, perm) { return role + '|' + perm; }
+
+    function onPermToggle(role, perm, checked) {
+      if (!permsData) return;
+      permsData.matrix[role][perm] = checked;
+      permsDirty.add(permCellKey(role, perm));
+      updatePermsSaveBtn();
+    }
+
+    function updatePermsSaveBtn() {
+      const btn = document.getElementById('permsSave');
+      const state = document.getElementById('permsState');
+      if (!btn) return;
+      btn.disabled = permsDirty.size === 0;
+      if (state) state.textContent = permsDirty.size === 0
+        ? '' : permsDirty.size + ' Änderung(en) vorgemerkt';
+    }
+
+    function renderPermsMatrix(data) {
+      const box = document.getElementById('permsMatrix');
+      const roles = data.roles ?? [];
+      const groups = [];
+      for (const p of data.permissions ?? []) {
+        let g = groups.find((x) => x.name === p.group);
+        if (!g) { g = { name: p.group, items: [] }; groups.push(g); }
+        g.items.push(p);
+      }
+      let html = '<table class="perms"><thead><tr><th class="perm-col">Recht</th>';
+      for (const r of roles) {
+        const fixed = data.editable && data.editable[r] === false;
+        html += '<th title="' + esc(r) + (fixed ? ' (fix: alle Rechte, nicht aenderbar)' : '') + '">'
+          + esc(RANGEN[r] ?? r) + (fixed ? ' 🔒' : '') + '</th>';
+      }
+      html += '</tr></thead><tbody>';
+      for (const g of groups) {
+        html += '<tr class="grouprow"><td colspan="' + (roles.length + 1) + '">' + esc(g.name || 'Sonstige') + '</td></tr>';
+        for (const p of g.items) {
+          html += '<tr><td class="perm-col"><span class="perm-label">' + esc(p.label)
+            + '</span><span class="perm-key">' + esc(p.perm) + '</span></td>';
+          for (const r of roles) {
+            const fixed = data.editable && data.editable[r] === false;
+            const on = !!(data.matrix[r] && data.matrix[r][p.perm]);
+            html += '<td' + (fixed ? ' class="fixed-col"' : '') + '><input type="checkbox" data-perm-role="' + esc(r)
+              + '" data-perm="' + esc(p.perm) + '"' + (on ? ' checked' : '')
+              + (fixed ? ' disabled' : '') + ' /></td>';
+          }
+          html += '</tr>';
+        }
+      }
+      html += '</tbody></table>';
+      box.innerHTML = html;
+      box.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+        if (cb.disabled) return;
+        cb.addEventListener('change', () => onPermToggle(cb.dataset.permRole, cb.dataset.perm, cb.checked));
+      });
+    }
+
+    async function savePermissions() {
+      if (!permsData || permsDirty.size === 0) return;
+      const changes = [];
+      for (const key of permsDirty) {
+        const [role, perm] = key.split('|');
+        changes.push({ role, perm, allowed: !!permsData.matrix[role][perm] });
+      }
+      const { status, data } = await api('/api/auth/permissions', { method: 'PUT', body: { changes } });
+      const state = document.getElementById('permsState');
+      if (status !== 200) {
+        if (state) state.textContent = 'Fehler: ' + (data.error ?? ('HTTP ' + status));
+        return;
+      }
+      permsData = data.matrix ? data : permsData;
+      permsDirty.clear();
+      renderPermsMatrix(permsData);
+      updatePermsSaveBtn();
+      if (state) {
+        state.textContent = data.errors && data.errors.length
+          ? 'Gespeichert, aber ' + data.errors.length + ' abgelehnt (z.B. Superuser fix)'
+          : 'Gespeichert.';
+      }
+      await refreshMe();
+    }
+
+    // /api/auth/me neu laden und UI-Sichtbarkeit neu bestimmen.
+    async function refreshMe() {
+      const res = await api('/api/auth/me');
+      if (res.status !== 200) return;
+      me = res.data.user;
+      initProfile();
+      loadSwords();
+    }
+
+    async function loadSettings() {
+      const { status, data } = await api('/api/settings');
+      if (status !== 200) {
+        document.getElementById('cfKeyState').textContent = 'Fehler: ' + (data.error ?? status);
+        return;
+      }
+      const cf = data.curseforge_api_key ?? {};
+      keyLoaded = Boolean(cf.set);
+      keyEditing = !keyLoaded;
+      document.getElementById('cfKeyState').innerHTML = cf.set
+        ? `Status: gesetzt <code class="pathhint">${esc(cf.preview ?? '••••')}</code>`
+        : 'Status: noch kein Key hinterlegt. CurseForge-Suche und -Updates sind erst danach nutzbar.';
+      const input = document.getElementById('cfKeyInput');
+      input.value = '';
+      input.placeholder = cf.set ? 'Neuen Key einfügen (ersetzt den alten)' : 'CurseForge API-Key einfügen';
+      document.getElementById('cfKeyChange').style.display = keyEditing ? 'block' : 'none';
+      document.getElementById('cfKeyReplace').style.display = keyLoaded ? 'inline-block' : 'none';
+      document.getElementById('cfKeySave').style.display = keyEditing ? 'inline-block' : 'none';
+
+      // Brute-Force-Schutz: Zahlen kommen im Klartext (nur Admin sieht den Tab).
+      const bfg = (key) => data[key] ?? {};
+      const state = document.getElementById('bfgState');
+      if (state) {
+        const mf = bfg('login_max_fails');
+        document.getElementById('bfgMaxFails').value = mf.value ?? mf.default ?? 5;
+        document.getElementById('bfgWindow').value = bfg('login_window_minutes').value ?? 10;
+        document.getElementById('bfgBan').value = bfg('login_ban_minutes').value ?? 15;
+        const wl = bfg('login_whitelist');
+        document.getElementById('bfgWhitelist').value = wl.value ?? '';
+        state.textContent = 'Aktiv: ' + document.getElementById('bfgMaxFails').value +
+          ' Fehlversuche / ' + document.getElementById('bfgWindow').value +
+          ' min  ->  ' + document.getElementById('bfgBan').value + ' min Sperre';
+      }
+
+      // SMTP (nur Superuser kann den Tab sehen).
+      if (document.getElementById('smtpState')) renderSmtp(data);
+
+      // Versions-Pruefung: Intervall (0 = nur manuell).
+      const vcField = document.getElementById('vcMinutes');
+      if (vcField) {
+        const vc = data.version_check_minutes ?? {};
+        vcField.value = vc.value ?? vc.default ?? 0;
+      }
+    }
+
+    document.getElementById('cfKeyReplace').addEventListener('click', () => {
+      keyEditing = true;
+      document.getElementById('cfKeyChange').style.display = 'block';
+      document.getElementById('cfKeyReplace').style.display = 'none';
+      document.getElementById('cfKeySave').style.display = 'inline-block';
+      document.getElementById('cfKeyInput').focus();
+    });
+    document.getElementById('cfKeySave').addEventListener('click', async () => {
+      const value = document.getElementById('cfKeyInput').value.trim();
+      if (!value) return toast('Bitte einen Key eingeben.');
+      const btn = document.getElementById('cfKeySave');
+      btn.disabled = true;
+      const { status, data } = await api('/api/settings', {
+        method: 'PUT', body: JSON.stringify({ curseforge_api_key: value }),
+      });
+      btn.disabled = false;
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+      toast('Einstellungen gespeichert.');
+      loadSettings();
+    });
+
+    document.getElementById('bfgSave')?.addEventListener('click', async () => {
+      const num = (id, fallback) => {
+        const v = Number.parseInt(document.getElementById(id).value, 10);
+        return Number.isFinite(v) ? v : fallback;
+      };
+      const btn = document.getElementById('bfgSave');
+      btn.disabled = true;
+      const { status, data } = await api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          login_max_fails: num('bfgMaxFails', 5),
+          login_window_minutes: num('bfgWindow', 10),
+          login_ban_minutes: num('bfgBan', 15),
+          // Leer = nur 127.0.0.1/::1. Kommagetrennt, Server trimmt.
+          login_whitelist: document.getElementById('bfgWhitelist').value.trim(),
+        }),
+      });
+      btn.disabled = false;
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+      toast('Brute-Force-Schutz gespeichert.');
+      loadSettings();
+    });
+
+    document.getElementById('vcSave')?.addEventListener('click', async () => {
+      const raw = Number.parseInt(document.getElementById('vcMinutes').value, 10);
+      const minutes = Number.isFinite(raw) && raw >= 0 && raw <= 1440 ? raw : 0;
+      const btn = document.getElementById('vcSave');
+      btn.disabled = true;
+      const { status, data } = await api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ version_check_minutes: minutes }),
+      });
+      btn.disabled = false;
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+      toast(minutes === 0
+        ? 'Gespeichert: Prüfung nur auf Knopfdruck.'
+        : `Gespeichert: Prüfung alle ${minutes} Minuten.`);
+      loadSettings();
+    });
+
+    // Jetzt alle Swords pruefen. Sequenziell im Server, damit die Quellen
+    // nicht parallel angefunkt werden. Ergebnis landet in den Sword-Dateien.
+    document.getElementById('vcCheckAll')?.addEventListener('click', async () => {
+      const btn = document.getElementById('vcCheckAll');
+      const out = document.getElementById('vcAllResult');
+      btn.disabled = true;
+      if (out) {
+        out.style.display = 'block';
+        out.textContent = 'Prüfe alle Server … (kann bis zu einer Minute dauern)';
+      }
+      try {
+        const { status, data } = await api('/api/swords/version-check-all', { method: 'POST' });
+        if (!out) return;
+        if (status !== 200) {
+          out.textContent = 'Fehler: ' + (data.error ?? status);
+          return;
+        }
+        // esc(): die Namen und Begruendungen kommen aus Rack-/Sword-Dateien
+        // und Fehlermeldungen fremder Quellen. Wie ueberall im Panel werden
+        // sie escaped, nicht roh in innerHTML gesetzt.
+        const rows = (data.results ?? []).map((r) => {
+          const st = r.state === 'current' ? 'aktuell'
+            : r.state === 'outdated' ? 'veraltet'
+            : 'unbekannt';
+          const detail = r.state === 'unknown' && r.reason ? ' — ' + esc(r.reason) : '';
+          return esc(r.name) + ': ' + esc(st) + ' (installiert ' + esc(r.installed ?? '?')
+            + (r.available ? ', verfügbar ' + esc(r.available) : '')
+            + ')' + detail;
+        });
+        out.innerHTML = rows.map((t) => '<div>' + t + '</div>').join('');
+        scheduleSwordsRefresh(200);
+      } catch (err) {
+        // Ohne catch blieb der Knopf bei einem Netzfehler dauerhaft gesperrt.
+        if (out) out.textContent = 'Fehler: ' + esc(err.message ?? err);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // --- SMTP: Speichern (nur geaenderte Felder senden) ---------------------
+      document.getElementById('smtpSave')?.addEventListener('click', async () => {
+        // Alle Felder sind vorausgefuellt (Klartext aus dem Backend). Wir senden
+        // schlicht die aktuellen Formularwerte - das Backend speichert sie.
+        // smtp_pass ist Sonderfall: nur senden, wenn wirklich neu eingetippt.
+        const body = {
+          smtp_host: String(document.getElementById('smtpHost').value ?? '').trim(),
+          smtp_port: String(document.getElementById('smtpPort').value ?? '').trim() || '587',
+          smtp_user: String(document.getElementById('smtpUser').value ?? '').trim(),
+          smtp_secure: String(document.getElementById('smtpSecure').value === 'true'),
+          smtp_enabled: String(document.getElementById('smtpEnabled').checked),
+          smtp_from_name: String(document.getElementById('smtpFromName').value ?? '').trim(),
+          smtp_from_address: String(document.getElementById('smtpFromAddress').value ?? '').trim(),
+        };
+        // Passwort NUR senden, wenn ein NEUES eingetippt wurde (Feld ist sonst leer).
+        const passVal = String(document.getElementById('smtpPass').value ?? '');
+        if (passVal.trim() !== '' && !passVal.includes('\u2022')) body.smtp_pass = passVal;
+
+      const btn = document.getElementById('smtpSave');
+      btn.disabled = true;
+      const { status, data } = await api('/api/settings', {
+        method: 'PUT', body: JSON.stringify(body),
+      });
+      btn.disabled = false;
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+      toast('SMTP-Einstellungen gespeichert.');
+      loadSettings();
+    });
+
+    // --- SMTP: Testmail -----------------------------------------------------
+    document.getElementById('smtpTest')?.addEventListener('click', async () => {
+      const to = String(document.getElementById('smtpTestTo').value ?? '').trim();
+      const out = document.getElementById('smtpTestResult');
+      out.style.display = 'block';
+      if (!to) { out.textContent = 'Bitte eine Empfaengeradresse angeben.'; return; }
+      const btn = document.getElementById('smtpTest');
+      btn.disabled = true;
+      out.textContent = 'Sende Testmail an ' + to + ' …';
+      const { status, data } = await api('/api/settings/test-mail', {
+        method: 'POST', body: JSON.stringify({ to }),
+      });
+      btn.disabled = false;
+      if (status === 200 && data.ok) {
+        out.textContent = 'Testmail gesendet an ' + (data.to ?? to) + '.';
+      } else {
+        out.textContent = 'Fehler: ' + (data.error ?? status);
+      }
+    });
+
+    // Diagnose: erneut pruefen (frisch von der Platte).
+    document.getElementById('diagReload')?.addEventListener('click', loadDiagnostics);
+
+    // --- Profil-Modal (Tabs: Profil / Nutzer / Einstellungen) ---------------
+    // Die Tab-Inhalte tragen dieselben IDs wie frueher #usersModal/#settingsModal,
+    // damit loadUsers/loadSettings und alle Handler unveraendert weiterlaufen.
+    let profileResetUser = null;   // Nutzer, dessen Passwort gerade zurueckgesetzt wird
+
+    function setProfileTab(tab) {
+      document.querySelectorAll('#profileTabs button').forEach((b) => {
+        if (b.style.display === 'none') return;   // versteckte Tabs nie aktivieren
+        b.classList.toggle('active', b.dataset.ptab === tab);
+      });
+      const paneId = { profile: 'pTabProfile', users: 'pTabUsers', settings: 'pTabSettings', updates: 'pTabUpdates', reset: 'pTabReset', diagnose: 'pTabDiagnose', perms: 'pTabPerms' }[tab];
+      document.querySelectorAll('#profileModal .tabpane').forEach((p) => {
+        p.classList.toggle('active', p.id === paneId);
+      });
+    }
+
+    function openProfile(tab = 'profile') {
+      document.getElementById('profileName').textContent = me ? me.username : '–';
+      document.getElementById('profileRole').textContent = me ? (RANGEN[me.role] ?? me.role) : '–';
+      document.getElementById('profileModal').classList.add('open');
+      setProfileTab(tab);
+      if (tab === 'users') loadUsers();
+      // Die Update-Sektionen liegen im Tab "Updates". Ohne diesen Aufruf
+      // bleiben die Statusboxen beim ersten Oeffnen auf ihrem Platzhalter
+      // stehen ("Rechte werden geprueft ...") und behaupten eine Pruefung,
+      // die nie startet.
+      if (tab === 'settings') loadSettings();
+      if (tab === 'updates') { loadSettings(); loadSelfUpdate(); }
+      if (tab === 'diagnose') loadDiagnostics();
+      if (tab === 'perms') loadPermissions();
+    }
+
+    function closeProfile() {
+      document.getElementById('profileModal').classList.remove('open');
+    }
+
+    // Tabs je nach Rang freischalten und Profil-Daten setzen (nach /auth/me).
+    // Version im Header (2026-10-19): traegt jetzt den ZUSTAND.
+    // Gruen = aktuell, gelb = neuer Stand da, grau = keine belastbare Aussage.
+    // Dieselben Klassen wie bei den Swords - eine Farbe, eine Bedeutung.
+    // Der Zustand kommt vom Hintergrund-Takt (GET /api/self-update/state),
+    // nicht von einem Abgleich bei jedem Seitenaufruf.
+    async function loadVersion() {
+      const badge = document.getElementById('versionBadge');
+      if (!badge) return;
+      const { status, data } = await api('/api/version');
+      if (status !== 200) { badge.textContent = 'v?'; badge.title = data.error ?? ('HTTP ' + status); return; }
+      const tag = data.tag ?? '?';
+      badge.textContent = tag + (data.dirty ? ' *' : '');
+
+      const bits = [];
+      if (data.commit) bits.push('Commit ' + data.commit);
+      if (data.dirty) bits.push('Arbeitsstand: ungespeicherte Aenderungen');
+      if (data.source === 'package') bits.push('Quelle: package.json (kein Git)');
+
+      // Zustand der Selbst-Update-Pruefung. Faellt sie aus, bleibt das Badge
+      // neutral (grau) - nie gruen ohne Beleg.
+      let su = null;
+      try {
+        const st = await api('/api/self-update/state');
+        if (st.status === 200) su = st.data;
+      } catch { su = null; }
+
+      badge.classList.remove('v-current', 'v-outdated', 'v-unknown');
+      if (su && su.state === 'current') {
+        badge.classList.add('v-current');
+        bits.push('Status: aktuell');
+        badge.textContent = tag + (data.dirty ? ' *' : '') + ' \u25cf';
+      } else if (su && su.state === 'outdated') {
+        badge.classList.add('v-outdated');
+        bits.push('Verfuegbar: ' + su.available);
+        bits.push('Status: Update verfuegbar');
+        badge.textContent = tag + (data.dirty ? ' *' : '') + ' \u2192 ' + su.available;
+      } else {
+        badge.classList.add('v-unknown');
+        bits.push(su && su.reason ? su.reason : 'Status: unbekannt');
+        badge.textContent = tag + (data.dirty ? ' *' : '') + ' \u25cb';
+      }
+      if (su && su.checkedAt) bits.push('Geprueft: ' + new Date(su.checkedAt).toLocaleString('de-DE'));
+      badge.title = bits.join(' \u00b7 ') || tag;
+    }
+
+    // Der Badge verspricht Klickbarkeit (cursor: pointer) - also muss er auch
+    // etwas tun. Er oeffnet den Updates-Tab, wo "Armory selbst" steht.
+    // Nur wer Einstellungen lesen darf, kommt dort hin; sonst bleibt es beim
+    // Tooltip, statt in einen leeren Tab zu fuehren.
+    (function wireVersionBadge() {
+      const badge = document.getElementById('versionBadge');
+      if (!badge) return;
+      const open = () => {
+        if (typeof can === 'function' && !can('settings.read')) return;
+        openProfile('updates');
+        // Nach dem Oeffnen einmal nachladen, damit der Zustand frisch ist.
+        setTimeout(() => { loadSelfUpdate(); }, 50);
+      };
+      badge.addEventListener('click', open);
+      badge.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+    })();
+
+    function initProfile() {
+      document.querySelectorAll('#profileTabs button[data-need]').forEach((b) => {
+        b.style.display = can(b.dataset.need) ? 'inline-block' : 'none';
+      });
+      document.getElementById('profileName').textContent = me ? me.username : '–';
+      document.getElementById('profileRole').textContent = me ? (RANGEN[me.role] ?? me.role) : '–';
+      renderSelfEmail();
+    }
+
+    document.getElementById('who').addEventListener('click', () => openProfile('profile'));
+    document.getElementById('profileClose').addEventListener('click', closeProfile);
+    document.getElementById('permsSave').addEventListener('click', savePermissions);
+
+    // --- Selbst-Update der Armory (2026-10-19) ------------------------------
+    // Nur der Superuser darf das: ein fehlgeschlagenes Selbst-Update legt das
+    // ganze Panel lahm - inklusive der Möglichkeiten, es zu reparieren.
+    // Der eigentliche Tausch läuft im privilegierten Helfer
+    // (/usr/local/bin/armory-self-update), nicht im Panel-Prozess.
+    let suTagsLoaded = false;
+
+    function suBox(id, text, tone) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.display = 'block';
+      el.textContent = text;
+      el.classList.remove('ok', 'warn', 'bad');
+      if (tone) el.classList.add(tone);
+    }
+
+    async function loadSelfUpdate() {
+      // Rechte zuerst: ohne sie ist alles andere sinnlos.
+      const r = await api('/api/system/rights');
+      if (r.status !== 200) {
+        suBox('suRights', 'Rechte-Prüfung nicht möglich: ' + (r.data.error ?? r.status), 'bad');
+        document.getElementById('suTagsWrap').style.display = 'none';
+        return;
+      }
+      const d = r.data;
+      const label = { ok: 'läuft', partial: 'teilweise', blocked: 'gesperrt', unknown: 'unbekannt' };
+      const h = d.helpers ?? {};
+      const name = { install: 'Install', service: 'Dienste', selfUpdate: 'Selbst-Update' };
+      const parts = Object.keys(name).map((k) => name[k] + ': ' + (h[k] ?? '?')).join(' · ');
+      suBox('suRights', 'Rechte: ' + (label[d.summary] ?? d.summary) + ' — ' + parts,
+        d.summary === 'ok' ? 'ok' : (d.summary === 'blocked' ? 'bad' : 'warn'));
+
+      const canSelf = h.selfUpdate === 'ok';
+      document.getElementById('suTagsWrap').style.display = canSelf ? 'block' : 'none';
+      if (!canSelf) return;
+
+      if (!suTagsLoaded) {
+        const t = await api('/api/system/self-update/tags');
+        if (t.status === 200) {
+          const sel = document.getElementById('suTagSelect');
+          sel.innerHTML = (t.data.tags ?? []).map((tag) =>
+            '<option value="' + esc(tag) + '">' + esc(tag) + '</option>').join('');
+          suTagsLoaded = true;
+        }
+      }
+      const s = await api('/api/system/self-update/status');
+      if (s.status === 200) {
+        const cur = s.data.tag ?? '–';
+        // Getrennt (2026-10-19): nur geaenderte verfolgte Dateien sperren.
+        // Neue, unversionierte Dateien werden gemeldet, blockieren aber nicht -
+        // sonst legt eine vergessene Datei den Betrieb dauerhaft lahm.
+        const trackedNow = s.data.dirtyTracked ?? (s.data.dirty ? 1 : 0);
+        const untrackedNow = s.data.dirtyUntracked ?? 0;
+        let vText = 'Installiert: ' + cur;
+        let vTone = 'ok';
+        if (trackedNow > 0) {
+          vText += ' (' + trackedNow + ' geänderte verfolgte Datei(en) — Update gesperrt)';
+          vTone = 'warn';
+        }
+        if (untrackedNow > 0) {
+          vText += (trackedNow > 0 ? ' · ' : ' · ') + untrackedNow +
+            ' neue Datei(en) im Repo (unberührt)';
+          if (vTone === 'ok') vTone = 'warn';
+        }
+        suBox('suVersion', vText, vTone);
+        const btn = document.getElementById('suApply');
+        btn.disabled = trackedNow > 0;
+      }
+
+      // Zustand der taeglichen Gegenprobe: dieselbe Farbe wie das Header-Badge.
+      await loadSelfUpdateState();
+    }
+
+    // Zustand "aktuell / Update da / unbekannt" - die Quelle ist der
+    // Hintergrund-Takt. Faellt die Pruefung aus, steht das hier als Grund,
+    // statt dass ein Fehler als "aktuell" durchginge.
+    async function loadSelfUpdateState() {
+      const r = await api('/api/self-update/state');
+      if (r.status !== 200) {
+        return suBox('suState', 'Zustand nicht lesbar: ' + (r.data.error ?? r.status), 'warn');
+      }
+      const d = r.data;
+      const when = d.checkedAt ? new Date(d.checkedAt).toLocaleString('de-DE') : 'nie';
+      // Stammt die Aussage aus einem frueheren, erfolgreichen Lauf? Dann gilt
+      // sie weiter - aber mit Datum, damit niemand sie fuer frisch haelt.
+      const good = d.lastGoodAt ? new Date(d.lastGoodAt).toLocaleString('de-DE') : null;
+      const staleNote = good
+        ? ' · Angabe vom ' + good + ', neueste Prüfung fehlgeschlagen: ' + (d.reason ?? 'ohne Grund')
+        : '';
+      if (d.state === 'current') {
+        suBox('suState', 'Aktuell (' + (d.installed ?? '?') + ') — zuletzt geprüft: ' + when + staleNote,
+          good ? 'warn' : 'ok');
+      } else if (d.state === 'outdated') {
+        suBox('suState', 'Neue Version verfügbar: ' + (d.available ?? '?') +
+          ' (installiert: ' + (d.installed ?? '?') + ') — zuletzt geprüft: ' + when + staleNote, 'warn');
+      } else {
+        suBox('suState', 'Stand unbekannt — ' + (d.reason ?? 'keine Aussage möglich') +
+          ' (zuletzt geprüft: ' + when + ')', null);
+      }
+    }
+
+    document.getElementById('suRecheck')?.addEventListener('click', async () => {
+      suBox('suRights', 'Rechte werden neu gemessen…', null);
+      const r = await api('/api/system/rights/recheck', { method: 'POST' });
+      if (r.status !== 200) {
+        return suBox('suRights', 'Neumessung fehlgeschlagen: ' + (r.data.error ?? r.status), 'bad');
+      }
+      // Neu laden, damit Anzeige und Tag-Liste den neuen Stand spiegeln.
+      suTagsLoaded = false;
+      loadSelfUpdate();
+    });
+
+    document.getElementById('suCheckNow')?.addEventListener('click', async () => {
+      const btn = document.getElementById('suCheckNow');
+      btn.disabled = true;
+      suBox('suState', 'Prüfung läuft — Abgleich mit dem Repository…', null);
+      try {
+        const r = await api('/api/self-update/check', { method: 'POST' });
+        if (r.status !== 200) {
+          return suBox('suState', 'Prüfung fehlgeschlagen: ' + (r.data.error ?? r.status), 'warn');
+        }
+        await loadSelfUpdateState();
+        loadVersion();               // Header-Badge nachziehen
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('suCheck')?.addEventListener('click', async () => {
+      const tag = document.getElementById('suTagSelect').value;
+      if (!tag) return;
+      suBox('suResult', 'Trockenlauf läuft…', null);
+      const r = await api('/api/system/self-update/dry-run', {
+        method: 'POST', body: JSON.stringify({ tag }),
+      });
+      if (r.status !== 200) {
+        return suBox('suResult', 'Trockenlauf fehlgeschlagen: ' + (r.data.error ?? r.status), 'bad');
+      }
+      suBox('suResult', 'Trockenlauf ok — Ziel ' + (r.data.tag ?? tag) +
+        ', Sicherung angelegt. Es wurde nichts getauscht.', 'ok');
+    });
+
+    document.getElementById('suApply')?.addEventListener('click', async () => {
+      const tag = document.getElementById('suTagSelect').value;
+      if (!tag) return;
+      if (!confirm('Armory auf ' + tag + ' aktualisieren?\n\nDas Panel startet neu und ist '
+        + 'für etwa eine Minute nicht erreichbar. Bei Problemen wird automatisch '
+        + 'zurückgerollt.')) return;
+      suBox('suResult', 'Update läuft — das Panel startet gleich neu…', null);
+      const r = await api('/api/system/self-update/apply', {
+        method: 'POST', body: JSON.stringify({ tag }),
+      });
+      if (r.status !== 200) {
+        return suBox('suResult', 'Update fehlgeschlagen: ' + (r.data.error ?? r.status), 'bad');
+      }
+      suBox('suResult', 'Update gestartet. Diese Seite lädt in 20 Sekunden neu…', 'ok');
+      setTimeout(() => location.reload(), 20000);
+    });
+    document.querySelectorAll('#profileTabs button').forEach((b) => {
+      b.addEventListener('click', () => {
+        if (b.style.display === 'none') return;
+        setProfileTab(b.dataset.ptab);
+        if (b.dataset.ptab === 'users') loadUsers();
+        if (b.dataset.ptab === 'settings') { loadSettings(); loadSelfUpdate(); }
+        if (b.dataset.ptab === 'diagnose') loadDiagnostics();
+        if (b.dataset.ptab === 'perms') loadPermissions();
+      });
+    });
+
+    // Eigenes Passwort aendern -> POST /api/auth/password {currentPassword,newPassword}
+    document.getElementById('selfPasswordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const currentPassword = document.getElementById('sp_current').value;
+      const newPassword = document.getElementById('sp_new').value;
+      const repeat = document.getElementById('sp_new2').value;
+      if (!currentPassword) return toast('Bitte das aktuelle Passwort eingeben.');
+      if (newPassword.length < 8) return toast('Neues Passwort: mindestens 8 Zeichen.');
+      if (newPassword !== repeat) return toast('Die neuen Passwörter stimmen nicht überein.');
+      const { status, data } = await api('/api/auth/password', {
+        method: 'POST', body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+      toast('Passwort geändert.');
+      document.getElementById('selfPasswordForm').reset();
+    });
+
+    // Eigene E-Mail speichern -> POST /api/auth/email {email}
+    document.getElementById('selfEmailForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('se_email').value.trim();
+      const { status, data } = await api('/api/auth/email', {
+        method: 'POST', body: JSON.stringify({ email }),
+      });
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+      toast(email ? 'E-Mail gespeichert.' : 'E-Mail entfernt.');
+      me.email = email || null;
+      renderSelfEmail();
+    });
+
+    // Eigenes E-Mail-Feld aus `me` befuellen (nach /auth/me und nach Aenderung).
+    function renderSelfEmail() {
+      const inp = document.getElementById('se_email');
+      const hint = document.getElementById('seHint');
+      if (!inp) return;
+      inp.value = me?.email ?? '';
+      if (hint) hint.textContent = me?.email
+        ? 'Hinterlegt: ' + me.email
+        : 'Noch keine Adresse hinterlegt - ohne sie ist kein Passwort-Reset per E-Mail möglich.';
+    }
+
+    // Admin-Reset: aus der Nutzerliste heraus das Passwort eines anderen Nutzers setzen.
+    function openPasswordReset(user) {
+      if (!can('user.password')) return;
+      profileResetUser = user;
+      document.getElementById('rpUserInfo').textContent =
+        'Neues Passwort für ' + user.username + ' festlegen.';
+      document.getElementById('resetPasswordForm').reset();
+      setProfileTab('reset');
+      document.getElementById('rp_new').focus();
+    }
+
+    document.getElementById('rpCancel').addEventListener('click', () => {
+      profileResetUser = null;
+      setProfileTab('users');
+    });
+
+    document.getElementById('resetPasswordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!profileResetUser) return;
+      const newPassword = document.getElementById('rp_new').value;
+      const repeat = document.getElementById('rp_new2').value;
+      if (newPassword.length < 8) return toast('Neues Passwort: mindestens 8 Zeichen.');
+      if (newPassword !== repeat) return toast('Die Passwörter stimmen nicht überein.');
+      const { status, data } = await api(
+        `/api/auth/users/${encodeURIComponent(profileResetUser.id)}/password`,
+        { method: 'POST', body: JSON.stringify({ newPassword }) },
+      );
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+      toast('Passwort gesetzt.');
+      profileResetUser = null;
+      setProfileTab('users');
+    });
+
+    // --- Quelle wählen: CurseForge-Suche + Versionsliste ---------------------
+    let cfState = { mod: null, file: null };
+    let upMode = 'update';   // 'update' = Sword aktualisieren | 'install' = Neuer Server
+    let upSword = null;
+    let upPoll = null;
+    let upStatusPath = null;
+    let upStartedAtMs = null;
+
+    let upUpload = null;   // { file, uploadId } – gewählte/hochgeladene ZIP aus dem Browser
+    let racksCache = [];   // Rack-Schablonen aus /api/racks
+    let selectedRack = null; // aktuell im Setup gewaehltes Rack
+
+
+    function upTab(tab) {
+      // Sicherheitsnetz: ohne passendes Rack nur den erlaubten Tab zulassen.
+      if (selectedRack) {
+        const allowed = METHOD_TO_TAB[selectedRack.installMethod] ?? null;
+        if (allowed && tab !== allowed) tab = allowed;
+      }
+      cfState = { mod: null, file: null };
+      document.getElementById('upTabCf').style.display = tab === 'cf' ? 'block' : 'none';
+      document.getElementById('upTabZip').style.display = tab === 'zip' ? 'block' : 'none';
+      document.getElementById('upTabUpload').style.display = tab === 'upload' ? 'block' : 'none';
+      const steamTab = document.getElementById('upTabSteam');
+      if (steamTab) steamTab.style.display = tab === 'steam' ? 'block' : 'none';
+      document.querySelectorAll('#upTabs button').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === tab);
+      });
+    }
+
+    // --- Upload-Tab: Datei wählen, prüfen, per XHR mit Fortschritt senden ---
+    const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;   // 2 GB
+
+    function isZip(file) {
+      return /\.zip$/i.test(file.name || '');
+    }
+
+    // Archive-Erkennung im Browser (2026-10-18): ZIP, .tar.gz, .tgz.
+    // Die verbindliche Pruefung macht der Server am INHALT (Magic Bytes) -
+    // hier wird nur offensichtlicher Unsinn abgefangen, damit der Nutzer
+    // nicht 2 GB hochlaedt und erst dann eine Fehlermeldung sieht.
+    // Archive-Erkennung im Browser (2026-10-18): ZIP und Tarballs (.tar.gz,
+    // .tgz, .tar.xz, .txz, .tar.bz2) - TS6 liefert z.B. ausschliesslich .tar.xz.
+    // Die verbindliche Pruefung macht der Server am INHALT (Magic Bytes) -
+    // hier wird nur offensichtlicher Unsinn abgefangen, damit der Nutzer
+    // nicht 2 GB hochlaedt und erst dann eine Fehlermeldung sieht.
+    function isArchive(file) {
+      return /(\.zip|\.tar\.gz|\.tar\.xz|\.tar\.bz2|\.tgz|\.txz)$/i.test(file.name || '');
+    }
+
+    function archiveLabel(file) {
+      const n = String(file?.name ?? '').toLowerCase();
+      if (n.endsWith('.tar.gz') || n.endsWith('.tgz')) return 'Tarball (gzip)';
+      if (n.endsWith('.tar.xz') || n.endsWith('.txz')) return 'Tarball (xz)';
+      if (n.endsWith('.tar.bz2')) return 'Tarball (bzip2)';
+      if (n.endsWith('.zip')) return 'ZIP';
+      return 'Archiv';
+    }
+
+    function resetUpload(clearInput = true) {
+      upUpload = null;
+      if (clearInput) {
+        const input = document.getElementById('upFile');
+        if (input) input.value = '';
+      }
+      document.getElementById('upFileInfo').style.display = 'none';
+      document.getElementById('upFileName').textContent = '';
+      document.getElementById('upFileMeta').textContent = '';
+      document.getElementById('upUploadWrap').style.display = 'none';
+      document.getElementById('upUploadMsg').style.display = 'none';
+      document.getElementById('upUploadMsg').textContent = '';
+      document.getElementById('upUploadBar').style.width = '0%';
+      const dz = document.getElementById('upDrop');
+      dz.classList.remove('over', 'ok');
+    }
+
+    function setUploadFile(file) {
+      resetUpload(false);
+      if (!file) return;
+      if (!isArchive(file)) { toast('Nur .zip, .tar.gz, .tar.xz, .tar.bz2, .tgz oder .txz erlaubt.'); return; }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        toast('Datei ist zu groß (' + fmtBytes(file.size) + '). Maximum 2 GB.');
+        return;
+      }
+      upUpload = { file, uploadId: null };
+      document.getElementById('upDrop').classList.add('ok');
+      document.getElementById('upFileInfo').style.display = 'flex';
+      document.getElementById('upFileName').textContent = file.name;
+      document.getElementById('upFileMeta').textContent = fmtBytes(file.size) + ' · ' + archiveLabel(file);
+    }
+
+    // XHR statt fetch – nur so gibt es echten Upload-Fortschritt.
+    function uploadZip(onProgress) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/uploads', true);
+        xhr.withCredentials = true;            // Session-Cookie mitschicken
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => {
+          let data = {};
+          try { data = JSON.parse(xhr.responseText); } catch {}
+          if (xhr.status === 201 && data.id) resolve(data);
+          else reject(new Error(data.error || ('Upload fehlgeschlagen (' + xhr.status + ').')));
+        };
+        xhr.onerror = () => reject(new Error('Netzwerkfehler beim Upload.'));
+        const fd = new FormData();
+        fd.append('file', upUpload.file, upUpload.file.name);
+        // Rack-Kontext mitschicken (2026-10-18): Die Inhaltspruefung ist
+        // spielabhaengig - ein TS6-Archiv wird gegen tsserver geprueft, ein
+        // Modpack gegen mods/. Beim Update ist das Rack des Swords bekannt.
+        const rackId = upSword?.rack ?? selectedRack?.id ?? null;
+        if (rackId) fd.append('rackId', rackId);
+        xhr.send(fd);
+      });
+    }
+
+    function releaseBadge(rt) {
+      if (rt === 1) return '<span class="badge rel">release</span>';
+      if (rt === 2) return '<span class="badge beta">beta</span>';
+      return '<span class="badge alpha">alpha</span>';
+    }
+    function fmtBytes(n) {
+      if (!n) return '';
+      const mb = n / 1048576;
+      return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb.toFixed(1) + ' MB';
+    }
+    function fmtDate(iso) {
+      if (!iso) return '';
+      return String(iso).slice(0, 10);
+    }
+    function fmtNum(n) {
+      return n == null ? '' : Number(n).toLocaleString('de-DE');
+    }
+
+    async function searchCurseForge() {
+      const q = document.getElementById('cfQuery').value.trim();
+      const box = document.getElementById('cfResults');
+      if (!q) { toast('Bitte einen Suchbegriff eingeben.'); return; }
+      box.innerHTML = '<div class="item"><span class="meta">Suche…</span></div>';
+      const { status, data } = await api(`/api/curseforge/search?q=${encodeURIComponent(q)}`);
+      if (status !== 200) {
+        box.innerHTML = `<div class="item"><span class="meta">Fehler: ${esc(data.error ?? status)}</span></div>`;
+        return;
+      }
+      if (!Array.isArray(data) || data.length === 0) {
+        box.innerHTML = '<div class="item"><span class="meta">Keine Treffer.</span></div>';
+        return;
+      }
+      box.innerHTML = data.map((m) => `<div class="item" data-mid="${esc(m.id)}">
+        ${m.logo ? `<img src="${esc(m.logo)}" alt="" />` : '<img alt="" />'}
+        <div class="grow"><div>${esc(m.name)}</div>
+          <div class="meta">${esc(m.summary ?? '')}</div></div>
+        <div class="meta">↓ ${fmtNum(m.downloadCount)}</div>
+      </div>`).join('');
+      box.querySelectorAll('.item').forEach((it) => {
+        it.addEventListener('click', () => {
+          box.querySelectorAll('.item').forEach((x) => x.classList.remove('sel'));
+          it.classList.add('sel');
+          const mod = data.find((m) => String(m.id) === it.dataset.mid);
+          loadFiles(mod);
+        });
+      });
+    }
+
+    async function loadFiles(mod) {
+      const box = document.getElementById('cfFiles');
+      cfState.mod = mod;
+      cfState.file = null;
+      box.innerHTML = '<div class="item"><span class="meta">Lade Versionen…</span></div>';
+      const { status, data } = await api(`/api/curseforge/mod/${encodeURIComponent(mod.id)}/files`);
+      if (status !== 200) {
+        box.innerHTML = `<div class="item"><span class="meta">Fehler: ${esc(data.error ?? status)}</span></div>`;
+        return;
+      }
+      const files = (Array.isArray(data) ? data : []).slice()
+        .sort((a, b) => String(b.fileDate ?? '').localeCompare(String(a.fileDate ?? '')));
+      if (files.length === 0) {
+        box.innerHTML = '<div class="item"><span class="meta">Keine Dateien gefunden.</span></div>';
+        return;
+      }
+      box.innerHTML = files.map((f) => `<div class="item" data-fid="${esc(f.id)}">
+        <div class="grow"><div>${esc(f.displayName ?? f.fileName)}</div>
+          <div class="meta">${esc(fmtDate(f.fileDate))} · ${esc(fmtBytes(f.fileLength))} · ${esc((f.gameVersions ?? []).slice(0, 3).join(', '))}</div></div>
+        ${releaseBadge(f.releaseType)}
+      </div>`).join('');
+      box.querySelectorAll('.item').forEach((it) => {
+        it.addEventListener('click', () => {
+          box.querySelectorAll('.item').forEach((x) => x.classList.remove('sel'));
+          it.classList.add('sel');
+          cfState.file = files.find((f) => String(f.id) === it.dataset.fid);
+        });
+      });
+    }
+
+    function buildSource(tab) {
+      if (tab === 'zip') {
+        const path = document.getElementById('zipPath').value.trim();
+        if (!path) throw new Error('Bitte den Serverpfad zur ZIP angeben.');
+        return { type: 'zip', path };
+      }
+      if (tab === 'upload') {
+        if (!upUpload || !upUpload.uploadId) throw new Error('Bitte zuerst eine ZIP-Datei hochladen.');
+        return upMode === 'update'
+          ? { uploadId: upUpload.uploadId }
+          : { type: 'upload', uploadId: upUpload.uploadId };
+      }
+      if (tab === 'steam') {
+        if (!selectedRack) throw new Error('Bitte zuerst ein Rack auswählen.');
+        const appId = selectedRack.source?.appId;
+        if (!appId) throw new Error('Das gewählte Rack hat keine Steam-App-ID.');
+        return { type: 'steam', rackId: selectedRack.id, appId, branch: selectedRack.source?.branch ?? 'public' };
+      }
+      if (!cfState.mod || !cfState.file) throw new Error('Bitte Modpack und Version auswählen.');
+      const src = { type: 'curseforge', modId: cfState.mod.id, fileId: cfState.file.id };
+      if (selectedRack) src.rackId = selectedRack.id;
+      return src;
+    }
+
+    // --- Fortschrittsanzeige (Update & Installation teilen diese Logik) ------
+    function stopPolling() {
+      if (upPoll) { clearInterval(upPoll); upPoll = null; }
+      if (upStatusPath) { const p = upStatusPath; upStatusPath = null; api(p); }
+    }
+
+    function showProgress(title) {
+      document.getElementById('upForm').style.display = 'none';
+      document.getElementById('upProgress').style.display = 'block';
+      document.getElementById('upTitle').textContent = title;
+      document.getElementById('upBar').style.width = '0%';
+      document.getElementById('upBar').style.background = 'var(--accent)';
+      document.getElementById('upPhase').textContent = 'Warten auf Server…';
+      document.getElementById('upMessage').textContent = '';
+      document.getElementById('upTimer').textContent = '';
+      document.getElementById('upProgressClose').disabled = true;
+    }
+
+    let upAdminKeyShown = null;
+    function renderProgress(st) {
+      const phase = st.phase ?? 'unbekannt';
+      // Vorrang fuer die SteamCMD-Phase (Download/Verifizierung/Installation) -
+      // 'running' allein sagt dem Nutzer nichts. Prozent kommt dazu, sobald Steam
+      // ihn liefert.
+      const steamPhase = st.steamPhase ?? null;
+      const steamPct = Number(st.steamPercent);
+      let phaseText = phase;
+      if (steamPhase && (phase === 'running' || phase === 'starting')) {
+        phaseText = Number.isFinite(steamPct)
+          ? steamPhase + ' (' + steamPct.toFixed(1).replace('.', ',') + ' %)'
+          : steamPhase;
+      } else if (phase === 'running' && Number.isFinite(Number(st.progress))) {
+        phaseText = 'Läuft (' + Number(st.progress).toFixed(0) + ' %)';
+      }
+      document.getElementById('upPhase').textContent = phaseText;
+      document.getElementById('upMessage').textContent = st.message ?? '';
+      showAdminKey(st.result && st.result.adminKey);
+      const bar = document.getElementById('upBar');
+      const num = Number(st.progress);
+      if (Number.isFinite(num)) {
+        const pct = Math.max(0, Math.min(100, num));
+        bar.style.width = pct + '%';
+      }
+      const box = document.getElementById('upStatus');
+      box.classList.toggle('error', Boolean(st.error));
+      const started = st.startedAt ? new Date(st.startedAt) : null;
+      const ended = st.finishedAt ? new Date(st.finishedAt) : null;
+      const from = started && !Number.isNaN(started.getTime()) ? started.getTime() : upStartedAtMs;
+      const to = ended && !Number.isNaN(ended.getTime()) ? ended.getTime() : Date.now();
+      if (from) document.getElementById('upTimer').textContent = 'läuft seit ' + fmtSince(from / 1000);
+      if (st.error) {
+        box.classList.remove('done');
+        bar.style.background = 'var(--red)';
+        if (!Number.isFinite(num)) bar.style.width = '100%';
+        document.getElementById('upMessage').textContent = st.error;
+      } else if (ended || phase === 'done' || phase === 'error') {
+        bar.style.background = 'var(--green)';
+        bar.style.width = '100%';
+        box.classList.toggle('done', !st.error);
+      }
+    }
+
+    // Admin-Schluessel (TeamSpeak-Erstinstall): nur einmal sichtbar, daher
+    // direkt nach dem Install mit Kopier-Knopf anzeigen.
+    function showAdminKey(key) {
+      const box = document.getElementById('upAdminKey');
+      if (!box) return;
+      if (!key) { box.style.display = 'none'; return; }
+      if (upAdminKeyShown === key) return;
+      upAdminKeyShown = key;
+      document.getElementById('upAdminKeyValue').textContent = key;
+      box.style.display = 'block';
+    }
+    async function copyAdminKey() {
+      const key = upAdminKeyShown;
+      const btn = document.getElementById('upAdminKeyCopy');
+      if (!key) return;
+      try {
+        await navigator.clipboard.writeText(key);
+        btn.textContent = 'Kopiert \u2713';
+      } catch (err) {
+        const el = document.getElementById('upAdminKeyValue');
+        const r = document.createRange(); r.selectNodeContents(el);
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        btn.textContent = 'Markiert - Strg+C';
+      }
+      setTimeout(() => { btn.textContent = 'Kopieren'; }, 2500);
+    }
+
+    function startPolling(statusPath, { timeoutMs = 10 * 60 * 1000 } = {}) {
+      upStatusPath = statusPath;
+      upStartedAtMs = Date.now();
+      let misses = 0;
+      // Sofort fragen, danach im 2-Sekunden-Takt.
+      const tick = async () => {
+        const { status, data } = await api(statusPath);
+        if (status !== 200) {
+          misses += 1;
+          if (misses >= 3) {
+            document.getElementById('upMessage').textContent =
+              'Status nicht lesbar: ' + (data.error ?? status);
+          }
+          return;
+        }
+        misses = 0;
+        renderProgress(data);
+        const done = Boolean(data.finishedAt) || data.phase === 'done' || data.phase === 'error';
+        if (done) { stopPolling(); finishProgress(data); return; }
+        if (Date.now() - upStartedAtMs > timeoutMs) {
+          stopPolling();
+          document.getElementById('upMessage').textContent =
+            'Zeitüberschreitung — Status wird nicht mehr abgefragt.';
+          document.getElementById('upProgressClose').disabled = false;
+        }
+      };
+      upPoll = setInterval(tick, 2000);
+      tick();
+    }
+
+    function finishProgress(st) {
+      const box = document.getElementById('upStatus');
+      document.getElementById('upPhase').textContent = st.error ? 'Fehlgeschlagen' : 'Abgeschlossen';
+      box.classList.toggle('error', Boolean(st.error));
+      box.classList.toggle('done', !st.error);
+      const bar = document.getElementById('upBar');
+      bar.style.background = st.error ? 'var(--red)' : 'var(--green)';
+      if (!st.error) bar.style.width = '100%';
+      document.getElementById('upProgressClose').disabled = false;
+      if (upMode === 'update' && !st.error) toast('Update abgeschlossen. Server ggf. neu starten.');
+
+      // Wizard Stufe 2: Ergebnis zeigen statt nur "fertig" melden.
+      // Wo liegt das Backup? Kam der Server hoch? Das sind die zwei Fragen,
+      // die nach einem Update wirklich zaehlen.
+      if (upMode === 'update' && st.result) renderUpdateResult(st.result, st);
+      if (upMode === 'install' && !st.error) {
+        toast('Server angelegt.');
+        // KEIN automatischer Reload, wenn ein Admin-Schluessel angezeigt wird -
+        // der ist nur einmal sichtbar und darf nicht mit der Seite verschwinden.
+        if (!upAdminKeyShown) setTimeout(() => location.reload(), 1200);
+      }
+    }
+
+    // Zeigt nach dem Update, was tatsaechlich passiert ist. Grundlage ist
+    // st.result aus runUpdate() (2026-10-18 ergaenzt) - vorher kam das
+    // Ergebnis nie beim Panel an, die Meldung war nur "fertig".
+    function renderUpdateResult(result, st) {
+      const box = document.getElementById('upResult');
+      const txt = document.getElementById('upResultText');
+      if (!box || !txt) return;
+      const rows = [];
+      if (result.backup) {
+        rows.push(`<div class="meta">Backup: <code class="pathhint">${esc(result.backup)}</code></div>`);
+        if (Array.isArray(result.backupIncluded) && result.backupIncluded.length) {
+          rows.push(`<div class="meta">Enthalten: ${esc(result.backupIncluded.join(', '))}</div>`);
+        }
+      } else {
+        rows.push('<div class="meta">Backup: <b>keines erstellt</b> (keine der Pfade vorhanden).</div>');
+      }
+      if (result.pack) {
+        const rep = Array.isArray(result.pack.replaced) ? result.pack.replaced.length : null;
+        const skip = Array.isArray(result.pack.skipped) ? result.pack.skipped.length : null;
+        if (rep !== null) {
+          rows.push(`<div class="meta">Ersetzt: <b>${esc(String(rep))}</b> Eintraege`
+            + (skip !== null ? `, behalten/geschuetzt: <b>${esc(String(skip))}</b>` : '')
+            + '</div>');
+        }
+      }
+      if (result.started === false) {
+        rows.push('<div class="meta" style="color:var(--red);">Server wurde NICHT gestartet - bitte Log pruefen.</div>');
+      } else if (result.doneSeen === false) {
+        rows.push('<div class="meta" style="color:var(--yellow);">Server gestartet, aber kein "Done (" innerhalb von 3 Min. - Log pruefen.</div>');
+      } else if (result.started) {
+        rows.push('<div class="meta" style="color:var(--green);">Server laeuft ("Done (" gesehen).</div>');
+      }
+      if (st.error) {
+        rows.push(`<div class="meta" style="color:var(--red);">Fehler: ${esc(st.error)}</div>`);
+      }
+      txt.innerHTML = rows.join('');
+      box.style.display = 'block';
+    }
+
+    // --- Dialoge öffnen -----------------------------------------------------
+    function openUpdateModal(sword, stateInfo = {}) {
+      if (!can('sword.update')) return;
+      stopPolling();
+      upMode = 'update';
+      upSword = sword;
+      cfState = { mod: null, file: null };
+
+      // Tab-Auswahl an das Rack des Swords binden (2026-10-18). Vorher wurde
+      // hier nie applyRackTabs() gerufen - deshalb zeigte der Update-Dialog
+      // bei TeamSpeak auch Steam und CurseForge, obwohl beides dort nicht
+      // funktionieren kann. Das Sword kennt sein Rack (sword.rack).
+      const swordRack = racksCache.find((r) => r.id === sword.rack) ?? null;
+      selectedRack = null;            // Rack-Picker gehoert nur zum Neu-Anlegen
+      applyRackTabs(swordRack);
+      document.getElementById('upTitle').textContent = 'Sword aktualisieren';
+      document.getElementById('upStart').textContent = 'Update starten';
+      document.getElementById('upRackFields').style.display = 'none';
+      document.getElementById('upForm').style.display = 'block';
+      document.getElementById('upProgress').style.display = 'none';
+      document.getElementById('upProgressClose').disabled = true;
+      document.getElementById('upPreflight').style.display = 'none';
+      const resBox = document.getElementById('upResult');
+      if (resBox) { resBox.style.display = 'none'; document.getElementById('upResultText').innerHTML = ''; }
+      document.getElementById('cfQuery').value = '';
+      document.getElementById('zipPath').value = '';
+      resetUpload();
+      document.getElementById('cfResults').innerHTML =
+        '<div class="item"><span class="meta">Noch keine Suche.</span></div>';
+      document.getElementById('cfFiles').innerHTML =
+        '<div class="item"><span class="meta">Erst ein Modpack auswählen.</span></div>';
+      const warn = document.getElementById('upRunningWarn');
+      if (stateInfo.running) {
+        warn.style.display = 'block';
+        warn.textContent = '⚠ Achtung: ' + sword.name +
+          ' läuft gerade (' + (stateInfo.stateText || 'aktiv') +
+          (stateInfo.since ? ', ' + stateInfo.since : '') +
+          '). Das Update stoppt den Server, sichert ihn und startet ihn danach wieder.';
+      } else {
+        warn.style.display = 'none';
+        warn.textContent = '';
+      }
+      upTab('cf');
+      renderPreflight(sword, stateInfo);
+      document.getElementById('updateModal').classList.add('open');
+    }
+
+    // --- Wizard Stufe 2: "Was passiert gleich?" -------------------------------
+    // Zeigt VOR dem Start die Reihenfolge der Schritte, wo das Backup landet und
+    // was NICHT ueberschrieben wird. Quelle: runUpdate() in app/updater.js -
+    // die Schritte hier sind bewusst dieselben, keine erfundene Liste.
+    function renderPreflight(sword, stateInfo = {}) {
+      const box = document.getElementById('upPreflight');
+      const txt = document.getElementById('upPreflightText');
+      if (!box || !txt) return;
+      const keep = Array.isArray(sword.update?.keep) && sword.update.keep.length
+        ? sword.update.keep
+        : null;
+      const gen = sword.update?.keepGenerations ?? 2;
+      const steps = [
+        'Server stoppen und warten, bis er wirklich aus ist',
+        'Backup nach <code class="pathhint">backups/</code> (nur bei gestopptem Server - sonst kein konsistenter Schnitt)',
+        'ZIP entpacken und Inhalte ersetzen',
+        'Neoforge-Version pruefen, ggf. <code class="pathhint">libraries/</code> neu aufbauen',
+        'Server starten und auf <code>Done (</code> warten (max. 3 Min.)',
+      ];
+      const keepLine = keep
+        ? `Behalten: <code class="pathhint">${esc(keep.join('</code>, <code class="pathhint">'))}</code>`
+        : 'Es wird <b>alles</b> aus dem Pack uebernommen (keine Ausnahmen konfiguriert).';
+      const running = stateInfo.running
+        ? `<div class="meta" style="margin-top:8px;">Server laeuft gerade - er wird fuer das Update gestoppt und danach wieder gestartet.</div>`
+        : `<div class="meta" style="margin-top:8px;">Server ist aktuell gestoppt.</div>`;
+      txt.innerHTML =
+        `<div style="font-weight:600;margin-bottom:6px;">Ablauf beim Start</div>`
+        + `<ol style="margin:0 0 8px 18px;padding:0;font-size:13px;">`
+        + steps.map((s) => `<li>${s}</li>`).join('')
+        + `</ol>`
+        + `<div class="meta">${keepLine}</div>`
+        + `<div class="meta" style="margin-top:4px;">Backup-Generationen behalten: <b>${esc(String(gen))}</b> - aeltere werden danach geloescht.</div>`
+        + (sword.installedVersion
+          ? `<div class="meta" style="margin-top:4px;">Aktuell installiert: <b>v${esc(sword.installedVersion)}</b></div>`
+          : '')
+        + running;
+      box.style.display = 'block';
+    }
+
+    // --- Sword entfernen + EULA nachtragen (nur Admin) ---------------------
+    let removeSwordRef = null;
+
+    // --- Version nachtragen (moderator) -------------------------------------
+    let versionSwordRef = null;
+
+    function openVersionModal(sword) {
+      if (!can('sword.config.write')) return;
+      versionSwordRef = sword;
+      document.getElementById('versionSwordInfo').textContent =
+        'Aktuell: v' + (sword.installedVersion ?? '—') + ' (' + (sword.installedVersionSource ?? 'unbekannt') + ')';
+      const inp = document.getElementById('versionInput');
+      inp.value = sword.installedVersion ?? '';
+      // Soll-Version vorbelegen (leer = keine eingetragen).
+      const tgt = document.getElementById('targetInput');
+      if (tgt) tgt.value = sword.update?.availableVersion ?? '';
+      // CurseForge-Pack-Nummer vorbelegen (2026-10-19). Leer = nicht gesetzt.
+      const pidEl = document.getElementById('projectIdInput');
+      if (pidEl) pidEl.value = sword.update?.projectId ?? '';
+      document.getElementById('versionConfirm').disabled = !inp.value.trim();
+      document.getElementById('versionModal').classList.add('open');
+      inp.focus();
+    }
+
+    document.getElementById('versionInput').addEventListener('input', (e) => {
+      document.getElementById('versionConfirm').disabled = !e.target.value.trim();
+    });
+
+    document.getElementById('versionCancel').addEventListener('click', () => {
+      document.getElementById('versionModal').classList.remove('open');
+      versionSwordRef = null;
+    });
+
+    document.getElementById('versionConfirm').addEventListener('click', async () => {
+      if (!versionSwordRef) return;
+      const btn = document.getElementById('versionConfirm');
+      const version = document.getElementById('versionInput').value.trim();
+      if (!version) return;
+      btn.disabled = true;
+      const { status, data } = await api(`/api/swords/${encodeURIComponent(versionSwordRef.id)}/version`, {
+        method: 'PUT', body: JSON.stringify({ version }),
+      });
+      btn.disabled = false;
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+
+      // Soll-Version separat (eigene Route) - nur senden, wenn sie sich aendert.
+      const targetEl = document.getElementById('targetInput');
+      const target = targetEl ? targetEl.value.trim() : '';
+      const before = versionSwordRef.update?.availableVersion ?? '';
+      let targetNote = '';
+      if (targetEl && target !== before) {
+        const r2 = await api(`/api/swords/${encodeURIComponent(versionSwordRef.id)}/target-version`, {
+          method: 'POST', body: JSON.stringify({ version: target }),
+        });
+        if (r2.status !== 200) {
+          toast('Version gespeichert, Soll-Version aber NICHT: ' + (r2.data.error ?? r2.status));
+          scheduleSwordsRefresh(200);
+          return;
+        }
+        targetNote = target ? ` · Soll: ${target}` : ' · Soll-Version gelöscht';
+      }
+
+      // CurseForge-Pack-Nummer separat (eigene Route) - nur bei Änderung senden.
+      const pidEl = document.getElementById('projectIdInput');
+      const pid = pidEl ? pidEl.value.trim() : '';
+      const pidBefore = String(versionSwordRef.update?.projectId ?? '');
+      let pidNote = '';
+      if (pidEl && pid !== pidBefore) {
+        const r3 = await api(`/api/swords/${encodeURIComponent(versionSwordRef.id)}/project-id`, {
+          method: 'POST', body: JSON.stringify({ projectId: pid }),
+        });
+        if (r3.status !== 200) {
+          toast('Version gespeichert, Pack-Nummer aber NICHT: ' + (r3.data.error ?? r3.status));
+          scheduleSwordsRefresh(200);
+          return;
+        }
+        pidNote = pid ? ` · Pack-Nr.: ${pid}` : ' · Pack-Nummer gelöscht';
+        // Nummer gesetzt: sofort gegentesten, damit man den Effekt sieht.
+        if (pid) {
+          const chk = await api(`/api/swords/${encodeURIComponent(versionSwordRef.id)}/version-check`, { method: 'POST' });
+          const st = chk.data?.state;
+          const why = chk.data?.reason;
+          if (st === 'unknown' && why) pidNote += ` (Prüfung: ${why})`;
+        }
+      }
+
+      toast('Version gespeichert: ' + version + targetNote + pidNote);
+      document.getElementById('versionModal').classList.remove('open');
+      versionSwordRef = null;
+      scheduleSwordsRefresh(200);
+    });
+
+    function openRemoveModal(sword) {
+      if (!can('sword.delete')) return;
+      removeSwordRef = sword;
+      const chk = document.getElementById('removeFiles');
+      chk.checked = false; // sicherer Default: Ordner/Welt behalten (deleteFiles=false)
+      document.getElementById('removeWarn').innerHTML =
+        'Achtung: <strong>' + esc(sword.name) + '</strong> wird aus der Verwaltung entfernt.';
+      document.getElementById('removeModal').classList.add('open');
+    }
+
+    document.getElementById('removeCancel').addEventListener('click', () => {
+      document.getElementById('removeModal').classList.remove('open');
+      removeSwordRef = null;
+    });
+
+    document.getElementById('removeFiles').addEventListener('change', (e) => {
+      document.getElementById('removeWarn').innerHTML = e.target.checked
+        ? 'Achtung: <strong>' + esc(removeSwordRef?.name ?? 'Sword') + '</strong> wird aus der Verwaltung entfernt. '
+          + 'Der Server wird vorher gestoppt und der Server-Ordner inklusive Welt '
+          + '<strong>unwiderruflich gelöscht</strong>.'
+        : 'Achtung: <strong>' + esc(removeSwordRef?.name ?? 'Sword') + '</strong> wird aus der Verwaltung entfernt.';
+    });
+
+    document.getElementById('removeConfirm').addEventListener('click', async () => {
+      if (!removeSwordRef) return;
+      const sword = removeSwordRef;
+      const deleteFiles = document.getElementById('removeFiles').checked;
+      const btn = document.getElementById('removeConfirm');
+      btn.disabled = true;
+      const { status, data } = await api(`/api/swords/${encodeURIComponent(sword.id)}`, {
+        method: 'DELETE', body: JSON.stringify({ deleteFiles }),
+      });
+      btn.disabled = false;
+      if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+      toast(deleteFiles ? 'Server entfernt.' : 'Server entfernt, Ordner behalten.');
+      document.getElementById('removeModal').classList.remove('open');
+      removeSwordRef = null;
+      await reloadSwords();
+    });
+
+    function openEulaModal(sword) {
+      if (!can('sword.eula')) return;
+      removeSwordRef = sword; // hier als generischer Sword-Verweis genutzt
+      const chk = document.getElementById('eulaAccept');
+      chk.checked = false; // bewusst nicht vorausgewaehlt
+      document.getElementById('eulaConfirm').disabled = true;
+      document.getElementById('eulaSwordInfo').textContent =
+        'Für ' + sword.name + ' wird eula=true in der eula.txt des Server-Ordners gesetzt.';
+      document.getElementById('eulaModal').classList.add('open');
+    }
+
+    document.getElementById('eulaAccept').addEventListener('change', (e) => {
+      document.getElementById('eulaConfirm').disabled = !e.target.checked;
+    });
+
+    document.getElementById('eulaCancel').addEventListener('click', () => {
+      document.getElementById('eulaModal').classList.remove('open');
+      removeSwordRef = null;
+    });
+
+    document.getElementById('eulaConfirm').addEventListener('click', async () => {
+      if (!removeSwordRef) return;
+      const btn = document.getElementById('eulaConfirm');
+      btn.disabled = true;
+      const { status, data } = await api(`/api/swords/${encodeURIComponent(removeSwordRef.id)}/eula`, {
+        method: 'POST', body: JSON.stringify({ acceptEula: true }),
+      });
+      if (status !== 200) { btn.disabled = false; return toast('Fehler: ' + (data.error ?? status)); }
+      toast('EULA akzeptiert.');
+      document.getElementById('eulaModal').classList.remove('open');
+      removeSwordRef = null;
+      await reloadSwords();
+    });
+
+    async function reloadSwords() {
+      const { data: swords } = await api('/api/swords');
+      allSwords = Array.isArray(swords) ? swords : [];
+      if (document.getElementById('rackList')) renderSidebar();
+      applyRackFilter();
+    }
+
+    function openNewSwordModal() {
+      if (!can('sword.create')) return;
+      stopPolling();
+      upMode = 'install';
+      upSword = null;
+      cfState = { mod: null, file: null };
+      document.getElementById('upTitle').textContent = 'Neuer Server';
+      document.getElementById('upStart').textContent = 'Installation starten';
+      document.getElementById('upRackFields').style.display = 'block';
+      const picker = document.getElementById('rackPicker');
+      if (picker) picker.style.display = 'block';
+      selectedRack = null;
+      applyRackTabs(null);   // alle Tabs sichtbar, bis ein Rack gewaehlt ist
+      // Sidebar-Kontext: wenn ein Rack aktiv ist, nur dieses anbieten und vorwaehlen.
+      const preset = activeRack();
+      loadRackPicker(preset ? preset.id : null).then(() => {
+        if (preset) selectRack(preset.id);
+      });
+      document.getElementById('upRunningWarn').style.display = 'none';
+      document.getElementById('upForm').style.display = 'block';
+      document.getElementById('upProgress').style.display = 'none';
+      document.getElementById('upProgressClose').disabled = true;
+      document.getElementById('nrId').value = '';
+      document.getElementById('nrName').value = '';
+      document.getElementById('nrPort').value = '';
+      const rootResetEl = document.getElementById('nrRoot');
+      if (rootResetEl) rootResetEl.value = '';
+      const eulaBox = document.getElementById('nrEula');
+      if (eulaBox) eulaBox.checked = false; // bewusst nicht vorausgewaehlt
+      document.getElementById('cfQuery').value = '';
+      document.getElementById('zipPath').value = '';
+      resetUpload();
+      document.getElementById('cfResults').innerHTML =
+        '<div class="item"><span class="meta">Noch keine Suche.</span></div>';
+      document.getElementById('cfFiles').innerHTML =
+        '<div class="item"><span class="meta">Erst ein Modpack auswählen.</span></div>';
+      upTab('cf');
+      document.getElementById('updateModal').classList.add('open');
+    }
+
+    function closeUpdateModal() {
+      stopPolling();
+      document.getElementById('updateModal').classList.remove('open');
+    }
+
+    async function startAction() {
+      const tab = document.querySelector('#upTabs button.active')?.dataset.tab ?? 'cf';
+
+      // Upload-Tab: erst die Datei senden, dann mit der neuen uploadId weitermachen.
+      if (tab === 'upload' && (!upUpload || !upUpload.uploadId)) {
+        if (!upUpload || !upUpload.file) { toast('Bitte zuerst eine ZIP-Datei auswählen.'); return; }
+        const btn0 = document.getElementById('upStart');
+        const wrap = document.getElementById('upUploadWrap');
+        const msg = document.getElementById('upUploadMsg');
+        const bar = document.getElementById('upUploadBar');
+        btn0.disabled = true;
+        wrap.style.display = 'block';
+        msg.style.display = 'block';
+        msg.textContent = 'Upload läuft… 0%';
+        bar.style.width = '0%';
+        try {
+          const res = await uploadZip((pct) => {
+            bar.style.width = pct + '%';
+            msg.textContent = 'Upload läuft… ' + pct + '%';
+          });
+          upUpload.uploadId = res.id;
+          bar.style.width = '100%';
+          msg.textContent = 'Upload abgeschlossen.';
+        } catch (err) {
+          toast(err.message);
+          bar.style.width = '0%';
+          msg.style.display = 'none';
+          btn0.disabled = false;
+          return;
+        }
+        btn0.disabled = false;
+      }
+
+      let source;
+      try { source = buildSource(tab); }
+      catch (err) { toast(err.message); return; }
+
+      const btn = document.getElementById('upStart');
+      btn.disabled = true;
+      try {
+        if (upMode === 'update') {
+          const { status, data } = await api(`/api/swords/${upSword.id}/update`, {
+            method: 'POST', body: JSON.stringify(source),
+          });
+          if (status !== 202) return toast('Fehler: ' + (data.error ?? status));
+          showProgress('Update läuft: ' + upSword.name);
+          startPolling(`/api/swords/${upSword.id}/update-status`);
+        } else {
+          const id = document.getElementById('nrId').value.trim();
+          const name = document.getElementById('nrName').value.trim();
+          const port = Number(document.getElementById('nrPort').value);
+          if (!/^[a-z0-9][a-z0-9-]{1,30}$/.test(id)) return toast('Ungültige id (Slug).');
+          if (!name) return toast('Bitte einen Anzeigenamen angeben.');
+          if (!Number.isInteger(port) || port < 1024 || port > 65535) return toast('Port muss 1024-65535 sein.');
+          const eulaEl = document.getElementById('nrEula');
+          const acceptEula = eulaEl ? eulaEl.checked === true : false;
+          const rootEl2 = document.getElementById('nrRoot');
+          const root = rootEl2 ? rootEl2.value.trim() : '';
+          if (!selectedRack) return toast('Bitte zuerst ein Rack auswählen.');
+          const { status, data } = await api('/api/installs', {
+            method: 'POST', body: JSON.stringify({ id, name, port, root, source, acceptEula, rackId: selectedRack.id }),
+          });
+          if (status !== 202) return toast('Fehler: ' + (data.error ?? status));
+          showProgress('Installation läuft: ' + name);
+          startPolling(`/api/installs/${encodeURIComponent(id)}/status`);
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.querySelectorAll('#upTabs button').forEach((b) => {
+      b.addEventListener('click', () => upTab(b.dataset.tab));
+    });
+    document.getElementById('cfSearchBtn').addEventListener('click', searchCurseForge);
+    document.getElementById('cfQuery').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); searchCurseForge(); }
+    });
+    document.getElementById('upCancel').addEventListener('click', closeUpdateModal);
+    document.getElementById('upProgressClose').addEventListener('click', closeUpdateModal);
+    document.getElementById('upAdminKeyCopy').addEventListener('click', copyAdminKey);
+    document.getElementById('upStart').addEventListener('click', startAction);
+
+    // Upload-Tab: Datei-Eingabe + Drag&Drop
+    {
+      const dz = document.getElementById('upDrop');
+      const input = document.getElementById('upFile');
+      dz.addEventListener('click', () => input.click());
+      input.addEventListener('change', () => setUploadFile(input.files && input.files[0]));
+      dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('over'); });
+      dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+      dz.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dz.classList.remove('over');
+        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) setUploadFile(f);
+      });
+      document.getElementById('upFileClear').addEventListener('click', (e) => {
+        e.stopPropagation();
+        resetUpload();
+      });
+    }
+    window.addEventListener('beforeunload', stopPolling);
+
+    // Sidebar-State - MUSS vor dem Init-Block stehen (sonst TDZ-Fehler,
+    // weil der Init-Block allSwords/activeRackId schon beim Laden liest).
+    let allSwords = [];        // alle geladenen Swords
+    let activeRackId = null;   // null = 'Alle Server'
+    let sidebarSelection = null; // null = alle Racks; sonst Array von Rack-IDs
+    let rackEditMode = 'create';   // 'create' | 'edit' - Rack-Editor (Zustand)
+    let rackEditOriginalId = null; // id des Racks, das gerade bearbeitet wird
+
+    // Gruppierung der Sidebar. MUSS vor dem Init-Block stehen (renderSidebar
+    // liest sie beim ersten Laden -> sonst TDZ-ReferenceError).
+    // Gruppierung nach Spiel (Minecraft, 7 Days to Die, ...).
+    const GAME_LABELS = {
+      minecraft: 'Minecraft',
+      '7d2d': '7 Days to Die',
+      teamspeak: 'TeamSpeak',
+    };
+    const GAME_ORDER = ['minecraft', '7d2d', 'teamspeak6', 'teamspeak3'];
+
+    (async () => {
+      const meRes = await api('/api/auth/me');
+      if (meRes.status !== 200) { location.href = '/login'; return; }
+      me = meRes.data.user;
+      document.getElementById('who').innerHTML =
+        `${me.username}<span class="rolechip">${RANGEN[me.role]}</span>`;
+      if (can('sword.create')) {
+        document.getElementById('newRackBtn').style.display = 'inline-block';
+      }
+      if (can('rack.reload')) {
+        document.getElementById('reloadSwordsBtn').style.display = 'inline-block';
+      }
+      // Profil-Modal mit den aktuellen Daten befuellen; Admin-Tabs freischalten.
+      initProfile();
+      loadVersion();
+
+      // Swords zuerst laden - loadSidebar() leitet daraus die Startauswahl ab
+      // (Racks mit Servern) und braucht allSwords deshalb schon gefuellt.
+      const { data: swords } = await api('/api/swords');
+      allSwords = Array.isArray(swords) ? swords : [];
+      await loadSidebar();
+      applyRackFilter();
+      renderSidebar();
+    })();
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await api('/api/auth/logout', { method: 'POST' });
+      location.href = '/login';
+    });
+
+    // --- Rack-Auswahl (Setup) --------------------------------------------------
+    // Laedt die Rack-Schablonen und laesst den Nutzer EINES waehlen. Die Wahl
+    // bestimmt die verfuegbare Install-Quelle (CurseForge/ZIP/Upload/Steam) und
+    // den vorbelegten Ziel-Pfad.
+    // restrictTo: optional nur dieses Rack anzeigen (Sidebar-Kontext).
+    async function loadRackPicker(restrictTo = null) {
+      const box = document.getElementById('rackResults');
+      if (!box) return;
+      box.innerHTML = '<div class="item"><span class="meta">Racks werden geladen…</span></div>';
+      try {
+        const { status, data } = await api('/api/racks');
+        if (status !== 200) throw new Error('HTTP ' + status);
+        racksCache = Array.isArray(data) ? data : [];
+      } catch (err) {
+        box.innerHTML = '<div class="item"><span class="meta">Racks konnten nicht geladen werden: ' + esc(err.message) + '</span></div>';
+        return;
+      }
+      const list = restrictTo ? racksCache.filter((r) => r.id === restrictTo) : racksCache;
+      if (list.length === 0) {
+        box.innerHTML = '<div class="item"><span class="meta">Keine Racks vorhanden.</span></div>';
+        return;
+      }
+      box.innerHTML = list.map((r) => `
+        <div class="item rack-item" data-id="${esc(r.id)}" style="cursor:pointer;">
+          <div class="grow">
+            <div>${esc(r.name)} <span class="badge">${esc(r.game)}</span>
+              ${r.locked ? '<span class="badge premium">gesperrt</span>' : ''}
+              ${r.singleton && countRackInstances(r.id) > 0 ? '<span class="badge">bereits installiert</span>' : ''}</div>
+            <div class="meta">${esc(r.description ?? '')} · ${esc(r.installMethod)} · ${esc(r.defaultRoot ?? '')}</div>
+          </div>
+        </div>`).join('');
+      box.querySelectorAll('.rack-item').forEach((el) => {
+        el.addEventListener('click', () => selectRack(el.dataset.id));
+      });
+    }
+
+    // Install-Methode eines Racks -> zugehoeriger Tab.
+    // EINE Quelle: ein Rack kann nur seinen eigenen Weg installieren.
+    const METHOD_TO_TAB = {
+      curseforge: 'cf', steamcmd: 'steam', zip: 'zip', upload: 'upload', url: 'zip',
+    };
+
+    // Tab-Leiste an das gewaehlte Rack anpassen: nur der erlaubte Tab ist
+    // sichtbar/aktiv. Ohne Rack-Wahl sind alle sichtbar (noch keine Bindung).
+    // Tab-Leiste an das Rack anpassen (2026-10-18 neu gedacht).
+    // Vorher: nur der zum installMethod passende Tab war sichtbar. Beim
+    // Update-Dialog wurde die Funktion aber nie mit einem Rack aufgerufen -
+    // dadurch sah man bei TeamSpeak auch Steam und CurseForge, obwohl beides
+    // dort nicht funktionieren kann.
+    // Jetzt: der passende Tab zuerst, ZIP/Archiv IMMER zusätzlich (Vorgabe:
+    // "zip würde ich für jede option möglich machen"). Passt der Rack-Typ
+    // selbst aufs Archiv (installMethod url/zip/upload), bleibt nur ein Tab.
+    const ARCHIVE_TAB = 'upload';
+    function tabsForRack(rack) {
+      if (!rack) return ['cf', 'zip', 'upload', 'steam'];
+      const primary = METHOD_TO_TAB[rack.installMethod] ?? null;
+      if (!primary) return ['cf', 'zip', 'upload', 'steam'];
+      if (primary === ARCHIVE_TAB) return [ARCHIVE_TAB];
+      return [primary, ARCHIVE_TAB];
+    }
+
+    function applyRackTabs(rack) {
+      const allowed = tabsForRack(rack);
+      const tabsEl = document.getElementById('upTabs');
+      document.querySelectorAll('#upTabs button').forEach((b) => {
+        const ok = allowed.includes(b.dataset.tab);
+        b.style.display = ok ? '' : 'none';
+        b.disabled = !ok;
+        // Reihenfolge: der passende Tab steht vorn.
+        b.style.order = String(allowed.indexOf(b.dataset.tab));
+      });
+      // Eine Leiste mit einem einzigen Knopf ist Ballast - dann ganz ausblenden.
+      if (tabsEl) tabsEl.style.display = allowed.length <= 1 ? 'none' : '';
+    }
+
+    // Wie viele Swords laufen von diesem Rack? Fuer Einmal-Racks (singleton)
+    // entscheidet das ueber die Sperre. allSwords ist beim Klick bereits geladen.
+    function countRackInstances(rackId) {
+      return allSwords.filter((sw) => sw.rack === rackId).length;
+    }
+
+    function selectRack(id) {
+      const rack = racksCache.find((r) => r.id === id);
+      if (!rack) return;
+      if (rack.locked) { toast('Dieses Rack ist gesperrt (Premium).'); return; }
+      // Einmal-Racks (singleton): nur EINE Instanz. Der Server lehnt einen
+      // zweiten Install ohnehin ab (409) - hier wird es vorab verstaendlich.
+      if (rack.singleton && countRackInstances(rack.id) > 0) {
+        toast('Dieses Rack ist ein Einmal-Rack und bereits installiert. '
+          + 'Weitere Server werden intern angelegt (z. B. virtueller Server).');
+        return;
+      }
+      selectedRack = rack;
+      document.querySelectorAll('.rack-item').forEach((el) => {
+        el.style.borderColor = el.dataset.id === id ? 'var(--accent)' : '';
+      });
+      applyRackTabs(rack);
+      upTab(METHOD_TO_TAB[rack.installMethod] ?? 'cf');
+      const rootEl = document.getElementById('nrRoot');
+      if (rootEl) rootEl.value = rack.defaultRoot ?? '';
+      const portEl = document.getElementById('nrPort');
+      if (portEl && !portEl.value && rack.ports && rack.ports.game) portEl.value = rack.ports.game;
+      const eulaWrap = document.getElementById('nrEulaWrap');
+      if (eulaWrap) eulaWrap.style.display = rack.game === 'minecraft' ? 'flex' : 'none';
+    }
+
+        // --- Config-Editor ---------------------------------------------------------
+    let configSword = null;
+
+    async function openConfigModal(sword) {
+      configSword = sword;
+      const modal = document.getElementById('configModal');
+      const body = document.getElementById('configBody');
+      document.getElementById('configTitle').textContent = 'Konfiguration: ' + sword.name;
+      body.innerHTML = '<div class="meta">Lade Konfiguration…</div>';
+      modal.classList.add('open');
+      try {
+        const { status, data } = await api('/api/swords/' + encodeURIComponent(sword.id) + '/config');
+        if (status !== 200) throw new Error(data.error ?? ('HTTP ' + status));
+        renderConfigFields(data);
+      } catch (err) {
+        body.innerHTML = '<div class="warn">Konfiguration konnte nicht geladen werden: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    function renderConfigFields(data) {
+      const body = document.getElementById('configBody');
+      const groups = {};
+      for (const f of data.fields) { (groups[f.group] ??= []).push(f); }
+      let html = '<div class="meta">Pfad: <code class="pathhint">' + esc(data.path) + '</code></div>';
+      for (const [group, fields] of Object.entries(groups)) {
+        html += '<h4>' + esc(group) + '</h4><div class="cfg-grid">';
+        for (const f of fields) {
+          const val = f.value ?? '';
+          let input;
+          if (f.type === 'bool') {
+            input = '<label class="cfg-bool"><input type="checkbox" data-cfg="' + esc(f.key) + '"' + (val === 'true' ? ' checked' : '') + ' /> aktiv</label>';
+          } else if (f.type === 'select') {
+            input = '<select data-cfg="' + esc(f.key) + '">' + f.options.map((o) =>
+              '<option value="' + esc(o.value) + '"' + (String(val) === String(o.value) ? ' selected' : '') + '>' + esc(o.label) + '</option>').join('') + '</select>';
+          } else if (f.type === 'number') {
+            input = '<input type="number" data-cfg="' + esc(f.key) + '" value="' + esc(val) + '"'
+              + (f.min !== undefined ? ' min="' + f.min + '"' : '') + (f.max !== undefined ? ' max="' + f.max + '"' : '') + ' />';
+          } else if (f.type === 'password') {
+            input = '<input type="password" data-cfg="' + esc(f.key) + '" value="' + esc(val) + '" autocomplete="new-password" />';
+          } else {
+            input = '<input type="text" data-cfg="' + esc(f.key) + '" value="' + esc(val) + '" />';
+          }
+          html += '<div class="cfg-row"><label>' + esc(f.label) + ' <span class="meta">' + esc(f.key) + '</span></label>' + input + '</div>';
+        }
+        html += '</div>';
+      }
+      body.innerHTML = html;
+    }
+
+    async function saveConfig() {
+      if (!configSword) return;
+      const sword = configSword;
+      const values = {};
+      document.querySelectorAll('#configBody [data-cfg]').forEach((el) => {
+        const key = el.dataset.cfg;
+        values[key] = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
+      });
+      const btn = document.getElementById('configSave');
+      btn.disabled = true;
+      try {
+        const { status, data } = await api('/api/swords/' + encodeURIComponent(sword.id) + '/config', {
+          method: 'PUT', body: JSON.stringify(values),
+        });
+        if (status !== 200) throw new Error(data.error ?? ('HTTP ' + status));
+        closeConfigModal();
+
+        // Laeuft der Server, greifen die Werte erst nach einem Neustart
+        // (kein Spiel liest seine Config im Betrieb neu). Deshalb fragen -
+        // ehrlich als Neustart, nicht als "Reload".
+        if (data.restartRequired) {
+          const now = await confirmModal(
+            'Einstellungen gespeichert.\n\nDie Werte greifen erst beim n\u00e4chsten Start. ' +
+            'Der Server l\u00e4uft gerade - die Spieler werden bei einem Neustart getrennt.\n\n' +
+            'Jetzt neu starten?',
+            { ok: 'Jetzt neustarten', cancel: 'Sp\u00e4ter' },
+          );
+          if (now) {
+            const r = await api(`/api/swords/${sword.id}/restart`, { method: 'POST' });
+            if (r.status !== 200) toast('Fehler: ' + (r.data.error ?? r.status));
+            else toast('Neustart ausgel\u00f6st.');
+          } else {
+            // "Spaeter": Merker setzen, damit der offene Neustart nicht
+            // vergessen wird. Verschwindet bei start/stop/restart von selbst.
+            const r = await api(`/api/swords/${sword.id}/pending-restart`, { method: 'POST' });
+            if (r.status !== 200) toast('Fehler: ' + (r.data.error ?? r.status));
+            else toast('Gespeichert. Neustart vorgemerkt - Hinweis auf der Karte.');
+          }
+          scheduleSwordsRefresh();
+        } else {
+          toast('Gespeichert (' + (data.reallyChanged ?? data.changed) + ' Felder ge\u00e4ndert). Backup: ' + (data.backupPath ? 'ja' : 'nein'));
+        }
+      } catch (err) {
+        toast('Fehler: ' + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function closeConfigModal() {
+      document.getElementById('configModal').classList.remove('open');
+      configSword = null;
+    }
+
+    const _cfgCancel = document.getElementById('configCancel');
+    if (_cfgCancel) _cfgCancel.addEventListener('click', closeConfigModal);
+    const _cfgSave = document.getElementById('configSave');
+    if (_cfgSave) _cfgSave.addEventListener('click', saveConfig);
+
+// --- Sidebar: Racks als Filter --------------------------------------------
+// (State-Deklarationen stehen weiter oben, vor dem Init-Block.)
+
+async function loadSidebar() {
+  const box = document.getElementById('rackList');
+  if (!box) return;
+  try {
+    const { status, data } = await api('/api/racks');
+    if (status !== 200) throw new Error('HTTP ' + status);
+    racksCache = Array.isArray(data) ? data : [];
+    // Gespeicherte Sidebar-Auswahl mitladen.
+    const sel = await api('/api/sidebar-racks');
+    if (sel.status === 200) {
+      if (sel.data.initialized) {
+        sidebarSelection = sel.data.selected;   // null = bewusst "alle"
+      } else {
+        // Erststart: nur Racks mit Servern zeigen, damit leere Racks im Shop
+        // anklickbar sind. Hat keiner Server, alle zeigen (leere Sidebar waere sinnlos).
+        const used = racksCache.map((r) => r.id)
+          .filter((id) => allSwords.some((sw) => sw.rack === id));
+        if (used.length > 0 && used.length < racksCache.length) {
+          await saveSidebarSelection(used);
+        } else {
+          sidebarSelection = null;
+        }
+      }
+    }
+  } catch (err) {
+    box.innerHTML = '<div class="item"><span class="meta">Racks nicht ladbar: ' + esc(err.message) + '</span></div>';
+    return;
+  }
+  renderSidebar();
+}
+
+// Racks nach SPIEL gruppieren (Minecraft, 7 Days to Die, ...).
+function groupRacks(list) {
+  const byKey = {};
+  for (const r of list) {
+    const key = r.game ?? 'andere';
+    (byKey[key] ??= []).push(r);
+  }
+  // Bekannte Spiele zuerst in fester Reihenfolge, Unbekanntes danach.
+  const unknown = Object.keys(byKey).filter((k) => !GAME_ORDER.includes(k)).sort();
+  const order = [...GAME_ORDER, ...unknown].filter((k) => byKey[k]?.length);
+  return order.map((k) => ({
+    key: k, label: GAME_LABELS[k] ?? k, racks: byKey[k],
+  }));
+}
+
+// Racks, die aktuell in der Sidebar sichtbar sein sollen.
+// sidebarSelection === null  -> alle Racks
+function visibleRacks() {
+  if (sidebarSelection === null) return racksCache;
+  const set = new Set(sidebarSelection);
+  return racksCache.filter((r) => set.has(r.id));
+}
+
+function renderSidebar() {
+  const box = document.getElementById('rackList');
+  if (!box) return;
+  const total = allSwords.length;
+  const countFor = (rack) => allSwords.filter((s) => s.rack === rack.id).length;
+  const shown = visibleRacks();
+
+  let html = '<button class="rack-btn' + (activeRackId === null ? ' active' : '') + '" data-id="">'
+    + '<span class="rack-name">Alle Server</span><span class="count">' + total + '</span></button>';
+  html += '<div class="rack-sep"></div>';
+
+  if (shown.length === 0) {
+    html += '<div class="meta" style="padding:6px 4px;">Keine Racks ausgewählt.</div>';
+  }
+
+  // Nach Rack-Typ gruppieren (CurseForge, SteamCMD, ...).
+  for (const group of groupRacks(shown)) {
+    html += '<div class="rack-group">' + esc(group.label) + '</div>';
+    for (const r of group.racks) {
+      const icon = r.icon === 'minecraft' ? '🟩' : (r.game === '7d2d' ? '🧟' : '🎮');
+      // Filter-Button und Entfernen-Button sind GETRENNT - ein X im Button
+      // waere nur auf 20px treffbar und wuerde sonst den Filter ausloesen.
+      html += '<div class="rack-row">'
+        + '<button class="rack-btn' + (activeRackId === r.id ? ' active' : '') + '"'
+        + ' data-id="' + esc(r.id) + '"'
+        + ' title="' + esc(r.name + ' · ' + r.game + ' · ' + r.installMethod) + '">'
+        + '<span>' + icon + '</span>'
+        + '<span class="rack-name">' + esc(r.name) + '</span>'
+        + '<span class="count">' + countFor(r) + '</span>'
+        + '</button>'
+        + (can('rack.sidebar.write')
+            ? '<button class="rack-remove" data-remove-rack="' + esc(r.id) + '"'
+              + ' title="Aus der Sidebar entfernen" aria-label="Rack entfernen">✕</button>'
+            : '')
+        + '</div>';
+    }
+  }
+
+  // Shop-Knopf: immer fuer Admins sichtbar (der Shop zeigt selbst, was schon da ist).
+  if (can('sword.create')) {
+    const hidden = racksCache.filter((r) => !shown.some((v) => v.id === r.id));
+    const label = hidden.length > 0
+      ? '＋ Rack hinzufügen (' + hidden.length + ')'
+      : '＋ Rack hinzufügen';
+    html += '<button class="rack-add" id="rackAddBtn">' + label + '</button>';
+  }
+  // Rack-Verwaltung (anlegen/bearbeiten/loeschen) - eigenes Recht.
+  if (can('rack.create')) {
+    html += '<button class="rack-add" id="rackManageBtn">⚙ Racks verwalten</button>';
+  }
+  box.innerHTML = html;
+
+  // Alle Klicks (Filter, Entfernen, Shop) laufen ueber den delegierten
+  // document-Handler - hier wird nichts mehr einzeln gebunden.
+}
+
+// Entfernt ein Rack aus der Sidebar (persistiert die Auswahl).
+async function removeRackFromSidebar(id) {
+  const shown = visibleRacks().map((r) => r.id).filter((x) => x !== id);
+  await saveSidebarSelection(shown);
+  if (activeRackId === id) activeRackId = null;
+  renderSidebar();
+  applyRackFilter();
+}
+
+async function saveSidebarSelection(ids) {
+  const { status, data } = await api('/api/sidebar-racks', {
+    method: 'PUT', body: JSON.stringify({ selected: ids }),
+  });
+  if (status !== 200) return toast('Fehler: ' + (data.error ?? status));
+  sidebarSelection = data.selected;
+  renderSidebar();
+}
+
+// --- Shop: verfuegbare Racks dazuholen ------------------------------------
+async function openRackShop() {
+  const overlay = document.getElementById('rackShop');
+  const list = document.getElementById('rackShopList');
+  if (!overlay || !list) return;
+  overlay.classList.add('open');
+  list.innerHTML = '<div class="meta">Lade…</div>';
+  try {
+    const { status, data } = await api('/api/sidebar-racks');
+    if (status !== 200) throw new Error('HTTP ' + status);
+    racksCache = data.all ?? racksCache;
+  } catch (err) {
+    list.innerHTML = '<div class="meta">Konnte Racks nicht laden: ' + esc(err.message) + '</div>';
+    return;
+  }
+  renderRackShop();
+}
+
+function renderRackShop() {
+  const list = document.getElementById('rackShopList');
+  if (!list) return;
+  const shownIds = new Set(visibleRacks().map((r) => r.id));
+  list.innerHTML = (racksCache.length === 0
+    ? '<div class="meta">Keine Racks vorhanden.</div>'
+    : racksCache.map((r) => {
+        const already = shownIds.has(r.id);
+        const icon = r.icon === 'minecraft' ? '🟩' : (r.game === '7d2d' ? '🧟' : '🎮');
+        return '<div class="shop-item' + (already ? ' already' : '') + '" data-add="' + esc(r.id) + '">'
+          + '<span>' + icon + '</span>'
+          + '<span class="si-name">' + esc(r.name)
+          + ' <span class="si-meta">' + esc(r.game) + ' · ' + esc(r.installMethod ?? '') + '</span></span>'
+          + '<span>' + (already ? '✓ sichtbar' : '＋') + '</span></div>';
+      }).join(''));
+
+  // Klicks werden zentral am document behandelt (siehe delegierter Handler).
+}
+
+// Filtert die gezeigten Swords auf das aktive Rack.
+function applyRackFilter() {
+  const shown = activeRackId === null ? allSwords : allSwords.filter((s) => s.rack === activeRackId);
+  renderSwords(shown);
+}
+
+function activeRack() {
+  return activeRackId ? racksCache.find((r) => r.id === activeRackId) ?? null : null;
+}
+
+// --- Rack-Verwaltung: anlegen / bearbeiten / loeschen -----------------------
+// WICHTIG: Das ist NICHT der Sword-Install ("Neuer Server"). Hier wird die
+// SCHABLONE (Rack) geschrieben, aus der spaeter Server entstehen. Die id ist
+// der Dateiname und unveraendert; beim Bearbeiten deshalb gesperrt.
+function openRackManage() {
+  if (!can('rack.create') && !can('rack.delete')) return;
+  stopPolling();
+  document.getElementById('rackManageModal').classList.add('open');
+  renderRackManage();
+}
+
+function closeRackManage() {
+  document.getElementById('rackManageModal').classList.remove('open');
+}
+
+function renderRackManage() {
+  const box = document.getElementById('rackManageList');
+  if (!box) return;
+  if (racksCache.length === 0) {
+    box.innerHTML = '<div class="meta">Keine Racks vorhanden.</div>';
+    return;
+  }
+  // Nach id sortiert anzeigen, damit die Liste stabil bleibt.
+  const list = [...racksCache].sort((a, b) => a.id.localeCompare(b.id));
+  box.innerHTML = list.map((r) => {
+    const used = allSwords.filter((s) => s.rack === r.id).length;
+    const canDel = can('rack.delete');
+    const canEdit = can('rack.create');
+    const delTitle = used > 0
+      ? 'Wird von ' + used + ' Server(n) benutzt - erst diese entfernen'
+      : 'Rack loeschen';
+    return '<div class="rack-manage-row">'
+      + '<div class="rm-name"><b>' + esc(r.name) + '</b>'
+      + '<span class="si-meta">' + esc(r.id) + ' · ' + esc(r.game) + ' · '
+      + esc(r.installMethod) + ' · ' + used + ' Server</span></div>'
+      + (canEdit ? '<button data-edit-rack="' + esc(r.id) + '">Bearbeiten</button>' : '')
+      + (canDel ? '<button class="danger" data-del-rack="' + esc(r.id) + '"'
+          + (used > 0 ? ' disabled' : '') + ' title="' + esc(delTitle) + '">Loeschen</button>' : '')
+      + '</div>';
+  }).join('');
+}
+
+// Oeffnet den Editor. rack = null -> neues Rack, sonst bearbeiten.
+function openRackEditor(rack) {
+  rackEditMode = rack ? 'edit' : 'create';
+  rackEditOriginalId = rack ? rack.id : null;
+  const g = (id) => document.getElementById(id);
+  g('reTitle').textContent = rack ? ('Rack bearbeiten: ' + rack.name) : 'Neues Rack';
+  g('reId').value = rack ? rack.id : '';
+  g('reId').disabled = !!rack;               // id = Dateiname, unveraendert
+  g('reName').value = rack?.name ?? '';
+  g('reDescription').value = rack?.description ?? '';
+  g('reIcon').value = rack?.icon ?? '';
+  g('reGame').value = rack?.game ?? 'minecraft';
+  g('reLoader').value = rack?.loader ?? 'vanilla';
+  g('reInstallMethod').value = rack?.installMethod ?? 'curseforge';
+  g('reTier').value = rack?.tier ?? 'free';
+  g('reDefaultRoot').value = rack?.defaultRoot ?? '/opt/';
+  g('reLicenseRequired').checked = rack?.licenseRequired === true;
+  g('reSingleton').checked = rack?.singleton === true;
+  g('reSourceType').value = rack?.source?.type ?? 'curseforge';
+  g('reProjectId').value = rack?.source?.projectId ?? '';
+  g('reAppId').value = rack?.source?.appId ?? '';
+  g('reBranch').value = rack?.source?.branch ?? '';
+  g('reSourceUrl').value = rack?.source?.url ?? '';
+  g('reConfigFile').value = rack?.configFile ?? '';
+  g('reStartScript').value = rack?.startScript ?? '';
+  g('reLogFile').value = rack?.logFile ?? '';
+  g('reJavaRequired').value = (rack?.javaRequired ?? '') === null ? '' : (rack?.javaRequired ?? '');
+  g('reEula').value = rack?.eula ?? 'none';
+  g('rePorts').value = rack?.ports && Object.keys(rack.ports).length
+    ? JSON.stringify(rack.ports) : '';
+  const err = g('reError');
+  err.style.display = 'none';
+  err.textContent = '';
+  document.getElementById('rackEditModal').classList.add('open');
+}
+
+function closeRackEditor() {
+  document.getElementById('rackEditModal').classList.remove('open');
+}
+
+// Baut aus dem Formular den Rack-Entwurf. Leere optionale Felder werden NICHT
+// mitgeschickt (der Server normalisiert Defaults). ports wird als JSON geparst.
+function buildRackDraft() {
+  const g = (id) => document.getElementById(id);
+  const val = (id) => g(id).value.trim();
+  const draft = {
+    id: rackEditMode === 'edit' ? rackEditOriginalId : val('reId'),
+    name: val('reName'),
+    description: val('reDescription'),
+    icon: val('reIcon'),
+    game: g('reGame').value,
+    loader: g('reLoader').value,
+    tier: g('reTier').value,
+    licenseRequired: g('reLicenseRequired').checked,
+    installMethod: g('reInstallMethod').value,
+    defaultRoot: val('reDefaultRoot'),
+    source: { type: g('reSourceType').value },
+    javaRequired: val('reJavaRequired') === '' ? null : Number(val('reJavaRequired')),
+  };
+  // source.projectId: Zahl -> Zahl, sonst String/null.
+  const pid = val('reProjectId');
+  if (pid === '') draft.source.projectId = null;
+  else draft.source.projectId = /^\d+$/.test(pid) ? Number(pid) : pid;
+  const appId = val('reAppId');
+  if (appId !== '') draft.source.appId = Number(appId);
+  const branch = val('reBranch');
+  if (branch !== '') draft.source.branch = branch;
+  const url = val('reSourceUrl');
+  if (url !== '') draft.source.url = url;
+
+  // Optionale Felder nur senden, wenn gefuellt (sonst null = weglassen).
+  const opt = (id, key) => { const v = val(id); if (v !== '') draft[key] = v; };
+  opt('reConfigFile', 'configFile');
+  opt('reStartScript', 'startScript');
+  opt('reLogFile', 'logFile');
+  if (g('reSingleton').checked) draft.singleton = true;
+  if (val('reEula') !== 'none') draft.eula = val('reEula');
+
+  const portsRaw = val('rePorts');
+  if (portsRaw !== '') {
+    let parsed;
+    try { parsed = JSON.parse(portsRaw); }
+    catch (e) { throw new Error('ports ist kein gueltiges JSON: ' + e.message); }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('ports muss ein JSON-Objekt sein, z.B. {"game":25565}');
+    }
+    draft.ports = parsed;
+  }
+  return draft;
+}
+
+async function saveRackEditor() {
+  const err = document.getElementById('reError');
+  const show = (msg) => { err.textContent = msg; err.style.display = 'block'; };
+  err.style.display = 'none';
+  let draft;
+  try { draft = buildRackDraft(); }
+  catch (e) { return show(e.message); }
+
+  const btn = document.getElementById('reSave');
+  btn.disabled = true;
+  try {
+    const isEdit = rackEditMode === 'edit';
+    const res = await api('/api/racks' + (isEdit ? '/' + encodeURIComponent(draft.id) : ''), {
+      method: isEdit ? 'PUT' : 'POST',
+      body: JSON.stringify(draft),
+    });
+    if (res.status !== 200 && res.status !== 201) {
+      return show((res.data && res.data.error) || ('Fehler HTTP ' + res.status));
+    }
+    if (Array.isArray(res.data.warnings) && res.data.warnings.length) {
+      toast('Gespeichert. Hinweis: ' + res.data.warnings.join('; '));
+    } else {
+      toast(isEdit ? 'Rack gespeichert.' : 'Rack angelegt.');
+    }
+    // Caches neu holen (Rack-Liste in der Sidebar mitziehen).
+    await refreshRacks();
+    closeRackEditor();
+    renderRackManage();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteRackFromPanel(id) {
+  const ok = await confirmModal(
+    'Rack "' + id + '" wirklich loeschen? Bestehende Server bleiben, verlieren '
+    + 'aber ihre Schablone. Die Rack-Datei wird von der Platte entfernt.',
+    { title: 'Rack loeschen', ok: 'Loeschen' },
+  );
+  if (!ok) return;
+  const { status, data } = await api('/api/racks/' + encodeURIComponent(id), { method: 'DELETE' });
+  if (status !== 200) return toast('Fehler: ' + ((data && data.error) || status));
+  toast('Rack geloescht.');
+  await refreshRacks();
+  renderRackManage();
+}
+
+// Rack-Liste frisch vom Server holen und Sidebar/Filter nachziehen.
+async function refreshRacks() {
+  const { status, data } = await api('/api/racks');
+  if (status === 200 && Array.isArray(data)) racksCache = data;
+  renderSidebar();
+  applyRackFilter();
+}
+
+const _newRackBtn = document.getElementById('newRackBtn');
+    if (_newRackBtn) _newRackBtn.addEventListener('click', openNewSwordModal);
+
+// Shop-Steuerung: EIN delegierter Handler am document.
+// Robuster als Einzel-Handler: greift unabhaengig davon, wann/wie die
+// Elemente entstehen oder neu gerendert werden. Kein Binde-Zeitpunkt-Problem.
+function closeRackShop() {
+  const overlay = document.getElementById('rackShop');
+  if (overlay) overlay.classList.remove('open');
+}
+
+document.addEventListener('click', (ev) => {
+  // Textknoten-Klicks (z.B. genau auf dem Buchstaben) auf das Element heben.
+  let t = ev.target;
+  if (t && t.nodeType === 3) t = t.parentElement;
+  if (!t || typeof t.closest !== 'function') return;
+
+  const hit = (sel) => !!t.closest(sel);
+
+  // Reihenfolge: spezifischste Ziele zuerst, dann allgemeine.
+  if (hit('#rackShopClose')) { closeRackShop(); return; }
+
+  const overlay = document.getElementById('rackShop');
+  if (overlay && t === overlay) { closeRackShop(); return; }
+
+  if (hit('#rackShopAll')) {
+    saveSidebarSelection('all').then(() => renderRackShop()).catch(() => {});
+    return;
+  }
+
+  const shopItem = t.closest('.shop-item');
+  if (shopItem) {
+    if (shopItem.classList.contains('already')) return;   // schon sichtbar
+    const id = shopItem.dataset.add;
+    const shown = visibleRacks().map((r) => r.id);
+    if (id && !shown.includes(id)) shown.push(id);
+    saveSidebarSelection(shown).then(() => renderRackShop()).catch(() => {});
+    return;
+  }
+
+  const rem = t.closest('.rack-remove');
+  if (rem && rem.dataset.removeRack) {
+    removeRackFromSidebar(rem.dataset.removeRack).catch(() => {});
+    return;
+  }
+
+  if (hit('#rackAddBtn')) { openRackShop(); return; }
+
+  // --- Rack-Verwaltung ---
+  if (hit('#rackManageBtn')) { openRackManage(); return; }
+  if (hit('#rackManageClose')) { closeRackManage(); return; }
+  if (hit('#rackManageNew')) { openRackEditor(null); return; }
+  const manageOverlay = document.getElementById('rackManageModal');
+  if (manageOverlay && t === manageOverlay) { closeRackManage(); return; }
+
+  const editRackBtn = t.closest('[data-edit-rack]');
+  if (editRackBtn && editRackBtn.dataset.editRack) {
+    const rack = racksCache.find((r) => r.id === editRackBtn.dataset.editRack);
+    if (rack) openRackEditor(rack);
+    return;
+  }
+  const delRackBtn = t.closest('[data-del-rack]');
+  if (delRackBtn && delRackBtn.dataset.delRack && !delRackBtn.disabled) {
+    deleteRackFromPanel(delRackBtn.dataset.delRack).catch(() => {});
+    return;
+  }
+
+  if (hit('#reCancel')) { closeRackEditor(); return; }
+  if (hit('#reSave')) { saveRackEditor().catch(() => {}); return; }
+  const editOverlay = document.getElementById('rackEditModal');
+  if (editOverlay && t === editOverlay) { closeRackEditor(); return; }
+
+  const rackBtn = t.closest('.rack-btn');
+  if (rackBtn && document.getElementById('rackList')?.contains(rackBtn)) {
+    activeRackId = rackBtn.dataset.id || null;
+    renderSidebar();
+    applyRackFilter();
+    return;
+  }
+});
+
+// Escape schliesst Shop und Rack-Modals.
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') { closeRackShop(); closeRackManage(); closeRackEditor(); }
+});
+
+    document.getElementById('reloadSwordsBtn').addEventListener('click', async () => {
+      const { status, data } = await api('/api/swords/reload', { method: 'POST' });
+      if (status !== 200 || !data.ok) {
+        return toast('Fehler: ' + (data.error ?? status));
+      }
+      const { data: swords } = await api('/api/swords');
+      allSwords = Array.isArray(swords) ? swords : [];
+      applyRackFilter();
+      let msg = 'Swords neu geladen: ' + data.reloaded;
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        msg += ' (' + data.errors.length + ' Fehler)';
+      }
+      toast(msg);
+    });
+
+    document.getElementById('newUserForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('nu_name').value.trim();
+      const password = document.getElementById('nu_pass').value;
+      const email = document.getElementById('nu_email').value.trim();
+      const role = document.getElementById('nu_role').value;
+      const { status, data } = await api('/api/auth/users', {
+        method: 'POST', body: JSON.stringify({ username, password, role, email }),
+      });
+      if (status !== 201) return toast('Fehler: ' + (data.error ?? status));
+      toast('Nutzer angelegt.');
+      document.getElementById('newUserForm').reset();
+      loadUsers();
+    });
+
+    function connect() {
+      const sword = document.getElementById('swordSelect').value;
+      if (!sword) return;
+      if (ws) { ws.close(); ws = null; }
+      const box = document.getElementById('console');
+      box.dataset.placeholder = '1';
+      box.textContent = '[armory] verbinde …';
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/ws/logs?sword=${sword}`);
+      document.getElementById('connectBtn').classList.add('active');
+      document.getElementById('disconnectBtn').disabled = false;
+      ws.onmessage = (e) => pushLog(e.data);
+      ws.onclose = () => {
+        document.getElementById('connectBtn').classList.remove('active');
+        document.getElementById('disconnectBtn').disabled = true;
+        ws = null;
+        pushLog('[armory] Verbindung geschlossen.');
+        updateConsoleStatus();
+      };
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', connect);
+    document.getElementById('disconnectBtn').addEventListener('click', () => {
+      if (ws) { ws.close(); }
+    });
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      logLines = [];
+      const box = document.getElementById('console');
+      box.textContent = '';
+      box.dataset.placeholder = '1';
+    });
+    document.getElementById('timestamps').addEventListener('change', renderConsoleAll);
+
+    // Auto-Scroll aus, wenn man hochscrollt
+    document.getElementById('console').addEventListener('scroll', (e) => {
+      const box = e.target;
+      const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+      if (!atBottom) document.getElementById('autoscroll').checked = false;
+    });
+
+    // Dropdown-Menues schliessen: Klick irgendwo ausserhalb oder Escape.
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.menu')) {
+        document.querySelectorAll('.menu.open').forEach((m) => m.classList.remove('open'));
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.menu.open').forEach((m) => m.classList.remove('open'));
+        closeProfile();
+        closeUpdateModal();
+        document.getElementById('removeModal').classList.remove('open');
+        document.getElementById('eulaModal').classList.remove('open');
+      }
+    });
+  </script>
+</body>
+</html>

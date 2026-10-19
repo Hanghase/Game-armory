@@ -1,0 +1,33 @@
+{
+  "$schema": "./rack.schema.json",
+  "id": "teamspeak6",
+  "name": "TeamSpeak 6",
+  "description": "TeamSpeak 6 Server (binäres Release, direkt aus dem offiziellen GitHub-Release). Wird als Dienst EINMAL pro Maschine installiert - zusätzliche virtuelle Server laufen intern.",
+  "icon": "teamspeak",
+  "game": "teamspeak6",
+  "loader": "native",
+  "tier": "free",
+  "licenseRequired": false,
+  "installMethod": "url",
+  "singleton": true,
+  "defaultRoot": "/opt",
+  "configFile": "tsserver.yaml",
+  "startScript": null,
+  "logFile": null,
+  "ports": {
+    "voice": 9987,
+    "fileTransfer": 9988
+  },
+  "source": {
+    "type": "url",
+    "projectId": null,
+    "url": "https://github.com/teamspeak/teamspeak6-server",
+    "assetPattern": "teamspeak6-server-linux-amd64.tar.xz"
+  },
+  "javaRequired": null,
+  "eula": "none",
+  "packMarkers": [
+    "tsserver",
+    "tsserver.yaml"
+  ]
+}

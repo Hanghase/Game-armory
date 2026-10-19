@@ -1,0 +1,202 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Game-Armory Rack-Schablone",
+  "description": "Vorlage (Rack) fuer ein installierbares Game-Server-Pack. Ein Rack beschreibt, welches Spiel, welches Pack woher bezogen wird, welche Installationsmethode noetig ist und welches Root-Verzeichnis verwendet wird. Die Rack-Datei dient als Schablone fuer die konkrete Sword-Instanz.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "description",
+    "icon",
+    "game",
+    "loader",
+    "tier",
+    "licenseRequired",
+    "installMethod",
+    "defaultRoot",
+    "source",
+    "javaRequired"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "description": "Eindeutige Kennung des Racks (Dateiname ohne Endung).",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "icon": {
+      "type": "string",
+      "minLength": 1
+    },
+    "game": {
+      "type": "string",
+      "description": "Spiel, zu dem das Rack gehoert. Dies ist die EINZIGE Quelle fuer das Spiel einer Sword-Instanz (Swords leiten es daraus ab). Offen fuer weitere Spiele.",
+      "enum": [
+        "minecraft",
+        "7d2d",
+        "teamspeak3",
+        "teamspeak6"
+      ]
+    },
+    "loader": {
+      "type": "string",
+      "description": "Server-Loader/Modloader. 'native' = kein Modloader (z.B. 7 Days to Die, TeamSpeak).",
+      "enum": [
+        "vanilla",
+        "neoforge",
+        "forge",
+        "fabric",
+        "quilt",
+        "paper",
+        "spigot",
+        "purpur",
+        "native"
+      ]
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "free",
+        "premium"
+      ]
+    },
+    "licenseRequired": {
+      "type": "boolean"
+    },
+    "installMethod": {
+      "type": "string",
+      "description": "Wie das Pack bezogen wird. Bestimmt den Install-Adapter.",
+      "enum": [
+        "curseforge",
+        "steamcmd",
+        "zip",
+        "upload",
+        "url"
+      ]
+    },
+    "defaultRoot": {
+      "type": "string",
+      "description": "Standard-Installationswurzel fuer Instanzen dieses Racks (z.B. /opt/minecraft, /opt/7d2d). Im Setup ueberschreibbar.",
+      "pattern": "^/[a-zA-Z0-9._/-]+$"
+    },
+    "configFile": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Relativer Pfad zur Haupt-Konfigurationsdatei in der Instanz, fuer den Config-Editor. null, wenn nicht vorhanden."
+    },
+    "startScript": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Relativer Pfad zum Startskript in der Instanz."
+    },
+    "logFile": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Absoluter Pfad, in den der Server seine Ausgabe schreiben soll (Live-Konsole). Platzhalter {id} wird pro Instanz ersetzt. null = Server schreibt selbst (Unit-Log bleibt dann leer)."
+    },
+    "ports": {
+      "type": "object",
+      "description": "Standard-Ports des Racks (Vorschlagswerte fuer das Setup).",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "projectId"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "curseforge",
+            "modrinth",
+            "ftb",
+            "steam",
+            "url",
+            "local"
+          ]
+        },
+        "projectId": {
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "appId": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Steam-App-ID (nur bei steamcmd)."
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Direkte Download-URL des Server-Archivs (bei installMethod 'url')."
+        }
+      }
+    },
+    "javaRequired": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "description": "Vom Pack verlangte Java-Hauptversion. null = kein Java noetig (z.B. native Server)."
+    },
+    "singleton": {
+      "type": "boolean",
+      "description": "Wenn true, darf dieses Rack nur EINMAL installiert werden. Das Panel sperrt weitere Installationen mit Begruendung. Fuer Dienste, die intern skalieren (z.B. TeamSpeak mit virtuellen Servern)."
+    },
+    "eula": {
+      "type": "string",
+      "enum": [
+        "required",
+        "none"
+      ],
+      "description": "Ob ein EULA/Nutzungsbedingungs-Schritt noetig ist (required) oder nicht (none)."
+    },
+    "packMarkers": {
+      "type": "array",
+      "description": "Woran ein gueltiges Server-Archiv fuer DIESES Spiel erkannt wird (Namen auf Top-Level-Ebene). Die Inhalts-Pruefung ist spielabhaengig: ein Modpack hat mods/ und startserver.sh, ein TeamSpeak-Release hat tsserver und tsserver.yaml. Fehlt das Feld, gilt der Minecraft-Standardsatz. Die Sicherheitspruefung (Pfad-Ausbrueche, Links) ist davon unberuehrt und bleibt fuer alle gleich.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[a-zA-Z0-9._-]+$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  }
+}

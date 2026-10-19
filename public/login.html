@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Game-Armory — Login</title>
+  <style>
+    :root {
+      --bg: #0f1115; --card: #1a1d24; --border: #2a2f3a;
+      --text: #e6e8ee; --muted: #8b93a7; --accent: #7c5cff; --red: #e5484d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .box { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 32px; width: 100%; max-width: 380px; }
+    .logo { font-size: 32px; text-align: center; margin-bottom: 6px; }
+    h1 { text-align: center; font-size: 20px; margin: 0 0 4px; }
+    .sub { text-align: center; color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+    input { width: 100%; padding: 11px 13px; background: #0b0d11; border: 1px solid var(--border);
+      border-radius: 9px; color: var(--text); font-size: 14px; }
+    input:focus { outline: none; border-color: var(--accent); }
+    button { width: 100%; margin-top: 20px; padding: 12px; background: var(--accent);
+      border: none; border-radius: 9px; color: #fff; font-size: 15px; cursor: pointer; font-weight: 600; }
+    button:hover { opacity: .92; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .msg { margin-top: 14px; font-size: 13px; text-align: center; min-height: 18px; }
+    .msg.err { color: var(--red); }
+    .msg.ok { color: #35c46a; }
+    .note { margin-top: 18px; font-size: 12px; color: var(--muted); text-align: center;
+      border-top: 1px solid var(--border); padding-top: 14px; }
+    .forgot { text-align: right; margin-top: 8px; }
+    .forgot a { color: var(--muted); font-size: 12px; text-decoration: none; cursor: pointer; }
+    .forgot a:hover { color: var(--accent); }
+    .forgot.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="logo">⚔️</div>
+    <h1>Game-Armory</h1>
+    <div class="sub" id="subtitle">Bitte einloggen</div>
+
+    <form id="form">
+      <label for="username">Benutzername</label>
+      <input id="username" autocomplete="username" autofocus />
+      <label for="password">Passwort</label>
+      <input id="password" type="password" autocomplete="current-password" />
+      <div class="forgot hidden" id="forgotWrap"><a id="forgotLink" href="#">Passwort vergessen?</a></div>
+      <button type="submit" id="submitBtn">Einloggen</button>
+      <div class="msg" id="msg"></div>
+    </form>
+
+    <div class="note" id="note"></div>
+  </div>
+
+  <script>
+    const msgEl = document.getElementById('msg');
+    const noteEl = document.getElementById('note');
+    const subtitleEl = document.getElementById('subtitle');
+    const submitBtn = document.getElementById('submitBtn');
+    let setupMode = false;
+
+    function setMsg(text, cls = '') { msgEl.textContent = text; msgEl.className = 'msg ' + cls; }
+
+    async function api(path, opts) {
+      const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+      let data = {};
+      try { data = await r.json(); } catch {}
+      return { status: r.status, data };
+    }
+
+    (async () => {
+      // Schon eingeloggt?
+      const me = await api('/api/auth/me');
+      if (me.status === 200) { location.href = '/app'; return; }
+
+      // Setup nötig?
+      const st = await api('/api/auth/setup-status');
+      if (st.data?.needsSetup) {
+        setupMode = true;
+        subtitleEl.textContent = 'Erster Start — Admin-Konto anlegen';
+        submitBtn.textContent = 'Admin anlegen';
+        noteEl.textContent = 'Es existiert noch kein Benutzer. Lege jetzt den ersten Admin an.';
+        setMsg('Passwort: mindestens 8 Zeichen.', '');
+      } else {
+        noteEl.textContent = 'Zugang nur für eingeladene Nutzer.';
+      }
+    })();
+
+    // "Passwort vergessen?" nur zeigen, wenn SMTP eingerichtet ist UND kein Setup.
+    (async () => {
+      const ms = await api('/api/auth/mail-status');
+      if (!setupMode && ms.data?.ready) {
+        document.getElementById('forgotWrap').classList.remove('hidden');
+      }
+    })();
+
+    document.getElementById('forgotLink').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      if (!username) return setMsg('Bitte zuerst deinen Benutzernamen eingeben.', 'err');
+      // Endpunkt erwartet eine E-Mail. Nutzer melden sich mit Benutzername an,
+      // daher fragen wir die Adresse hier direkt ab.
+      const email = prompt('E-Mail-Adresse fuer den Reset-Link:');
+      if (!email) return;
+      submitBtn.disabled = true;
+      setMsg('…');
+      const { status, data } = await api('/api/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      submitBtn.disabled = false;
+      if (status === 200) {
+        setMsg(data?.message ?? 'Wenn die Adresse existiert, wurde eine E-Mail verschickt.', 'ok');
+      } else {
+        setMsg(data?.error ?? 'Fehler beim Anfordern des Resets.', 'err');
+      }
+    });
+
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      if (!username || !password) return setMsg('Bitte alle Felder ausfüllen.', 'err');
+
+      submitBtn.disabled = true;
+      setMsg('…');
+      const endpoint = setupMode ? '/api/auth/setup' : '/api/auth/login';
+      const { status, data } = await api(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      });
+      submitBtn.disabled = false;
+
+      if (status === 200 || status === 201) {
+        setMsg('Eingeloggt! Weiterleitung…', 'ok');
+        location.href = '/app';
+      } else {
+        setMsg(data?.error ?? 'Fehler beim Login.', 'err');
+      }
+    });
+  </script>
+</body>
+</html>

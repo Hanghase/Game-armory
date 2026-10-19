@@ -1,0 +1,55 @@
+# --- Laufzeitdaten und Geheimnisse (NIEMALS versionieren) -----------------
+# Datenbank: Nutzer, Passwort-Hashes, Session-Tokens
+data/
+# RCON-Passwoerter und Uploads liegen ebenfalls unter data/
+
+# Logs und Sicherungen
+logs/
+backups/
+trash/
+uploads/
+
+# Instanz-Betriebsdaten (Ports, Service-Namen, Pfade pro Sword).
+# Die Rack-SCHABLONEN (racks/) bleiben versioniert, die Instanzen (swords/) nicht.
+swords/
+
+# Sicherungskopien im Repo (nicht die Vorlagen selbst)
+*.bak
+*.bak-*
+*.armory-old-*
+*.old-*
+
+# --- Node ------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm/
+
+# --- Editor / OS -----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Umgebung --------------------------------------------------------------
+.env
+.env.*
+
+# Sicherung des Selbst-Updates (vor dem checkout erzeugt).
+.self-update-backup/
+
+# --- Datenbanken (2026-10-19) ---------------------------------------------
+# SQLite legt neben der DB noch -wal/-shm an. data/ deckt den Regelfall ab;
+# diese Muster fangen Kopien und alternative Pfade ab.
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.db
+*.db-*
+*.db-wal
+*.db-shm
+
+# Lokale Suchmuster fuer den Push-Scanner. Eine IP im Scanner verrät,
+# wonach sie sucht.
+.private/

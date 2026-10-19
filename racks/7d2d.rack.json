@@ -1,0 +1,36 @@
+{
+  "$schema": "./rack.schema.json",
+  "id": "7d2d",
+  "name": "7 Days to Die",
+  "description": "7 Days to Die Dedicated Server (native, ohne Modloader). Installiert per SteamCMD.",
+  "icon": "7d2d",
+  "game": "7d2d",
+  "loader": "native",
+  "tier": "free",
+  "licenseRequired": false,
+  "installMethod": "steamcmd",
+  "defaultRoot": "/opt/7d2d",
+  "configFile": "serverconfig.xml",
+  "startScript": "startserver.sh",
+  "logFile": "/var/log/{id}/{id}.log",
+  "ports": {
+    "game": 26900,
+    "gameUdp2": 26901,
+    "gameUdp3": 26902,
+    "telnet": 8081,
+    "controlPanel": 8080
+  },
+  "source": {
+    "type": "steam",
+    "projectId": null,
+    "appId": 294420,
+    "branch": "public"
+  },
+  "javaRequired": null,
+  "eula": "none",
+  "packMarkers": [
+    "7DaysToDieServer.x86_64",
+    "serverconfig.xml",
+    "Mods"
+  ]
+}

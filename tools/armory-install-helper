@@ -1,0 +1,466 @@
+#!/bin/bash
+# Game-Armory - Install-Helfer (privilegierter Helfer)
+# Wird per sudo vom armory-User aufgerufen. Feste, definierte Schritte.
+# KEIN freies Shell-Durchreichen. Alle Argumente werden streng validiert.
+set -euo pipefail
+
+SWORDS_DIR="/opt/game-armory/swords"
+# Erlaubte Game-Roots (Multi-Game). Neue Spiele hier ergaenzen.
+MINECRAFT_ROOT="/opt/minecraft"
+ALLOWED_ROOTS="/opt/minecraft /opt/7d2d /opt/teamspeak6"
+
+# Prueft, ob ein Pfad unter einem der erlaubten Roots liegt.
+path_in_allowed_root() {
+  local p="$1"
+  for r in $ALLOWED_ROOTS; do
+    case "$p" in "$r"/*) return 0 ;; esac
+  done
+  return 1
+}
+SYSTEMD_DIR="/etc/systemd/system"
+
+usage() {
+  echo "Usage: armory-install-helper <step> [args...]" >&2
+  echo "Steps: write-file | read-file | write-config | mkdir-tree | write-unit | mkdir-logdir | mkdir-statedir | touch-logfile | chown-tree | chown-file | useradd | daemon-reload | enable | backup-tar | replace-pack | extract-pack | extract-tarball | replace-tree | remove-tree | prune-backups | cleanup-path" >&2
+  exit 2
+}
+
+# IDs muessen mind. 2 Zeichen haben (verhindert Ein-Buchstaben-Namen wie "x").
+valid_id() { [[ "${1:-}" =~ ^[a-z0-9][a-z0-9_-]{1,31}$ ]]; }
+valid_service() { [[ "${1:-}" =~ ^[a-zA-Z0-9@._-]+\.service$ ]]; }
+valid_user() { valid_id "${1:-}"; }
+valid_path() { [[ "${1:-}" == /* ]] && [[ "$1" != *".."* ]] && [[ "$1" != *$'\n'* ]]; }
+# Ein Pack-Eintragsname darf KEIN Pfad sein: kein '/', kein '..', kein '.' als
+# Ganzes, kein Leerzeichen/Zeilenumbruch. Verhindert, dass remove-tree/replace-pack
+# aus dem Instanzordner heraus greifen (z.B. Name '..' -> Parent-Verzeichnis).
+valid_pack_name() {
+  local n="${1:-}"
+  [[ -n "$n" && ${#n} -le 64 ]] || return 1
+  [[ "$n" != '.' && "$n" != '..' ]] || return 1
+  [[ "$n" != *'/'* && "$n" != *'..'* ]] || return 1
+  [[ "$n" =~ ^[a-zA-Z0-9._-]+$ ]] || return 1
+}
+
+step="${1:-}"
+shift || true
+
+case "$step" in
+  # NEU: Verzeichnisbaum unter /opt/minecraft anlegen und dem Service-User geben.
+  # Der unprivilegierte armory-Prozess darf dort nicht mkdir (Owner ist der Service-User).
+  mkdir-tree)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    path="${2:-}"; valid_path "$path" || { echo "Ungueltiger Pfad" >&2; exit 2; }
+    case "$path" in
+      *) path_in_allowed_root "$path" || { echo "Pfad ausserhalb der erlaubten Roots ($ALLOWED_ROOTS): $path" >&2; exit 3; } ;;
+    esac
+    mkdir -p "$path"
+    chown "$id:$id" "$path"
+    echo "mkdir-tree ok $path -> $id"
+    ;;
+
+  # NEU: Datei schreiben (Inhalt per STDIN) und Eigentuemer setzen - in EINEM Schritt.
+  # Loest das Problem, dass armory nicht in eine fremde 600-Datei schreiben kann.
+  write-file)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    path="${2:-}"; valid_path "$path" || { echo "Ungueltiger Pfad" >&2; exit 2; }
+    case "$path" in
+      /opt/game-armory/*|/var/log/*|/opt/minecraft/*|/opt/7d2d/*|/opt/teamspeak6/*) ;;
+      *) echo "Pfad nicht erlaubt: $path" >&2; exit 3 ;;
+    esac
+    content="$(cat)"
+    umask 077
+    printf '%s' "$content" > "$path"
+    chmod 600 "$path"
+    chown "$id:$id" "$path"
+    echo "write-file ok $path -> $id"
+    ;;
+
+  # Datei lesen (Inhalt nach STDOUT). Fuer den Config-Editor: armory kann
+  # fremde 600-Dateien nicht lesen, daher uebernimmt der Helfer das.
+  # Whitelist identisch zu write-file - nur Pfade unter den erlaubten Roots.
+  read-file)
+    path="${1:-}"; valid_path "$path" || { echo "Ungueltiger Pfad" >&2; exit 2; }
+    case "$path" in
+      /opt/game-armory/*|/var/log/*|/opt/minecraft/*|/opt/7d2d/*|/opt/teamspeak6/*) ;;
+      *) echo "Pfad nicht erlaubt: $path" >&2; exit 3 ;;
+    esac
+    [[ -f "$path" ]] || { echo "Keine regulaere Datei: $path" >&2; exit 4; }
+    cat -- "$path"
+    ;;
+
+  # Config-Datei schreiben (Inhalt per STDIN) und Eigentuemer/Gruppe auf den
+  # Service-User setzen. Gleiche Whitelist wie write-file, aber bewusst OHNE
+  # festes chmod 600: die Rechte der Zieldatei bleiben erhalten, damit der
+  # Server sie weiterhin lesen kann.
+  write-config)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    path="${2:-}"; valid_path "$path" || { echo "Ungueltiger Pfad" >&2; exit 2; }
+    case "$path" in
+      /opt/game-armory/*|/var/log/*|/opt/minecraft/*|/opt/7d2d/*|/opt/teamspeak6/*) ;;
+      *) echo "Pfad nicht erlaubt: $path" >&2; exit 3 ;;
+    esac
+    [[ -f "$path" ]] || { echo "Keine regulaere Datei: $path" >&2; exit 4; }
+    content="$(cat)"
+    printf '%s' "$content" > "$path"
+    chown "$id:$id" "$path"
+    echo "write-config ok $path -> $id"
+    ;;
+
+  # systemd-Unit schreiben: Inhalt kommt per STDIN (kein Datei-Pfad von außen!)
+  write-unit)
+    service="${1:-}"
+    valid_service "$service" || { echo "Ungueltiger Unit-Name" >&2; exit 2; }
+    # Nur Instanz-Services: muss als Sword registriert sein
+    grep -lq "\"service\"[[:space:]]*:[[:space:]]*\"$service\"" "$SWORDS_DIR"/*.sword.json 2>/dev/null \
+      || { echo "Service nicht als Sword registriert: $service" >&2; exit 3; }
+    content="$(cat)"
+    # Muss eine [Unit]-Sektion enthalten (Plausibilitaet)
+    grep -q '^\[Unit\]' <<<"$content" || { echo "Ungueltiger Unit-Inhalt" >&2; exit 2; }
+    umask 022
+    printf '%s' "$content" > "$SYSTEMD_DIR/$service"
+    echo "written $SYSTEMD_DIR/$service"
+    ;;
+
+  # Log-Verzeichnis anlegen und dem Service-User geben
+  mkdir-logdir)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    user="${id}"
+    mkdir -p "/var/log/$id"
+    chown -R "$user:$user" "/var/log/$id"
+    echo "logdir ready /var/log/$id"
+    ;;
+
+  # Zustandsverzeichnis unter /var/lib/<id> anlegen (analog mkdir-logdir).
+  # Noetig fuer Racks, die ihre Datenbank dort ablegen (TeamSpeak 6:
+  # sqlite-file=/var/lib/<id>/ts6db.db). mkdir-tree deckt /var/lib NICHT ab
+  # (nur die /opt-Game-Roots), daher ein eigener, fest definierter Schritt.
+  mkdir-statedir)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    user="${id}"
+    mkdir -p "/var/lib/$id"
+    chown -R "$user:$user" "/var/lib/$id"
+    chmod 700 "/var/lib/$id"
+    echo "statedir ready /var/lib/$id"
+    ;;
+
+  # Logdatei anlegen und dem Service-User geben. Noetig, wenn der Server SELBST
+  # in eine Datei schreibt (z.B. 7d2d mit festem -logfile). systemd legt seine
+  # eigenen Logs als root an - der Server-User kann dort nicht schreiben.
+  touch-logfile)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    name="${2:-}"; [[ "$name" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "Ungueltiger Name" >&2; exit 2; }
+    user="${id}"
+    mkdir -p "/var/log/$id"
+    touch "/var/log/$id/$name"
+    chown "$user:$user" "/var/log/$id/$name"
+    chmod 644 "/var/log/$id/$name"
+    echo "logfile ready /var/log/$id/$name ($user:$user)"
+    ;;
+
+  # Aufraeumen: eine einzelne Temp-Datei/-Verzeichnis entfernen, das dem
+  # Instanz-User gehoert (die Armory als 'armory' kann das nicht). Streng
+  # begrenzt auf bekannte Temp-Muster an bekannten Orten.
+  # Aufruf: cleanup-path <pfad>
+  cleanup-path)
+    [[ $# -ge 1 ]] || { echo "Mindestens ein Pfad erforderlich" >&2; exit 2; }
+    removed=0
+    for target in "$@"; do
+      case "$target" in
+        /tmp/armory-pack-*) ;;                        # entpacktes Pack
+        /opt/minecraft/*/.armory-update-*.zip) ;;     # CurseForge-Download
+        /opt/7d2d/*/.armory-update-*.zip) ;;
+        *) echo "Pfad nicht erlaubt: $target" >&2; exit 2 ;;
+      esac
+      if rm -rf -- "$target" 2>/dev/null; then removed=$(( removed + 1 )); fi
+    done
+    echo "cleanup ok $removed entfernt"
+    ;;
+
+  # Alte Backup-Generationen loeschen. Laeuft als ROOT, weil Backups gemischte
+  # Besitzer haben koennen: alte von 'armory', neue vom Instanz-User. 'armory'
+  # selbst scheitert an den eigenen Dateien des Instanz-Users (EACCES).
+  # Streng begrenzt: nur Dateien <label>-*.tar.gz direkt im uebergebenen
+  # backupDir (unter erlaubtem Root), die aeltesten zuerst.
+  # Aufruf: prune-backups <backupDir> <label> <keepN>
+  prune-backups)
+    dir="${1:-}"; path_in_allowed_root "$dir" || { echo "backupDir ausserhalb der Roots: $dir" >&2; exit 3; }
+    case "$dir" in */backups) ;; *) echo "Nur */backups erlaubt: $dir" >&2; exit 2 ;; esac
+    label="${2:-}"; [[ "$label" =~ ^[a-zA-Z0-9._-]{1,40}$ ]] || { echo "Ungueltiges Label" >&2; exit 2; }
+    keep="${3:-}"; [[ "$keep" =~ ^[0-9]{1,3}$ ]] || { echo "keepN muss eine Zahl sein" >&2; exit 2; }
+    [[ -d "$dir" ]] || { echo "Verzeichnis nicht gefunden: $dir" >&2; exit 4; }
+    # Nur exakt passende Dateien, lexikografisch (ISO-Zeitstempel) sortiert.
+    mapfile -t files < <(find "$dir" -maxdepth 1 -type f -name "${label}-*.tar.gz" -printf '%f\n' | sort)
+    n="${#files[@]}"
+    excess=$(( n - keep ))
+    if (( excess <= 0 )); then
+      echo "prune ok 0 removed (keep $n)"
+      exit 0
+    fi
+    removed=0
+    for ((i = 0; i < excess; i++)); do
+      f="$dir/${files[$i]}"
+      case "$f" in "$dir"/*) ;; *) continue ;; esac
+      rm -f -- "$f" && removed=$(( removed + 1 ))
+    done
+    echo "prune ok $removed removed (kept $keep)"
+    ;;
+
+  # Pack-ZIP als INSTANZ-User entpacken. Hintergrund: die Armory entpackt sonst
+  # als 'armory' in ein 0700-Temp - der Instanz-User (atm10, 7d2d, ...) kann das
+  # nicht betreten, der Pack-Austausch scheitert mit EACCES. Deshalb gehoert
+  # auch das entpackte Pack dem Instanz-User.
+  # Der Zip-Slip-Schutz laeuft VORHER in der Armory (assertSafeZip).
+  # Aufruf: extract-pack <id> <zipPath>
+  # Gibt den Temp-Pfad per stdout aus: "extracted <pfad>"
+  extract-pack)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    zip="${2:-}"
+    case "$zip" in /tmp/*|/opt/game-armory/data/uploads/*) ;; *) echo "ZIP ausserhalb erlaubter Pfade: $zip" >&2; exit 2 ;; esac
+    [[ -r "$zip" ]] || { echo "ZIP nicht lesbar: $zip" >&2; exit 4; }
+    tmp_root="$(mktemp -d /tmp/armory-pack-XXXXXX)"
+    # Der Helfer laeuft als root: er liest das ZIP (das kann in einem 0700-
+    # Verzeichnis der Armory liegen) und legt eine Kopie ins Temp, die dem
+    # Instanz-User gehoert. So braucht die Armory keine Rechte zu oeffnen.
+    tmp_zip="$tmp_root/.pack.zip"
+    if ! cp "$zip" "$tmp_zip"; then
+      rm -rf "$tmp_root"
+      echo "ZIP kopieren fehlgeschlagen: $zip" >&2
+      exit 4
+    fi
+    chown -R "$id:$id" "$tmp_root"
+    # Die Armory laeuft als eigener User ('armory') und muss PRUEFEN koennen, was
+    # im Temp liegt (pathExists auf mods/config/...). mktemp legt den Ordner mit
+    # 0700 an - auch nach chown bleibt Fremden der Zugriff verwehrt, sodass JEDE
+    # Pruefung EACCES liefert und das Pack als "leer" gilt. Deshalb nur auf dem
+    # Wurzelverzeichnis das Durchquerungsrecht (o+x) ergaenzen. Der Inhalt bleibt
+    # Eigentum des Instanz-Users und wird von aussen weder les- noch schreibbar.
+    chmod o+x "$tmp_root"
+    if sudo -u "$id" unzip -q -o "$tmp_zip" -d "$tmp_root"; then
+      rm -f "$tmp_zip"
+      # Die Armory ('armory') muss den entpackten Baum auch LISTEN koennen
+      # (readdir auf der Wurzel + den Unterordnern). o+x allein erlaubt nur
+      # Durchquerung, NICHT readdir -> EACCES (Lehre 2026-10-16: Update brach
+      # ab, bevor ein einziger Eintrag ersetzt wurde). Deshalb o+rX rekursiv:
+      # lesen + durchqueren fuer Fremde, OHNE Schreibrecht und ohne die
+      # Eigentuemer zu aendern (Kopieren macht weiterhin der Instanz-User).
+      chmod -R o+rX "$tmp_root"
+      echo "extracted $tmp_root"
+    else
+      rm -rf "$tmp_root"
+      echo "Entpacken fehlgeschlagen: $zip" >&2
+      exit 5
+    fi
+    ;;
+
+  # Tarball (.tar.xz/.tar.gz/.tar.bz2) entpacken - fuer Racks wie TeamSpeak 6,
+  # die kein Modpack-ZIP liefern, sondern ein Release-Archiv.
+  # Aufruf: extract-tarball <id> <tarballPath>
+  # Gibt den Temp-Pfad per stdout aus: "extracted <pfad>"
+  # Anders als extract-pack gibt es hier KEINE Wurzel-Erkennung: das Archiv hat
+  # eine bekannte, flache Struktur (Binary + libs + sql im Root).
+  extract-tarball)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    tb="${2:-}"
+    case "$tb" in /tmp/*|/opt/game-armory/data/uploads/*) ;; *) echo "Tarball ausserhalb erlaubter Pfade: $tb" >&2; exit 2 ;; esac
+    [[ -r "$tb" ]] || { echo "Tarball nicht lesbar: $tb" >&2; exit 4; }
+    tmp_root="$(mktemp -d /tmp/armory-tarball-XXXXXX)"
+    tmp_tb="$tmp_root/.pack.tar"
+    if ! cp "$tb" "$tmp_tb"; then
+      rm -rf "$tmp_root"
+      echo "Tarball kopieren fehlgeschlagen: $tb" >&2
+      exit 4
+    fi
+    chown -R "$id:$id" "$tmp_root"
+    # Durchquerungsrecht nur auf der Wurzel (wie extract-pack): die Armory muss
+    # pruefen koennen, darf aber nicht in den Inhalt schreiben.
+    chmod o+x "$tmp_root"
+    # GNU tar erkennt die Kompression selbst (xz/gz/bz2). --no-same-owner, damit
+    # die Dateien im Temp dem Instanz-User gehoeren, nicht ihrem Archiv-Owner.
+    if sudo -u "$id" tar -xf "$tmp_tb" -C "$tmp_root" --no-same-owner 2>/dev/null; then
+      rm -f "$tmp_tb"
+      echo "extracted $tmp_root"
+    else
+      rm -rf "$tmp_root"
+      echo "Entpacken fehlgeschlagen: $tb" >&2
+      exit 5
+    fi
+    ;;
+
+  # Backup als INSTANZ-User erstellen. Hintergrund: die Armory laeuft als
+  # 'armory', die Server-Daten gehoeren aber dem Instanz-User (atm10, 7d2d, ...).
+  # 'armory' kann eine 0600-Welt nicht lesen -> tar scheitert. Deshalb laeuft
+  # tar hier als der User, dem die Daten gehoeren.
+  # Aufruf: backup-tar <id> <label> <workingDir> <pfad...>
+  backup-tar)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    label="${2:-}"; [[ "$label" =~ ^[a-zA-Z0-9._-]{1,40}$ ]] || { echo "Ungueltiges Label" >&2; exit 2; }
+    workdir="${3:-}"; path_in_allowed_root "$workdir" || { echo "workingDir ausserhalb der Roots: $workdir" >&2; exit 3; }
+    shift 3
+    [[ $# -ge 1 ]] || { echo "Mindestens ein Pfad erforderlich" >&2; exit 2; }
+    # Pfade muessen RELATIV sein (kein Ausbrechen aus dem workingDir).
+    for rel in "$@"; do
+      case "$rel" in /*|*..*) echo "Ungueltiger (absoluter/ausbrechender) Pfad: $rel" >&2; exit 2 ;; esac
+    done
+    backup_dir="$workdir/backups"
+    mkdir -p "$backup_dir"
+    chown "$id:$id" "$backup_dir"
+    stamp="$(date -u +%Y-%m-%dT%H-%M-%S-%3NZ)"
+    file="$backup_dir/$label-$stamp.tar.gz"
+    # tar als Instanz-User: -C workingDir, dann die relativen Pfade.
+    # Nur vorhandene Pfade uebergeben, sonst warnt tar.
+    present=()
+    for rel in "$@"; do [[ -e "$workdir/$rel" ]] && present+=("$rel"); done
+    if [[ ${#present[@]} -eq 0 ]]; then
+      echo "Keiner der Pfade vorhanden - kein Backup erstellt" >&2
+      exit 4
+    fi
+    # Datei vorab anlegen + dem Instanz-User geben, damit tar als $id schreiben kann.
+    touch "$file"; chown "$id:$id" "$file"
+    sudo -u "$id" tar -czf "$file" -C "$workdir" "${present[@]}"
+    chown "$id:$id" "$file"
+    echo "backup ok $file"
+    ;;
+
+  # GANZEN Inhalt eines /tmp-Ordners nach workDir kopieren - fuer Racks mit
+  # flachem Release-Archiv (TeamSpeak 6: tsserver + libs + sql im Root).
+  # Anders als replace-pack (EIN Eintrag pro Aufruf) arbeitet das auf dem
+  # ganzen Verzeichnis; ein TS6-Tarball hat 10 Top-Level-Eintraege.
+  # Quelle muss unter /tmp liegen (das entpackte Temp), Ziel ist workDir selbst.
+  # Aufruf: replace-tree <id> <workingDir> <srcDir>
+  replace-tree)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    workdir="${2:-}"; path_in_allowed_root "$workdir" || { echo "workingDir ausserhalb der Roots: $workdir" >&2; exit 3; }
+    src="${3:-}"; case "$src" in /tmp/*) ;; *) echo "Quelle muss unter /tmp liegen: $src" >&2; exit 2 ;; esac
+    [[ -d "$src" ]] || { echo "Quellordner nicht gefunden: $src" >&2; exit 4; }
+    [[ -d "$workdir" ]] || { echo "Zielordner nicht gefunden: $workdir" >&2; exit 4; }
+    # Als INSTANZ-User kopieren, damit die Dateien ihm gehoeren (die Armory darf
+    # im Game-Root nicht schreiben).
+    if sudo -u "$id" cp -a "$src"/. "$workdir"/; then
+      # Zielordner-Rechte normalisieren: das Temp traegt vom Extraktor absichtlich
+      # o+x (drwx-----x). 'cp -a' uebernimmt diese Rechte auf bereits existierende
+      # Zielordner - im Game-Root ist das falsch und wuerde den Ordner fuer den
+      # Server-User unnoetig einschraenken bzw. Dritten Durchquerung erlauben.
+      chmod 755 "$workdir" 2>/dev/null || true
+      chown "$id:$id" "$workdir" 2>/dev/null || true
+      # Ausfuehrbarkeit sicherstellen: tar bewahrt das exec-Bit normalerweise,
+      # aber ein umgepacktes Archiv koennte es verlieren -> Binary waere tot.
+      if [[ -f "$workdir/tsserver" ]]; then chmod 755 "$workdir/tsserver" 2>/dev/null || true; fi
+      echo "replace-tree ok $workdir"
+    else
+      echo "replace-tree fehlgeschlagen: $src -> $workdir" >&2
+      exit 5
+    fi
+    ;;
+
+  # Pack-Inhalt ersetzen (cp/rename) als INSTANZ-User - dieselbe Rechte-Logik
+  # wie backup-tar. Aufruf: replace-pack <id> <workingDir> <name> <srcDir>
+  # Quelle muss unter /tmp liegen (entpacktes Pack), Ziel ist <workingDir>/<name>.
+  replace-pack)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    workdir="${2:-}"; path_in_allowed_root "$workdir" || { echo "workingDir ausserhalb der Roots: $workdir" >&2; exit 3; }
+    name="${3:-}"; valid_pack_name "$name" || { echo "Ungueltiger Name" >&2; exit 2; }
+    src="${4:-}"; case "$src" in /tmp/*) ;; *) echo "Quelle muss unter /tmp liegen: $src" >&2; exit 2 ;; esac
+    [[ -e "$src" ]] || { echo "Quelle nicht gefunden: $src" >&2; exit 4; }
+    dst="$workdir/$name"
+    trash="$dst.armory-old-$$"
+    if [[ -e "$dst" ]]; then mv "$dst" "$trash"; fi
+    if sudo -u "$id" cp -a "$src" "$dst"; then
+      # Startskripte aus Windows-ZIPs kommen ohne Ausfuehrungsrecht (644/664).
+      # systemd bricht dann mit 203/EXEC ab ("Permission denied"). Deshalb nach
+      # dem Ersetzen die Ausfuehrbarkeit nachziehen - aber nur fuer Dateien, die
+      # tatsaechlich ein Shebang haben oder die bekannten Startnamen tragen.
+      set_exec_bit() {
+        local f="$1"
+        [[ -f "$f" ]] || return 0
+        local base; base="$(basename "$f")"
+        if [[ "$base" =~ \.(sh|bash)$ ]] || [[ "$base" == "run.sh" ]]; then
+          chmod 755 "$f" 2>/dev/null || true
+        elif head -c 2 "$f" 2>/dev/null | grep -q '#!'; then
+          chmod 755 "$f" 2>/dev/null || true
+        fi
+      }
+      if [[ -d "$dst" ]]; then
+        while IFS= read -r -d '' f; do set_exec_bit "$f"; done < <(find "$dst" -type f -print0 2>/dev/null)
+      else
+        set_exec_bit "$dst"
+      fi
+      [[ -e "$trash" ]] && rm -rf "$trash"
+      echo "replace ok $dst"
+    else
+      [[ -e "$dst" ]] && rm -rf "$dst"
+      [[ -e "$trash" ]] && mv "$trash" "$dst"
+      echo "Ersetzen fehlgeschlagen fuer $name" >&2
+      exit 5
+    fi
+    ;;
+
+  # Einzelnen Top-Level-Eintrag im Instanzordner ENTFERNEN (fuer Neoforge-Aufbau:
+  # ein veraltetes libraries/ muss weg, damit startserver.sh den Installer laufen
+  # laesst). Streng begrenzt: nur <workingDir>/<name>, name ohne '/' oder '..'.
+  # Aufruf: remove-tree <id> <workingDir> <name>
+  remove-tree)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    workdir="${2:-}"; path_in_allowed_root "$workdir" || { echo "workingDir ausserhalb der Roots: $workdir" >&2; exit 3; }
+    name="${3:-}"; valid_pack_name "$name" || { echo "Ungueltiger Name" >&2; exit 2; }
+    [[ -d "$workdir" ]] || { echo "Zielordner nicht gefunden: $workdir" >&2; exit 4; }
+    target="$workdir/$name"
+    if [[ -e "$target" ]]; then
+      if rm -rf -- "$target"; then echo "remove-tree ok $target"; else echo "Entfernen fehlgeschlagen: $target" >&2; exit 5; fi
+    else
+      echo "remove-tree ok (nicht vorhanden) $target"
+    fi
+    ;;
+
+  # Baum einem User geben (nur innerhalb /opt/minecraft!)
+  chown-tree)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    path="${2:-}"; valid_path "$path" || { echo "Ungueltiger Pfad" >&2; exit 2; }
+    path_in_allowed_root "$path" || { echo "Pfad ausserhalb der erlaubten Roots ($ALLOWED_ROOTS): $path" >&2; exit 3; }
+    chown -R "$id:$id" "$path"
+    echo "chown-tree ok $path -> $id"
+    ;;
+
+  # Einzelne Datei einem User geben (z.B. RCON-Passwort, eula.txt)
+  chown-file)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    path="${2:-}"; valid_path "$path" || { echo "Ungueltiger Pfad" >&2; exit 2; }
+    case "$path" in
+      /opt/game-armory/*|/var/log/*|/opt/minecraft/*|/opt/7d2d/*|/opt/teamspeak6/*) ;;
+      *) echo "Pfad nicht erlaubt: $path" >&2; exit 3 ;;
+    esac
+    chmod 600 "$path" 2>/dev/null || true
+    chown "$id:$id" "$path"
+    echo "chown-file ok $path -> $id"
+    ;;
+
+  # Systemuser fuer einen Server anlegen.
+  # Optionales 2. Argument: Home-/Arbeitsverzeichnis (muss unter /opt/ liegen).
+  useradd)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    home="${MINECRAFT_ROOT}/$id"
+    if [[ -n "${2:-}" ]]; then
+      valid_path "$2" || { echo "Ungueltiger Pfad" >&2; exit 2; }
+      case "$2" in
+        /opt/*) home="$2" ;;
+        *) echo "Home muss unter /opt/ liegen: $2" >&2; exit 3 ;;
+      esac
+    fi
+    if id "$id" >/dev/null 2>&1; then echo "user exists $id"; exit 0; fi
+    /usr/sbin/useradd --system --home-dir "$home" --shell /usr/sbin/nologin "$id"
+    echo "useradd ok $id (home $home)"
+    ;;
+
+  daemon-reload)
+    exec /usr/bin/systemctl daemon-reload
+    ;;
+
+  enable)
+    service="${1:-}"
+    valid_service "$service" || { echo "Ungueltiger Unit-Name" >&2; exit 2; }
+    grep -lq "\"service\"[[:space:]]*:[[:space:]]*\"$service\"" "$SWORDS_DIR"/*.sword.json 2>/dev/null \
+      || { echo "Service nicht als Sword registriert: $service" >&2; exit 3; }
+    exec /usr/bin/systemctl enable "$service"
+    ;;
+
+  *) usage ;;
+esac

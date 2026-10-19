@@ -1,0 +1,31 @@
+# TeamSpeak 6 Server Configuration
+# Game-Armory: erzeugt beim Install aus der Rack-Vorlage.
+# Schluessel stammen aus dem echten tsserver --write-config-file, nicht geraten.
+server:
+  license-path: {workDir}
+  default-voice-port: {port}
+  voice-ip:
+    - 0.0.0.0
+    - "::"
+  filetransfer-port: {fileTransferPort}
+  filetransfer-ip:
+    - 0.0.0.0
+    - "::"
+  log-path: {logDir}
+  log-append: 0
+  log-timezone: utc
+  accept-license: accept
+
+  database:
+    plugin: sqlite3
+    sql-path: {workDir}/sql/
+    sql-create-path: {workDir}/sql/create_sqlite/
+    # Kein 'sqlite-file'-Key: tsserver kennt ihn nicht (--help: 0 Treffer).
+    # Die DB entsteht automatisch als <workDir>/tsserver.sqlitedb. Genau das ist
+    # fuer den Clean Install gewuenscht: die DB liegt im Zielordner der Instanz.
+
+  query:
+    ssh:
+      enable: 0
+    http:
+      enable: 0

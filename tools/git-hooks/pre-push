@@ -1,0 +1,4 @@
+#!/bin/sh
+# Verweist auf den eingecheckten Scanner, damit die Regel im Repo steht
+# und nicht nur in .git/hooks (die nicht versioniert wird).
+exec "$(git rev-parse --show-toplevel)/tools/pre-push-scan.sh"

@@ -1,0 +1,21 @@
+{
+  "name": "game-armory",
+  "version": "1.0.0",
+  "license": "AGPL-3.0-only",
+  "description": "Game-Armory - Gameserver Control Panel",
+  "type": "module",
+  "main": "app/server.js",
+  "scripts": {
+    "start": "node app/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.0",
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.11",
+    "rcon-client": "^4.2.5",
+    "ws": "^8.18.0"
+  }
+}

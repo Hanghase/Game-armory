@@ -1,0 +1,288 @@
+#!/bin/bash
+# Game-Armory - Selbst-Update-Helfer (privilegierter Helfer)
+#
+# Wird per sudo vom armory-User aufgerufen. Tauscht das Panel auf einen
+# Git-Release-Tag und rollt bei Fehlschlag selbsttaetig zurueck.
+#
+# Warum ein eigener Helfer: Das Panel kann sich nicht selbst ersetzen, waehrend
+# es laeuft. Der Helfer macht genau vier Dinge und sonst nichts:
+#   1. prüfen,   welcher Tag aktuell ausgecheckt ist  (status)
+#   2. verfuegbare Tags von origin holen             (status)
+#   3. auf einen Tag wechseln + Dienst neu starten    (apply)
+#   4. bei Fehlschlag zurueck auf den alten Tag        (im apply, automatisch)
+#
+# Sicherheit:
+#   - KEIN freies Shell-Durchreichen, kein Kommando als Argument.
+#   - Es wird ausschliesslich auf TAGS gewechselt (vX.Y.Z), nie auf Branches
+#     oder Commits - ein Tag ist unveraenderlich, ein Branch nicht.
+#   - data/, swords/, logs/ sind per .gitignore ausgeschlossen und werden
+#     durch 'git checkout' nicht beruehrt. Zusaetzlich verweigert der Helfer
+#     die Arbeit, wenn diese Ordner versioniert waeren.
+#   - Laeuft als 'armory' (nicht root) fuer git; root nur fuer systemctl.
+set -euo pipefail
+
+REPO_DIR="/opt/game-armory"
+UNIT="game-armory.service"
+SERVICE_URL="http://127.0.0.1:3000/"
+GIT_REMOTE="origin"
+TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
+HEALTH_TIMEOUT=45        # Sekunden, die das Panel zum Hochkommen hat
+HEALTH_INTERVAL=1
+BACKUP_DIR="/opt/game-armory/.self-update-backup"
+LOCK_FILE="/run/armory-self-update.lock"
+
+usage() {
+  echo "Usage: armory-self-update <step> [args...]" >&2
+  echo "Steps: status | tags | apply <tag>   (DRY_RUN=1 fuer Trockenlauf)" >&2
+  exit 2
+}
+
+log() { echo "[self-update] $*"; }
+fail() { echo "FEHLER: $*" >&2; exit "${2:-1}"; }
+
+# --- Vorpruefungen -----------------------------------------------------------
+
+# Das Repo muss ein Git-Repo sein und darf keine Laufzeitdaten versionieren.
+check_repo_safe() {
+  [[ -d "$REPO_DIR/.git" ]] || fail "Kein Git-Repo: $REPO_DIR"
+  local tracked
+  tracked="$(git_cmd ls-files -- data swords logs 2>/dev/null | head -1 || true)"
+  if [[ -n "$tracked" ]]; then
+    fail "ABBRUCH: Laufzeitdaten sind versioniert ($tracked). Ein checkout wuerde sie ueberschreiben. Erst .gitignore pruefen." 3
+  fi
+}
+
+# Eigentuemer des Repos VOR dem Update merken. Der Helfer laeuft als root und
+# muss in .git schreiben koennen; danach wird der urspruengliche Besitz
+# wiederhergestellt. So funktioniert dieselbe Datei bei einer Installation,
+# die 'root' gehoert, und bei einer, die dem Panel-User gehoert.
+OWNER_USER=""
+OWNER_GROUP=""
+remember_owner() {
+  OWNER_USER="$(stat -c '%U' "$REPO_DIR")"
+  OWNER_GROUP="$(stat -c '%G' "$REPO_DIR")"
+  log "Eigentuemer: ${OWNER_USER}:${OWNER_GROUP}"
+}
+
+# Besitz nach dem Checkout wiederherstellen - aber nur auf versionierten
+# Pfaden. data/, swords/, logs/ bleiben unberuehrt (deren Besitz gehoert
+# dem Betrieb, nicht dem Repo).
+restore_owner() {
+  [[ -n "$OWNER_USER" ]] || return 0
+  git_cmd ls-files -z | xargs -0 -r chown "${OWNER_USER}:${OWNER_GROUP}" -- 2>/dev/null || true
+}
+
+# git als ROOT (der Helfer hat die Rechte). safe.directory nur fuer diesen
+# Aufruf, nicht systemweit in /etc/gitconfig.
+git_cmd() {
+  git -c "safe.directory=$REPO_DIR" -C "$REPO_DIR" "$@" 2>&1
+}
+
+# fetch braucht eine eigene Variante (2026-10-19): git_cmd leitet stderr nach
+# stdout, und das '|| fail' im Aufrufer verwirft genau diese Ausgabe. Ergebnis
+# war "git fetch fehlgeschlagen 5" ohne jeden Grund - im Panel nicht
+# diagnostizierbar. Hier wird git's eigene Meldung EINGESAMMELT und
+# mitgegeben, damit der Betreiber sieht, woran es lag.
+fetch_tags() {
+  local out rc=0
+  # WICHTIG: Das "|| rc=$?" ist kein Zierrat. Das Skript laeuft mit
+  # "set -euo pipefail"; ohne diesen Anhang beendet ein fehlgeschlagenes
+  # git fetch die Shell SOFORT mit gits Exitcode - noch vor rc=$? und fail().
+  # Genau so ging der Grund verloren (rc=128, keine Ausgabe).
+  out="$(git -c "safe.directory=$REPO_DIR" -C "$REPO_DIR" \
+        fetch --tags --prune "$GIT_REMOTE" 2>&1)" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    # Letzte nicht-leere Zeile ist bei git meist die eigentliche Ursache.
+    local reason
+    reason="$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -3 | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+    fail "git fetch fehlgeschlagen: ${reason:-ohne Ausgabe} (rc $rc)" 5
+  fi
+}
+
+# Aktueller Stand als lesbarer Text: Tag, wenn genau eins passt, sonst ein
+# Kurz-Hash. git_cmd schreibt stderr mit nach stdout (2>&1) - die Meldung
+# "no tag exactly matches" darf deshalb NICHT in die Ausgabe rutschen.
+current_tag() {
+  local t
+  t="$(git -c "safe.directory=$REPO_DIR" -C "$REPO_DIR" describe --tags --exact-match 2>/dev/null || true)"
+  if [[ -n "$t" ]]; then
+    printf '%s' "$t"
+    return 0
+  fi
+  printf '(kein Tag: %s)' "$(git -c "safe.directory=$REPO_DIR" -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
+}
+
+# Panel-Erreichbarkeit: 200, 302 oder 401 gelten als "laeuft".
+# 401 ist korrekt, wenn das Panel ohne Login antwortet.
+panel_healthy() {
+  local code
+  code="$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$SERVICE_URL" 2>/dev/null || echo 000)"
+  [[ "$code" == "200" || "$code" == "302" || "$code" == "401" ]]
+}
+
+wait_for_panel() {
+  local waited=0
+  while (( waited < HEALTH_TIMEOUT )); do
+    if panel_healthy; then return 0; fi
+    sleep "$HEALTH_INTERVAL"
+    waited=$(( waited + HEALTH_INTERVAL ))
+  done
+  return 1
+}
+
+# --- Schritte ----------------------------------------------------------------
+
+step="${1:-}"
+
+case "$step" in
+  status)
+    check_repo_safe
+    branch="$(git_cmd rev-parse --abbrev-ref HEAD || echo '?')"
+    commit="$(git_cmd rev-parse --short HEAD || echo '?')"
+    tag="$(current_tag)"
+    # Was zaehlt als "Arbeitsstand"? (2026-10-19)
+    # Ignorierte Dateien (logs/, data/, .self-update-backup/) zaehlt git gar
+    # nicht - die sind unkritisch.
+    # Unterschieden wird aber zwischen:
+    #   tracked  - verfolgte Datei geaendert/geloescht -> checkout koennte sie
+    #              ueberschreiben, das MUSS sperren.
+    #   untracked- neue Datei ausserhalb .gitignore. Nicht zwingend ein Problem,
+    #              aber jemand hat von Hand etwas ins Repo gelegt - das soll
+    #              sichtbar sein, statt still ueberschrieben zu werden.
+    dirty_tracked="$(git_cmd status --porcelain --untracked-files=no | wc -l)"
+    dirty_untracked="$(git_cmd status --porcelain | grep -c '^??' || true)"
+    dirty=$((dirty_tracked + dirty_untracked))
+    health="down"; panel_healthy && health="up"
+    unit_state="$(systemctl is-active "$UNIT" 2>/dev/null || echo unknown)"
+    printf 'tag=%s\ncommit=%s\nbranch=%s\ndirty=%s\ndirty_tracked=%s\ndirty_untracked=%s\nunit=%s\npanel=%s\n' \
+      "$tag" "$commit" "$branch" "$dirty" "$dirty_tracked" "$dirty_untracked" "$unit_state" "$health"
+    ;;
+
+  tags)
+    check_repo_safe
+    # Nur fuers UI: verfuegbare Release-Tags, neueste zuerst.
+    fetch_tags
+    git_cmd tag --list --sort=-v:refname | grep -E "$TAG_RE" | head -20
+    ;;
+
+  apply)
+    target="${2:-}"
+    [[ -n "$target" ]] || usage
+    [[ "$target" =~ $TAG_RE ]] || fail "Ungueltiger Tag: $target (erwartet vX.Y.Z)" 2
+
+    # Trockenlauf (2026-10-19): DRY_RUN=1 prueft ALLES bis zum checkout und
+    # hoert dann auf. Kein Tausch, kein Neustart. Ein echter Probelauf gegen
+    # den Live-Dienst waere der einzige Moment, in dem sich das Panel selbst
+    # die Verbindung kappt - deshalb getrennt testbar.
+    dry_run="${DRY_RUN:-0}"
+
+    # Nur EIN Update gleichzeitig - sonst tauschen zwei Laeufe gegeneinander.
+    # Im Trockenlauf kein Lock: er veraendert nichts, darf aber auch nicht
+    # einem echten Update in die Quere kommen.
+    if [[ "$dry_run" != "1" ]]; then
+      exec 9>"$LOCK_FILE" || fail "Lock-Datei nicht schreibbar: $LOCK_FILE"
+      if ! flock -n 9; then fail "Es laeuft bereits ein Selbst-Update." 4; fi
+    fi
+
+    check_repo_safe
+
+    # Eigentuemer merken, BEVOR irgendetwas getauscht wird: der Helfer laeuft
+    # als root und schreibt in .git, die Dateien sollen danach aber wieder
+    # dem Betrieb gehoeren (root bei einer root-Installation, armory bei einer
+    # Installation, die dem Panel-User gehoert).
+    remember_owner
+
+    log "hole Tags von $GIT_REMOTE"
+    fetch_tags
+
+    # Tag muss existieren UND aus dem Remote kommen (kein lokal gebastelter).
+    git_cmd rev-parse --verify --quiet "refs/tags/$target" >/dev/null \
+      || fail "Tag existiert nicht: $target" 6
+    git_cmd ls-remote --tags --quiet "$GIT_REMOTE" "refs/tags/$target" | grep -q . \
+      || fail "Tag ist nicht im Remote-Repo: $target" 6
+
+    old_tag="$(current_tag)"
+    old_commit="$(git_cmd rev-parse HEAD)"
+    log "aktuell: $old_tag ($old_commit) -> Ziel: $target"
+
+    # Arbeitsverzeichnis muss sauber sein: sonst wuerde checkout lokale
+    # Aenderungen verwerfen (oder abbrechen) - beides ist hier unerwuenscht.
+    #
+    # Getrennt gezaehlt (2026-10-19):
+    #   tracked   - verfolgte Datei geaendert -> Sperre, harte Regel.
+    #   untracked - neue Datei ausserhalb .gitignore. Ein 'checkout' fasst sie
+    #               nicht an, aber jemand hat von Hand etwas ins Repo gelegt.
+    #               Das wird gemeldet (nicht still ueberschrieben), sperrt aber
+    #               nicht das Update - sonst blockiert eine vergessene Datei
+    #               den Betrieb dauerhaft.
+    # Ignorierte Dateien (logs/, data/) zaehlt git ohnehin nicht.
+    tracked_changes=''
+    untracked_files=''
+    tracked_changes="$(git_cmd status --porcelain --untracked-files=no | wc -l)"
+    untracked_files="$(git_cmd status --porcelain | grep -c '^??' || true)"
+    if [[ "$tracked_changes" -ne 0 ]]; then
+      fail "Arbeitsverzeichnis nicht sauber ($tracked_changes geaenderte verfolgte Datei(en)) - Update abgelehnt. Erst Aenderungen klaeren." 7
+    fi
+    if [[ "$untracked_files" -ne 0 ]]; then
+      log "Hinweis: $untracked_files nicht versionierte Datei(en) im Repo - sie bleiben unberuehrt."
+    fi
+
+    # Sicherung als root (der Helfer hat die Rechte auf .git und Arbeitsbaum).
+    # Nur die VERSIONIERTEN Dateien - data/, swords/, logs/ sind nicht dabei.
+    mkdir -p "$BACKUP_DIR"
+    rm -rf "$BACKUP_DIR"/*
+    if ! git_cmd archive --format=tar "$old_commit" -o "$BACKUP_DIR/before-$target.tar"; then
+      fail "Sicherung des alten Stands fehlgeschlagen - Update abgelehnt." 8
+    fi
+    log "Sicherung: $BACKUP_DIR/before-$target.tar"
+
+    # --- Trockenlauf endet hier --------------------------------------------
+    if [[ "$dry_run" == "1" ]]; then
+      log "TROCKENLAUF: alles geprueft, kein checkout, kein Neustart"
+      printf 'result=dry-run\ntag=%s\nprevious=%s\nbackup=%s\n' \
+        "$target" "$old_tag" "$BACKUP_DIR/before-$target.tar"
+      exit 0
+    fi
+
+    # --- Ab hier wird veraendert -------------------------------------------
+    log "checkout $target"
+    if ! git_cmd checkout --detach "$target" >/dev/null; then
+      log "checkout fehlgeschlagen - nichts veraendert, Stand bleibt $old_tag"
+      fail "checkout fehlgeschlagen" 9
+    fi
+
+    log "Dienst neu starten"
+    systemctl restart "$UNIT" || true   # Ergebnis bewertet der Health-Check
+
+    if wait_for_panel; then
+      restore_owner
+      log "OK: $target laeuft (Panel antwortet)"
+      rm -rf "$BACKUP_DIR"/*
+      printf 'result=ok\ntag=%s\nprevious=%s\n' "$target" "$old_tag"
+    else
+      log "Panel antwortet NICHT - ROLLBACK auf $old_tag"
+      systemctl stop "$UNIT" || true
+      if git_cmd checkout --detach "$old_commit" >/dev/null; then
+        systemctl restart "$UNIT" || true
+        if wait_for_panel; then
+          restore_owner
+          log "Rollback ok: $old_tag laeuft wieder"
+          printf 'result=rolled-back\ntag=%s\nprevious=%s\nreason=panel-unhealthy\n' "$old_tag" "$old_tag"
+        else
+          log "WARNUNG: Rollback-Checkout ok, aber Panel antwortet weiterhin nicht"
+          printf 'result=rollback-failed\ntag=%s\nprevious=%s\n' "$old_tag" "$old_tag"
+          exit 11
+        fi
+      else
+        log "KRITISCH: Rollback-Checkout fehlgeschlagen. Sicherung: $BACKUP_DIR/before-$target.tar"
+        printf 'result=rollback-checkout-failed\ntag=%s\nprevious=%s\nbackup=%s\n' \
+          "$old_tag" "$old_tag" "$BACKUP_DIR/before-$target.tar"
+        exit 12
+      fi
+    fi
+    ;;
+
+  *)
+    usage
+    ;;
+esac
