@@ -218,7 +218,12 @@ case "$step" in
     # Tag muss existieren UND aus dem Remote kommen (kein lokal gebastelter).
     git_cmd rev-parse --verify --quiet "refs/tags/$target" >/dev/null \
       || fail "Tag existiert nicht: $target" 6
-    git_cmd ls-remote --tags --quiet "$GIT_REMOTE" "refs/tags/$target" | grep -q . \
+    # Auch hier HTTPS statt SSH (2026-10-20): dieselbe Falle wie in fetch_tags.
+    # Mit "$GIT_REMOTE" (= origin, SSH-Form) scheiterte der Abruf im Dienst an
+    # ProtectHome=yes - "Host key verification failed". Die Variable traegt
+    # jetzt die bereits umgeschriebene URL.
+    remote_url="$(https_url)" || fail "Remote-URL nicht ermittelbar" 6
+    git_cmd ls-remote --tags --quiet "$remote_url" "refs/tags/$target" | grep -q . \
       || fail "Tag ist nicht im Remote-Repo: $target" 6
 
     old_tag="$(current_tag)"
