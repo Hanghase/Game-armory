@@ -83,14 +83,34 @@ git_cmd() {
 # war "git fetch fehlgeschlagen 5" ohne jeden Grund - im Panel nicht
 # diagnostizierbar. Hier wird git's eigene Meldung EINGESAMMELT und
 # mitgegeben, damit der Betreiber sieht, woran es lag.
+# Erzeugt aus der origin-URL eine HTTPS-URL: SSH-Formen werden umgeschrieben,
+# alles andere bleibt. Damit funktioniert der Abruf ohne SSH-Schluessel.
+https_url() {
+  local u
+  u="$(git -c "safe.directory=$REPO_DIR" -C "$REPO_DIR" remote get-url "$GIT_REMOTE" 2>/dev/null || true)"
+  [[ -n "$u" ]] || return 1
+  case "$u" in
+    git@github.com:*)      printf 'https://github.com/%s' "${u#git@github.com:}" ;;
+    ssh://git@github.com/*) printf 'https://github.com/%s' "${u#ssh://git@github.com/}" ;;
+    *)                     printf '%s' "$u" ;;
+  esac
+}
+
 fetch_tags() {
   local out rc=0
   # WICHTIG: Das "|| rc=$?" ist kein Zierrat. Das Skript laeuft mit
   # "set -euo pipefail"; ohne diesen Anhang beendet ein fehlgeschlagenes
   # git fetch die Shell SOFORT mit gits Exitcode - noch vor rc=$? und fail().
   # Genau so ging der Grund verloren (rc=128, keine Ausgabe).
+  # HTTPS statt SSH (2026-10-20): Der Dienst laeuft mit ProtectHome=yes und
+  # sieht /root/.ssh nicht - ein SSH-Abruf konnte deshalb nie gelingen.
+  # Das Repo ist oeffentlich, HTTPS braucht keinen Schluessel. Ausserdem
+  # entfaellt damit der Schreibzugriff auf .git/FETCH_HEAD, den der Panel-User
+  # nicht hat: hier wird nur gelesen.
+  local url
+  url="$(https_url)" || fail "Remote-URL nicht ermittelbar" 5
   out="$(git -c "safe.directory=$REPO_DIR" -C "$REPO_DIR" \
-        fetch --tags --prune "$GIT_REMOTE" 2>&1)" || rc=$?
+        ls-remote --tags --refs "$url" 2>&1)" || rc=$?
   if [[ $rc -ne 0 ]]; then
     # Letzte nicht-leere Zeile ist bei git meist die eigentliche Ursache.
     local reason
