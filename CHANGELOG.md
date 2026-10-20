@@ -3,6 +3,20 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.0.1] - 2026-10-20
+
+### Behoben
+- **Versionsabgleich holte Tags ueber SSH und scheiterte immer.** Der Helfer
+  rief `git fetch origin` auf; der Dienst laeuft mit `ProtectHome=yes` und
+  sieht `/root/.ssh` nicht, also konnte die Authentifizierung nie gelingen
+  ("Could not read from remote repository", rc 128). Von Hand - ausserhalb
+  der Unit - funktionierte es, was die Fehlersuche in die Irre fuehrte.
+  Jetzt wird die Remote-URL zur Laufzeit nach HTTPS umgeschrieben und mit
+  `git ls-remote --tags` gelesen. Das Repo ist oeffentlich, ein Schluessel
+  ist nicht noetig.
+- Nebeneffekt: `ls-remote` liest nur, damit entfaellt der Schreibzugriff auf
+  `.git/FETCH_HEAD`, den der Panel-User nicht hat.
+
 ## [1.0.0] - 2026-10-19
 
 ### Neuanfang
