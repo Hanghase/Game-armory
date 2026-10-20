@@ -3,6 +3,15 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.0.2] - 2026-10-20
+
+### Behoben
+- **Der Tag-Abgleich in `apply` lief noch ueber SSH.** `fetch_tags` war bereits
+  auf HTTPS umgestellt, die Pruefung "Tag ist nicht im Remote-Repo" rief
+  `ls-remote` aber weiter mit `$GIT_REMOTE` (SSH-Form) auf. Im Dienst scheiterte
+  das an `ProtectHome=yes` mit "Host key verification failed"; das Update brach
+  mit 502 ab. Jetzt traegt die Variable die umgeschriebene HTTPS-URL.
+
 ## [1.0.1] - 2026-10-20
 
 ### Behoben
