@@ -3,6 +3,7 @@
 // Alle Server-Aktionen sind login-pflichtig; Rollen: admin / moderator / friend.
 
 import express from 'express';
+import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
@@ -39,6 +40,35 @@ const app = express();
 // wuerde dann alle gemeinsam sperren statt den Angreifer. req.ip wird dadurch
 // zur echten Client-IP aus X-Forwarded-For.
 app.set('trust proxy', 1);
+
+// Sicherheits-Header (2026-10-22). Vorher gab es KEINE: kein nosniff, kein
+// X-Frame-Options, kein CSP, kein HSTS. Zusammen mit unescapten Stellen im
+// Frontend war das die gefaehrlichste Kombination im Audit.
+// CSP bleibt bewusst bei denselben Quellen (self) - die App laedt nichts extern.
+// 'unsafe-inline' fuer Styles ist noetig (Inline-Styles im Panel), fuer Skripte
+// NICHT: das Panel nutzt eine eigene app.js/Inline-Handler ohne eval.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], // Panel nutzt Inline-Event-Handler
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+    },
+  },
+  // HSTS nur setzen, wenn wirklich HTTPS anliegt - sonst sperrt man sich bei
+  // reinem HTTP-Zugriff (127.0.0.1:3000) selbst aus.
+  hsts: { maxAge: 15552000, includeSubDomains: false },
+  crossOriginEmbedderPolicy: false, // Video/Canvas im Panel braucht das nicht
+}));
+
 app.use(express.json());
 app.use(cookieParser());
 

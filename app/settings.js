@@ -65,10 +65,12 @@ export const SETTING_KEYS = [
 // ECHTE Geheimnisse - nur diese werden maskiert ausgeliefert.
 // Alles andere in SETTING_KEYS (Host, Port, User, Absender, Schalter, Rack-Auswahl)
 // ist Konfiguration, kein Secret, und muss im Formular lesbar sein.
+// 2026-10-22: smtp_user ergaenzt (Benutzername verraet das Mail-Konto).
 export const SECRET_KEYS = new Set([
   'curseforge_api_key',
   'steam_password',
   'smtp_pass',
+  'smtp_user',
 ]);
 
 export const NUMERIC_SETTINGS = {

@@ -42,6 +42,10 @@ export const PERMISSIONS = [
   // Racks
   { perm: 'rack.read',              label: 'Racks lesen',               group: 'Racks' },
   { perm: 'rack.create',            label: 'Racks anlegen',             group: 'Racks' },
+  // Eigener Recht fuer Aenderungen an bestehenden Racks. Vorher hing PUT /racks/:id
+  // am Anlegen-Recht - wer anlegen durfte, konnte auch bestehende Racks umbiegen
+  // (root, startScript). Seit 2026-10-22 getrennt.
+  { perm: 'rack.edit',              label: 'Racks bearbeiten',          group: 'Racks' },
   { perm: 'rack.delete',            label: 'Racks loeschen',            group: 'Racks' },
   { perm: 'rack.sidebar.write',     label: 'Sidebar-Racks bearbeiten',  group: 'Racks' },
   { perm: 'rack.reload',            label: 'Racks neu laden',           group: 'Racks' },
@@ -90,7 +94,8 @@ const ADMIN_PERMS = [
   ...MODERATOR_PERMS,
   'sword.create',       // ECHTES Anlegen (POST /installs) - heute requireRole('admin')
   'system.diagnostics',
-  'rack.create',        // Rack anlegen/bearbeiten - heute implizit admin (kein Recht in der Leiter)
+  'rack.create',        // Rack anlegen - seit 2026-10-22 getrennt von rack.edit
+  'rack.edit',          // Bestehende Racks aendern (PUT /racks/:id)
   'rack.delete',        // Rack loeschen - heute implizit admin (kein Recht in der Leiter)
   'rack.sidebar.write',
   'rack.reload',

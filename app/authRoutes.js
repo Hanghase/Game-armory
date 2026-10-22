@@ -9,6 +9,7 @@ import {
   listUsers, deleteUser, setRole, countSuperusers, getRole, changeOwnPassword, setUserPassword, ROLE_LEVEL,
   createAuthToken, consumeAuthToken, setUserEmail, getUserByEmail, getUserById, pruneAuthTokens,
   loginBanRemainingMs, recordLoginFailure, clearLoginFailures,
+  validatePassword,
 } from './auth.js';
 import { getLoginGuardConfig } from './settings.js';
 import { getPermissionsForRole, getMatrix, setPermission, roleHasPerm, ROLES, PERMISSIONS } from './permissions.js';
@@ -277,8 +278,10 @@ authRouter.post('/forgot-password', async (req, res) => {
 // --- Passwort-Reset einloesen (public) -------------------------------------
 authRouter.post('/reset-password', (req, res) => {
   const { token, newPassword } = req.body ?? {};
-  if (!newPassword || String(newPassword).length < 8) {
-    return res.status(400).json({ error: 'Neues Passwort: mindestens 8 Zeichen.' });
+  try {
+    validatePassword(String(newPassword ?? ''));
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
   const hit = consumeAuthToken(String(token ?? ''), 'reset');
   if (!hit) return res.status(400).json({ error: 'Der Link ist ungueltig oder abgelaufen.' });
@@ -294,8 +297,10 @@ authRouter.post('/reset-password', (req, res) => {
 // --- Einladung einloesen (public) ------------------------------------------
 authRouter.post('/accept-invite', (req, res) => {
   const { token, newPassword } = req.body ?? {};
-  if (!newPassword || String(newPassword).length < 8) {
-    return res.status(400).json({ error: 'Neues Passwort: mindestens 8 Zeichen.' });
+  try {
+    validatePassword(String(newPassword ?? ''));
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
   const hit = consumeAuthToken(String(token ?? ''), 'invite');
   if (!hit) return res.status(400).json({ error: 'Die Einladung ist ungueltig oder abgelaufen.' });

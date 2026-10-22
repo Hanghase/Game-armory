@@ -3,6 +3,49 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.0] - 2026-10-22
+
+Security-Release nach einem vollstaendigen Code-Audit (Login/Auth, SQL,
+Command-Injection, Path Traversal, Uploads, XSS, Header, Abhaengigkeiten).
+Kernbefund: keine SQL-Injection, keine Command-Injection, keine hartcodierten
+Secrets; `npm audit` ohne Treffer. Die folgenden Punkte waren die echten Luecken.
+
+### Sicherheit
+- **Passwort-Richtlinie eingefuehrt.** Vorher wurde nur die Laenge (min. 8)
+  geprueft - `12345678` war damit zulaessig. Jetzt: mindestens 10 Zeichen,
+  mindestens 3 von 4 Zeichengruppen (klein/gross/Ziffern/Sonderzeichen), keine
+  Ein-Zeichen-Wiederholung, Blockliste gaengiger Passwoerter, nicht der
+  Benutzername. Gilt an allen fuenf Stellen (Anlegen, eigenes Aendern, Admin-Reset,
+  Reset-Link, Einladung). Das Panel zeigt die Kriterien unter jedem Passwortfeld
+  und faerbt sie beim Tippen gruen/rot.
+- **Sicherheits-Header ueber `helmet`.** Vorher gab es keine. Neu: CSP,
+  X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS,
+  X-DNS-Prefetch-Control, X-Permitted-Cross-Domain-Policies.
+- **`PUT /api/settings` schuetzt Geheimnisse.** Schluessel aus `SECRET_KEYS`
+  (CurseForge-Key, Steam-Passwort, SMTP-Zugang) darf nur noch der Superuser
+  setzen; normale Einstellungen bleiben bei `settings.write`. `smtp_user` wird
+  jetzt ebenfalls maskiert.
+- **Passwort-Reset wirft bestehende Sitzungen raus.** `setUserPassword` loeschte
+  die Sessions des Nutzers nicht - eine bereits bestehende (ggf. gestohlene)
+  Sitzung blieb nach einem Reset weiter gueltig.
+- **Neues Recht `rack.edit`.** `PUT /api/racks/:id` hing am Anlegen-Recht
+  (`rack.create`), wodurch jeder mit Anlege-Recht bestehende Racks umbiegen
+  konnte (inkl. `root` und `startScript`). Bearbeiten ist jetzt getrennt.
+- **Gespeichertes XSS in der Benutzerliste behoben.** `${u.username}` wurde
+  unescaped in `innerHTML` eingesetzt.
+
+### Behoben
+- Ueberlange oder ungueltige Passwoerter liefern jetzt die konkrete Regel als
+  Fehlermeldung statt nur "zu kurz".
+
+### Hinweis
+- Die Blockliste der Passwoerter steht doppelt: in `app/auth.js` (Server,
+  verbindlich) und in `public/app.html` (nur Anzeige). Beide Stellen muessen
+  gemeinsam gepflegt werden; ein Kommentar im Code weist darauf hin.
+- Die CSP erlaubt `'unsafe-inline'` fuer Skripte, weil das Panel Inline-Handler
+  nutzt. Das schuetzt gegen externe Skripte, nicht gegen Inline-Injection;
+  sauber wird es erst mit einem Umbau auf `addEventListener`.
+
 ## [1.0.2] - 2026-10-20
 
 ### Behoben

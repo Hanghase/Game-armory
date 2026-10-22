@@ -138,6 +138,15 @@
     button.active { border-color: var(--green); color: var(--green); }
     .locked { color: var(--muted); font-size: 13px; margin-top: 12px; }
     .hint { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    /* Passwort-Richtlinie: sichtbar unter dem Passwort-Feld (2026-10-22) */
+    .pw-rules { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: 6px; background: rgba(124, 92, 255, .06); font-size: 12px;
+      line-height: 1.7; color: var(--muted); max-width: 420px; }
+    .pw-rules b { color: var(--text); font-size: 12px; }
+    .pw-rules ul { margin: 4px 0 0; padding-left: 18px; }
+    .pw-rules li { transition: color .12s ease; }
+    .pw-rules li.ok { color: var(--green); }
+    .pw-rules li.bad { color: var(--red); }
     .console-wrap { margin-top: 24px; }
     .console-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
     .console-status { color: var(--muted); font-size: 12.5px; margin-left: auto; }
@@ -523,7 +532,16 @@
         <h4>Eigenes Passwort ändern</h4>
         <form class="inline" id="selfPasswordForm">
           <input id="sp_current" type="password" placeholder="Aktuelles Passwort" autocomplete="current-password" />
-          <input id="sp_new" type="password" placeholder="Neues Passwort (min. 8 Zeichen)" autocomplete="new-password" />
+          <input id="sp_new" type="password" placeholder="Neues Passwort (min. 10 Zeichen)" autocomplete="new-password" />
+          <div class="pw-rules" id="sp_pass_rules">
+            <b>Passwort-Anforderungen</b>
+            <ul>
+              <li data-rule="len">mindestens <b>10 Zeichen</b></li>
+              <li data-rule="groups">mindestens 3 von 4: Kleinbuchstaben, Gro&szlig;buchstaben, Ziffern, Sonderzeichen</li>
+              <li data-rule="common">kein verbreitetes Passwort (z.&nbsp;B. password123)</li>
+              <li data-rule="name">nicht der Benutzername</li>
+            </ul>
+          </div>
           <input id="sp_new2" type="password" placeholder="Neues Passwort wiederholen" autocomplete="new-password" />
           <button class="primary" type="submit" style="margin-top:8px;">Passwort ändern</button>
         </form>
@@ -540,7 +558,16 @@
         <h4>Nutzer anlegen</h4>
         <form class="inline" id="newUserForm">
           <input id="nu_name" placeholder="Benutzername" />
-          <input id="nu_pass" type="password" placeholder="Passwort (min. 8 Zeichen)" />
+          <input id="nu_pass" type="password" placeholder="Passwort (min. 10 Zeichen)" />
+          <div class="pw-rules" id="nu_pass_rules">
+            <b>Passwort-Anforderungen</b>
+            <ul>
+              <li data-rule="len">mindestens <b>10 Zeichen</b></li>
+              <li data-rule="groups">mindestens 3 von 4: Kleinbuchstaben, Gro&szlig;buchstaben, Ziffern, Sonderzeichen</li>
+              <li data-rule="common">kein verbreitetes Passwort (z.&nbsp;B. password123)</li>
+              <li data-rule="name">nicht der Benutzername</li>
+            </ul>
+          </div>
           <input id="nu_email" type="email" placeholder="E-Mail (optional, für Reset)" autocomplete="off" />
           <select id="nu_role">
             <option value="friend">Freund</option>
@@ -558,7 +585,16 @@
         <h4>Passwort zurücksetzen</h4>
         <div class="hint" id="rpUserInfo"></div>
         <form class="inline" id="resetPasswordForm">
-          <input id="rp_new" type="password" placeholder="Neues Passwort (min. 8 Zeichen)" autocomplete="new-password" />
+          <input id="rp_new" type="password" placeholder="Neues Passwort (min. 10 Zeichen)" autocomplete="new-password" />
+          <div class="pw-rules" id="rp_pass_rules">
+            <b>Passwort-Anforderungen</b>
+            <ul>
+              <li data-rule="len">mindestens <b>10 Zeichen</b></li>
+              <li data-rule="groups">mindestens 3 von 4: Kleinbuchstaben, Gro&szlig;buchstaben, Ziffern, Sonderzeichen</li>
+              <li data-rule="common">kein verbreitetes Passwort (z.&nbsp;B. password123)</li>
+              <li data-rule="name">nicht der Benutzername</li>
+            </ul>
+          </div>
           <input id="rp_new2" type="password" placeholder="Neues Passwort wiederholen" autocomplete="new-password" />
           <div class="modal-foot">
             <button class="ghost" type="button" id="rpCancel">Abbrechen</button>
@@ -1043,6 +1079,59 @@
       }
       return parts.join(' · ');
     }
+    // --- Passwort-Richtlinie live anzeigen (2026-10-22) -------------------
+    // Spiegel der Server-Regeln aus app/auth.js (validatePassword). Wird beim
+    // Tippen ausgewertet, damit man sieht WAS noch fehlt statt es erst beim
+    // Absenden zu erfahren. Der Server prueft weiterhin selbst - das hier ist
+    // reine Anzeige, keine Sicherheitsgrenze.
+    const PW_COMMON = new Set([
+      '12345678', '123456789', '1234567890', '12345678910',
+      'password', 'password1', 'password12', 'password123', 'passwort',
+      'passwort1', 'passwort12', 'passwort123', 'qwertzuiop', 'qwertyuiop',
+      'qwertz1234', 'qwerty1234', 'abcdefghij', 'abcd123456',
+      'iloveyou1', 'welcome123', 'admin12345', 'administrator',
+      'letmein123', 'football12', 'baseball12', 'sonnenschein',
+      'schalke04', 'dortmund09', 'hallo12345', 'test123456',
+    ]);
+
+    function pwRuleState(pw, username) {
+      const v = String(pw ?? '');
+      const groups = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/]
+        .filter((re) => re.test(v)).length;
+      const name = String(username ?? '').trim().toLowerCase();
+      return {
+        len:    v.length >= 10,
+        groups: groups >= 3,
+        common: v.toLowerCase() !== '' && !PW_COMMON.has(v.toLowerCase()),
+        name:   !(name.length >= 3 && v.toLowerCase().includes(name)),
+      };
+    }
+
+    // Faerbt die <li data-rule="..."> in der Regel-Box und liefert zurueck,
+    // ob alle Kriterien erfuellt sind.
+    function renderPwRules(boxId, pw, username) {
+      const box = document.getElementById(boxId);
+      if (!box) return true;
+      const st = pwRuleState(pw, username);
+      box.querySelectorAll('li[data-rule]').forEach((li) => {
+        const ok = st[li.dataset.rule];
+        li.classList.toggle('ok', Boolean(ok));
+        li.classList.toggle('bad', !ok);
+      });
+      return Object.values(st).every(Boolean);
+    }
+
+    // Haengt das Live-Feedback an ein Passwortfeld. userFn liefert den
+    // Benutzernamen fuer die "nicht der Benutzername"-Regel (oder '').
+    function bindPwRules(inputId, boxId, userFn) {
+      const inp = document.getElementById(inputId);
+      if (!inp) return;
+      const update = () => renderPwRules(boxId, inp.value, userFn());
+      inp.addEventListener('input', update);
+      inp.addEventListener('blur', update);
+      update();
+    }
+
     function toast(t) {
       const el = document.getElementById('toast');
       el.textContent = t; el.style.display = 'block';
@@ -1346,7 +1435,7 @@
       if (!Array.isArray(data)) { el.textContent = 'Keine Daten.'; return; }
       el.innerHTML = `<table class="users-tbl"><thead><tr><th>Benutzer</th><th>Rang</th><th>E-Mail</th><th></th></tr></thead><tbody>
         ${data.map((u) => `<tr>
-          <td>${u.username}${u.id === me.id ? ' (du)' : ''}</td>
+          <td>${esc(u.username)}${u.id === me.id ? ' (du)' : ''}</td>
           <td>
             <select data-uid="${u.id}" class="roleSel">
               ${Object.entries(RANGEN).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
@@ -3787,6 +3876,10 @@ document.addEventListener('keydown', (ev) => {
         document.getElementById('eulaModal').classList.remove('open');
       }
     });
+    // Passwort-Regeln live verdrahten (2026-10-22)
+    bindPwRules('nu_pass', 'nu_pass_rules', () => document.getElementById('nu_name')?.value ?? '');
+    bindPwRules('rp_new', 'rp_pass_rules', () => profileResetUser?.username ?? '');
+    bindPwRules('sp_new', 'sp_pass_rules', () => me?.username ?? '');
   </script>
 </body>
 </html>

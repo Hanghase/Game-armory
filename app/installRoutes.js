@@ -29,7 +29,7 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { stat, rm } from 'node:fs/promises';
 
-import { getSettingsStatus, setSetting, getSetting, SETTING_KEYS, getSidebarRacks, setSidebarRacks } from './settings.js';
+import { getSettingsStatus, setSetting, getSetting, SETTING_KEYS, SECRET_KEYS, getSidebarRacks, setSidebarRacks } from './settings.js';
 import { verifyMail, sendTestMail } from './mailer.js';
 import { searchModpacks, getFiles, CurseForgeError, verifyApiKey } from './curseforge.js';
 import { requirePerm, requireAuth, requireRole } from './auth.js';
@@ -354,7 +354,9 @@ installRouter.post('/racks', requirePerm('rack.create'), async (req, res) => {
 });
 
 // Rack bearbeiten (id unveraenderlich). Auch hier dieselbe Validierung.
-installRouter.put('/racks/:id', requirePerm('rack.create'), async (req, res) => {
+// Seit 2026-10-22 eigenes Recht: vorher hing das am Anlegen-Recht, wodurch
+// jeder mit 'rack.create' auch bestehende Racks umbiegen konnte (root, startScript).
+installRouter.put('/racks/:id', requirePerm('rack.edit'), async (req, res) => {
   // Eine im Body mitgeschickte, ABWEICHENDE id nicht still ueberschreiben,
   // sondern klar ablehnen. Die URL ist die Identitaet; ein Widerspruch deutet
   // auf einen Aufrufer-Fehler (z.B. falsches Umbenennen) und darf nicht als
@@ -442,6 +444,11 @@ installRouter.post('/system/rights/recheck', requirePerm('settings.read'), async
   res.json(await recheckRights());
 });
 
+// Rechte an den Schreibzugriff auf Einstellungen:
+// 2026-10-22 verschaerft - Schluessel aus SECRET_KEYS (curseforge_api_key,
+// steam_password, smtp_pass, smtp_user) duerfen NUR vom superuser gesetzt werden.
+// Vorher genuegte settings.write (admin), womit ein Admin z.B. den Steam-Login
+// oder den CurseForge-Key der Installation ueberschreiben konnte.
 installRouter.put('/settings', requirePerm('settings.write'), async (req, res) => {
   const body = req.body ?? {};
   const keys = Object.keys(body).filter((k) => SETTING_KEYS.includes(k));
@@ -449,6 +456,15 @@ installRouter.put('/settings', requirePerm('settings.write'), async (req, res) =
     return res.status(400).json({ error: `Keine bekannten Settings uebergeben (erlaubt: ${SETTING_KEYS.join(', ')})` });
   }
 
+  // Secrets sind superuser-Sache. Normale Einstellungen bleiben bei settings.write.
+  const secretKeys = keys.filter((k) => SECRET_KEYS.has(k));
+  if (secretKeys.length > 0 && req.user?.role !== 'superuser') {
+    return res.status(403).json({
+      error: 'Nur der Superuser darf Geheimnisse aendern.',
+      code: 'SECRET_REQUIRES_SUPERUSER',
+      keys: secretKeys,
+    });
+  }
   // CurseForge-Key NICHT blind speichern: erst live gegen die Core-API pruefen.
   // Ein ungueltiger Key (z.B. versehentlich ein Passwort-Hash) faellt so sofort
   // auf, statt spaeter als kryptischer 403 bei der Modpack-Suche.

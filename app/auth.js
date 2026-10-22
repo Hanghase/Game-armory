@@ -10,6 +10,72 @@ import crypto from 'node:crypto';
 import { roleHasPerm, loadPermissions } from './permissions.js';
 import { getSetting } from './settings.js';
 
+// --- Passwort-Richtlinie (2026-10-22) --------------------------------------
+// Vorher wurde NUR die Laenge geprueft (min. 8) - '12345678' kam damit durch.
+// Diese Funktion ist die EINZIGE Stelle mit der Regel; alle Aufrufer
+// (createUser, changeOwnPassword, setUserPassword, reset, invite) nutzen sie.
+//
+// Regeln:
+//   1. mindestens 10 Zeichen
+//   2. mindestens 3 der 4 Gruppen: Kleinbuchstaben, Grossbuchstaben, Ziffern,
+//      Sonderzeichen
+//   3. keine Wiederholung eines einzelnen Zeichens (aaaaaaaaaa)
+//   4. nicht auf der Blockliste gaengiger Passwoerter
+//   5. nicht (fast) gleich dem Benutzernamen
+const PASSWORD_MIN_LENGTH = 10;
+
+// Kleine Blockliste - die haeufigsten Passwoerter, bewusst kurz gehalten.
+// Kein externes Paket: eine Abhaengigkeit weniger, die gepflegt werden muss.
+const COMMON_PASSWORDS = new Set([
+  '12345678', '123456789', '1234567890', '12345678910',
+  'password', 'password1', 'password12', 'password123', 'passwort',
+  'passwort1', 'passwort12', 'passwort123', 'qwertzuiop', 'qwertyuiop',
+  'qwertz1234', 'qwerty1234', 'abcdefghij', 'abcd123456',
+  'iloveyou1', 'welcome123', 'admin12345', 'administrator',
+  'letmein123', 'football12', 'baseball12', 'sonnenschein',
+  'schalke04', 'dortmund09', 'hallo12345', 'test123456',
+]);
+
+/**
+ * Prueft ein Passwort gegen die Richtlinie. Wirft Error mit klarer Meldung.
+ * @param {string} password
+ * @param {string} [username] - optional: Passwort darf nicht der Name sein
+ */
+export function validatePassword(password, username = '') {
+  const pw = String(password ?? '');
+
+  if (pw.length < PASSWORD_MIN_LENGTH) {
+    throw new Error(`Passwort zu kurz (min. ${PASSWORD_MIN_LENGTH} Zeichen)`);
+  }
+
+  // Blockliste ZUERST: sonst meldet ein verbreitetes Passwort wie 'password12'
+  // nur "3 der 4 Gruppen" und der Nutzer erfaehrt nicht, dass es bekannt ist.
+  if (COMMON_PASSWORDS.has(pw.toLowerCase())) {
+    throw new Error('Dieses Passwort ist zu verbreitet - bitte ein anderes waehlen');
+  }
+
+  if (/^(.)\1*$/.test(pw)) {
+    throw new Error('Passwort darf nicht aus einem einzigen wiederholten Zeichen bestehen');
+  }
+
+  const groups = [
+    /[a-z]/.test(pw),            // Kleinbuchstaben
+    /[A-Z]/.test(pw),            // Grossbuchstaben
+    /[0-9]/.test(pw),            // Ziffern
+    /[^a-zA-Z0-9]/.test(pw),     // Sonderzeichen
+  ].filter(Boolean).length;
+  if (groups < 3) {
+    throw new Error('Passwort braucht mindestens 3 der 4 Gruppen: Kleinbuchstaben, Grossbuchstaben, Ziffern, Sonderzeichen');
+  }
+
+  const name = String(username ?? '').trim().toLowerCase();
+  if (name.length >= 3 && pw.toLowerCase().includes(name)) {
+    throw new Error('Passwort darf den Benutzernamen nicht enthalten');
+  }
+
+  return true;
+}
+
 const DB_PATH = '/opt/game-armory/data/armory.db';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 Tage
 
@@ -58,7 +124,7 @@ export function hasUsers() {
 export function createUser(username, password, role = 'friend', email = null) {
   if (!ROLES.includes(role)) throw new Error(`Ungültige Rolle: ${role}`);
   if (!username || username.length < 3) throw new Error('Username zu kurz (min. 3 Zeichen)');
-  if (!password || password.length < 8) throw new Error('Passwort zu kurz (min. 8 Zeichen)');
+  validatePassword(password, username);
 
   const hash = bcrypt.hashSync(password, 12);
   try {
@@ -85,7 +151,7 @@ export function changeOwnPassword(userId, currentPassword, newPassword) {
   if (!currentPassword || !bcrypt.compareSync(currentPassword, user.password_hash)) {
     throw new Error('Aktuelles Passwort ist falsch');
   }
-  if (!newPassword || newPassword.length < 8) throw new Error('Passwort zu kurz (min. 8 Zeichen)');
+  validatePassword(newPassword, user.username);
 
   const hash = bcrypt.hashSync(newPassword, 12);
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
@@ -93,13 +159,21 @@ export function changeOwnPassword(userId, currentPassword, newPassword) {
 }
 
 // Admin-Reset: setzt ein neues Passwort OHNE Pruefung des aktuellen Passworts.
+// 2026-10-22: loescht dabei ALLE Sessions des Nutzers. Vorher blieb eine bereits
+// bestehende (ggf. gestohlene) Session nach einem Passwort-Reset weiter gueltig -
+// der Reset haette einen Angreifer also nicht hinausgeworfen.
 export function setUserPassword(userId, newPassword) {
   const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
   if (!user) throw new Error('Benutzer nicht gefunden');
-  if (!newPassword || newPassword.length < 8) throw new Error('Passwort zu kurz (min. 8 Zeichen)');
+  const row = db.prepare('SELECT username FROM users WHERE id = ?').get(userId);
+  validatePassword(newPassword, row?.username ?? '');
 
   const hash = bcrypt.hashSync(newPassword, 12);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  });
+  tx();
   return true;
 }
 
