@@ -45,14 +45,16 @@ app.set('trust proxy', 1);
 // X-Frame-Options, kein CSP, kein HSTS. Zusammen mit unescapten Stellen im
 // Frontend war das die gefaehrlichste Kombination im Audit.
 // CSP bleibt bewusst bei denselben Quellen (self) - die App laedt nichts extern.
-// 'unsafe-inline' fuer Styles ist noetig (Inline-Styles im Panel), fuer Skripte
-// NICHT: das Panel nutzt eine eigene app.js/Inline-Handler ohne eval.
+// 'unsafe-inline' fuer Styles ist noetig (70 style="-Attribute + ein <style>-Block
+// im Panel). Fuer Skripte ist es NICHT noetig und deshalb entfernt (2026-10-23):
+// das Panel verdrahtet alle Events per addEventListener (83 Stellen), es gibt
+// keine onclick-Attribute, keine javascript:-URLs, kein eval/new Function.
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: false,
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"], // Panel nutzt Inline-Event-Handler
+      scriptSrc: ["'self'"], // kein unsafe-inline: app.js ist ausgelagert (2026-10-23)
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:'],
       connectSrc: ["'self'"],
@@ -232,10 +234,12 @@ app.use(express.static(join(__dirname, '..', 'public'), {
   etag: true,
   lastModified: true,
   setHeaders(res, filePath) {
-    if (/\.html$/.test(filePath)) {
-      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
-    }
-  },
+      // HTML UND app.js nie hart cachen: nach einem Deploy soll sofort die
+      // neue UI kommen, nicht das alte Skript zum neuen HTML.
+      if (/\.(html|js)$/.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      }
+    },
 }));
 
 // --- Start -----------------------------------------------------------------

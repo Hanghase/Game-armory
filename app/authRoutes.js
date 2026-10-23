@@ -95,12 +95,12 @@ authRouter.get('/users', requirePerm('user.read'), (req, res) => {
   res.json(listUsers());
 });
 
-authRouter.post('/users', requirePerm('user.create'), (req, res) => {
+authRouter.post('/users', requirePerm('user.create'), async (req, res) => {
   const { username, password, role, email } = req.body ?? {};
   try {
     // E-Mail nur uebernehmen, wenn der Anlegende auch user.email darf.
     const mail = roleHasPerm(req.user?.role, 'user.email') ? email : null;
-    const user = createUser(username, password, role ?? 'friend', mail);
+    const user = await createUser(username, password, role ?? 'friend', mail);
     res.status(201).json(user);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -208,10 +208,10 @@ authRouter.post('/email', requireAuth, (req, res) => {
 // --- Passwort aendern (eigenes) + Admin-Reset -----------------------------
 
 // Eigenes Passwort aendern (jeder eingeloggte Nutzer).
-authRouter.post('/password', requireAuth, (req, res) => {
+authRouter.post('/password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body ?? {};
   try {
-    changeOwnPassword(req.user.id, currentPassword, newPassword);
+    await changeOwnPassword(req.user.id, currentPassword, newPassword);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -220,14 +220,14 @@ authRouter.post('/password', requireAuth, (req, res) => {
 
 // Admin-Reset: Passwort eines anderen Nutzers setzen (nur Admin).
 // Eigene Methode (POST) + eigener Pfad, kollidiert nicht mit PATCH /users/:id.
-authRouter.post('/users/:id/password', requirePerm('user.password'), (req, res) => {
+authRouter.post('/users/:id/password', requirePerm('user.password'), async (req, res) => {
   const { newPassword } = req.body ?? {};
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
   const exists = listUsers().some((u) => u.id === id);
   if (!exists) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
   try {
-    setUserPassword(id, newPassword);
+    await setUserPassword(id, newPassword);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -236,11 +236,11 @@ authRouter.post('/users/:id/password', requirePerm('user.password'), (req, res) 
 
 // --- Setup: ersten Admin anlegen (nur solange kein User existiert!) -------
 
-authRouter.post('/setup', (req, res) => {
+authRouter.post('/setup', async (req, res) => {
   if (hasUsers()) return res.status(403).json({ error: 'Setup bereits abgeschlossen' });
   const { username, password } = req.body ?? {};
   try {
-    const user = createUser(username, password, 'admin');
+    const user = await createUser(username, password, 'admin');
     const token = createSession(user.id);
     res.cookie(COOKIE_NAME, token, cookieOptions(req));
     res.status(201).json({ ok: true, user });
@@ -276,17 +276,17 @@ authRouter.post('/forgot-password', async (req, res) => {
 });
 
 // --- Passwort-Reset einloesen (public) -------------------------------------
-authRouter.post('/reset-password', (req, res) => {
+authRouter.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body ?? {};
   try {
-    validatePassword(String(newPassword ?? ''));
+    await validatePassword(String(newPassword ?? ''));
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
   const hit = consumeAuthToken(String(token ?? ''), 'reset');
   if (!hit) return res.status(400).json({ error: 'Der Link ist ungueltig oder abgelaufen.' });
   try {
-    setUserPassword(hit.userId, newPassword);
+    await setUserPassword(hit.userId, newPassword);
     pruneAuthTokens();
     res.json({ ok: true });
   } catch (err) {
@@ -295,17 +295,17 @@ authRouter.post('/reset-password', (req, res) => {
 });
 
 // --- Einladung einloesen (public) ------------------------------------------
-authRouter.post('/accept-invite', (req, res) => {
+authRouter.post('/accept-invite', async (req, res) => {
   const { token, newPassword } = req.body ?? {};
   try {
-    validatePassword(String(newPassword ?? ''));
+    await validatePassword(String(newPassword ?? ''));
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
   const hit = consumeAuthToken(String(token ?? ''), 'invite');
   if (!hit) return res.status(400).json({ error: 'Die Einladung ist ungueltig oder abgelaufen.' });
   try {
-    setUserPassword(hit.userId, newPassword);
+    await setUserPassword(hit.userId, newPassword);
     pruneAuthTokens();
     res.json({ ok: true });
   } catch (err) {

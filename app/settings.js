@@ -48,6 +48,9 @@ export const SETTING_KEYS = [
   // Versions-Gegenprobe (2026-10-18): Wie oft soll das Panel pruefen, ob eine
   // neuere Version verfuegbar ist? 0 = nur manuell (Button). Sonst Minuten.
   'version_check_minutes',
+  // Leak-Pruefung (Have I Been Pwned, k-anonymity). 'true' | 'false'.
+  // Fehlt/leer = AN (Default). Nur der Superuser darf das umstellen.
+  'hibp_enabled',
   // Selbst-Update-Gegenprobe (2026-10-19): Wie oft soll die Armory selbst
   // pruefen, ob ein neuerer Tag verfuegbar ist? 0 = nur manuell.
   // Default 1440 = einmal am Tag, rollierend ab dem letzten Lauf.

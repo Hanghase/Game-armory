@@ -3,6 +3,48 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.1] - 2026-10-23
+
+Sicherheits-Release. Zwei offene Punkte aus 1.1.0 abgeschlossen.
+
+### Added
+
+- **Pruefung neuer Passwoerter gegen bekannte Datenleaks** (Have I Been Pwned,
+  k-anonymity-API). Es werden nur die ersten 5 Zeichen des SHA-1-Hashes
+  uebertragen, das Passwort verlaesst den Server nie. Timeout 4 s,
+  `Add-Padding: true`. Bei Netzfehler oder Zeitueberschreitung wird das
+  Passwort durchgelassen und der Vorfall geloggt (**fail-open**), damit ein
+  HIBP-Ausfall niemanden aussperrt.
+  Neues Setting `hibp_enabled` (Standard: an, nur superuser aenderbar),
+  Schalter im Panel unter Einstellungen > Passwort-Pruefung.
+  Pruefreihenfolge: Laenge -> Blockliste -> Form -> Benutzername -> HIBP.
+- `validatePassword()` ist jetzt `async`; `createUser`, `changeOwnPassword`
+  und `setUserPassword` sowie die betroffenen sechs Route-Handler in
+  `authRoutes.js` wurden entsprechend umgestellt.
+
+### Security
+
+- **CSP ohne `unsafe-inline` fuer Skripte.** `script-src` ist jetzt `'self'`.
+  Dafuer wurden die drei Inline-Skriptbloecke in eigene Dateien ausgelagert:
+  `app.html` -> `public/app.js`, `login.html` -> `public/login.js`,
+  `reset.html` -> `public/reset.js`. `style-src` behaelt
+  `'unsafe-inline'`, weil das Panel 56 `style="..."`-Attribute und einen
+  `<style>`-Block nutzt. Damit ist der Code-Ausfuehrungspfad fuer injizierte
+  `<script>`-Bloecke und `onclick`-Attribute geschlossen.
+- Statische JS-Dateien werden wie HTML mit `Cache-Control: no-cache,
+  must-revalidate` ausgeliefert, damit nach einem Deploy nicht altes Skript
+  auf neues HTML trifft.
+
+### Notes
+
+- Der frueher in `server.js` behauptete Grund fuer `unsafe-inline`
+  ("Panel nutzt Inline-Event-Handler") war falsch: das Panel verdrahtet alle
+  Events per `addEventListener`. Die eigentliche Ursache waren die
+  Inline-`<script>`-Bloecke selbst.
+- `reset.html` und `login.html` sind eigene Seiten mit eigenem Skript - sie
+  laden `app.js` nie. Bei CSP-Aenderungen immer alle ausgelieferten
+  HTML-Dateien pruefen.
+
 ## [1.1.0] - 2026-10-22
 
 Security-Release nach einem vollstaendigen Code-Audit (Login/Auth, SQL,

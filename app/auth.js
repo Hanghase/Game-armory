@@ -36,12 +36,70 @@ const COMMON_PASSWORDS = new Set([
   'schalke04', 'dortmund09', 'hallo12345', 'test123456',
 ]);
 
+// --- Leak-Pruefung ueber Have I Been Pwned (k-anonymity, 2026-10-23) ------
+// Die Formpruefung oben erkennt starke Passwoerter, aber keine bekannt
+// geleakten: 'Test12345' besteht alle Regeln und steht trotzdem in jeder
+// Woerterbuchliste. Deshalb zusaetzlich ein Abgleich gegen HIBP.
+//
+// Datenschutz: gesendet werden nur die ERSTEN 5 ZEICHEN des SHA-1-Hashes.
+// Das Passwort selbst verlaesst den Server nie, HIBP sieht nur einen
+// 5-stelligen Praefix, der auf ~800 Hashes passt.
+//
+// Fail-open: bei Netzfehler, Timeout oder Rate-Limit wird das Passwort
+// DURCHGELASSEN und der Vorfall geloggt. Sonst blockiert ein HIBP-Ausfall
+// jede Benutzeranlage und jede Passwortaenderung.
+//
+// Abschaltbar per Setting 'hibp_enabled' = 'false' (Default: an).
+const HIBP_TIMEOUT_MS = 4000;
+const HIBP_API = 'https://api.pwnedpasswords.com/range/';
+
+function hibpEnabled() {
+  return String(getSetting('hibp_enabled') ?? 'true').trim().toLowerCase() !== 'false';
+}
+
+/**
+ * Fragt HIBP, ob das Passwort in bekannten Leaks auftaucht.
+ * @returns {Promise<{checked: boolean, count: number, skipped?: string}>}
+ *   checked=false bedeutet: nicht geprueft (Fehler/Timeout/abgeschaltet).
+ */
+async function hibpCheck(password) {
+  if (!hibpEnabled()) return { checked: false, count: 0, skipped: 'disabled' };
+
+  const sha1 = crypto.createHash('sha1').update(String(password), 'utf8').digest('hex').toUpperCase();
+  const prefix = sha1.slice(0, 5);
+  const suffix = sha1.slice(5);
+
+  try {
+    const res = await fetch(HIBP_API + prefix, {
+      headers: { 'User-Agent': 'game-armory-leak-check', 'Add-Padding': 'true' },
+      signal: AbortSignal.timeout(HIBP_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.text();
+
+    // Antwort: Zeilen "SUFFIX:COUNT". Add-Padding fuellt mit 0-Zaehlern auf,
+    // damit die Antwortgroesse nichts verraet.
+    for (const line of body.split(/\r?\n/)) {
+      const idx = line.indexOf(':');
+      if (idx === -1) continue;
+      if (line.slice(0, idx).trim().toUpperCase() !== suffix) continue;
+      const n = Number.parseInt(line.slice(idx + 1).trim(), 10);
+      return { checked: true, count: Number.isFinite(n) ? n : 0 };
+    }
+    return { checked: true, count: 0 };
+  } catch (err) {
+    // Fail-open: durchlassen, aber sichtbar machen.
+    console.error('[armory] HIBP-Pruefung fehlgeschlagen (Passwort durchgelassen):', err.message);
+    return { checked: false, count: 0, skipped: err.message };
+  }
+}
+
 /**
  * Prueft ein Passwort gegen die Richtlinie. Wirft Error mit klarer Meldung.
  * @param {string} password
  * @param {string} [username] - optional: Passwort darf nicht der Name sein
  */
-export function validatePassword(password, username = '') {
+export async function validatePassword(password, username = '') {
   const pw = String(password ?? '');
 
   if (pw.length < PASSWORD_MIN_LENGTH) {
@@ -71,6 +129,15 @@ export function validatePassword(password, username = '') {
   const name = String(username ?? '').trim().toLowerCase();
   if (name.length >= 3 && pw.toLowerCase().includes(name)) {
     throw new Error('Passwort darf den Benutzernamen nicht enthalten');
+  }
+
+  // Zuletzt: bekannte Leaks. Bewusst NACH allen Formregeln - ein zu kurzes
+  // Passwort soll 'zu kurz' melden, nicht 'geleakt'.
+  const leak = await hibpCheck(pw);
+  if (leak.checked && leak.count > 0) {
+    throw new Error(
+      `Dieses Passwort taucht in bekannten Datenleaks auf (${leak.count.toLocaleString('de-DE')}x) - bitte ein anderes waehlen`
+    );
   }
 
   return true;
@@ -121,10 +188,10 @@ export function hasUsers() {
   return row.n > 0;
 }
 
-export function createUser(username, password, role = 'friend', email = null) {
+export async function createUser(username, password, role = 'friend', email = null) {
   if (!ROLES.includes(role)) throw new Error(`Ungültige Rolle: ${role}`);
   if (!username || username.length < 3) throw new Error('Username zu kurz (min. 3 Zeichen)');
-  validatePassword(password, username);
+  await validatePassword(password, username);
 
   const hash = bcrypt.hashSync(password, 12);
   try {
@@ -145,13 +212,13 @@ export function createUser(username, password, role = 'friend', email = null) {
 // nicht versehentlich einen stillen null-Fall als Erfolg behandeln.
 // Kein Rueckgabewert enthaelt je Passwort oder Hash.
 
-export function changeOwnPassword(userId, currentPassword, newPassword) {
+export async function changeOwnPassword(userId, currentPassword, newPassword) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!user) throw new Error('Benutzer nicht gefunden');
   if (!currentPassword || !bcrypt.compareSync(currentPassword, user.password_hash)) {
     throw new Error('Aktuelles Passwort ist falsch');
   }
-  validatePassword(newPassword, user.username);
+  await validatePassword(newPassword, user.username);
 
   const hash = bcrypt.hashSync(newPassword, 12);
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
@@ -162,11 +229,11 @@ export function changeOwnPassword(userId, currentPassword, newPassword) {
 // 2026-10-22: loescht dabei ALLE Sessions des Nutzers. Vorher blieb eine bereits
 // bestehende (ggf. gestohlene) Session nach einem Passwort-Reset weiter gueltig -
 // der Reset haette einen Angreifer also nicht hinausgeworfen.
-export function setUserPassword(userId, newPassword) {
+export async function setUserPassword(userId, newPassword) {
   const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
   if (!user) throw new Error('Benutzer nicht gefunden');
   const row = db.prepare('SELECT username FROM users WHERE id = ?').get(userId);
-  validatePassword(newPassword, row?.username ?? '');
+  await validatePassword(newPassword, row?.username ?? '');
 
   const hash = bcrypt.hashSync(newPassword, 12);
   const tx = db.transaction(() => {
