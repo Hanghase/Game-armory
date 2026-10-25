@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { isMailReady, sendPasswordResetMail, sendInviteMail } from './mailer.js';
 import {
   verifyLogin, createSession, destroySession, getSessionUser,
-  requireAuth, requirePerm, hasUsers, createUser,
+  requireAuth, requirePerm, hasUsers, createUser, getUserPrefs, setUserPrefs,
   listUsers, deleteUser, setRole, countSuperusers, getRole, changeOwnPassword, setUserPassword, ROLE_LEVEL,
   createAuthToken, consumeAuthToken, setUserEmail, getUserByEmail, getUserById, pruneAuthTokens,
   loginBanRemainingMs, recordLoginFailure, clearLoginFailures,
@@ -87,6 +87,22 @@ authRouter.get('/me', (req, res) => {
   // Rechte-Matrix steuern kann (statt ueber die alte Rang-Leiter).
   const perms = getPermissionsForRole(user.role);
   res.json({ user: { ...user, perms } });
+});
+
+// --- Darstellung je Nutzer --------------------------------------------------
+// Jeder darf NUR seine eigenen Einstellungen lesen und schreiben. Die Nutzer-ID
+// kommt aus der Session, nie aus dem Request-Body - sonst koennte man die
+// Darstellung fremder Konten umstellen.
+authRouter.get('/prefs', requireAuth, (req, res) => {
+  res.json(getUserPrefs(req.user.id));
+});
+
+authRouter.put('/prefs', requireAuth, (req, res) => {
+  const body = req.body ?? {};
+  if (Object.prototype.hasOwnProperty.call(body, 'theme') && !['dark', 'light'].includes(body.theme)) {
+    return res.status(400).json({ error: 'Unbekannte Darstellung' });
+  }
+  res.json(setUserPrefs(req.user.id, { theme: body.theme }));
 });
 
 // --- User-Verwaltung (nur Admin) ------------------------------------------

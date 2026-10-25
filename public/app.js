@@ -87,9 +87,20 @@
     // Benutzernamen fuer die "nicht der Benutzername"-Regel (oder '').
     function bindPwRules(inputId, boxId, userFn) {
       const inp = document.getElementById(inputId);
-      if (!inp) return;
-      const update = () => renderPwRules(boxId, inp.value, userFn());
+      const box = document.getElementById(boxId);
+      if (!inp || !box) return;
+
+      // Die Regeln stehen eingeklappt da und klappen beim ersten Zeichen auf.
+      // Bleiben offen, solange etwas im Feld steht - auch nach dem Verlassen
+      // des Feldes, damit man nachlesen kann, woran es haengt.
+      const sync = () => box.classList.toggle('open', inp.value.length > 0);
+
+      const update = () => {
+        sync();
+        renderPwRules(boxId, inp.value, userFn());
+      };
       inp.addEventListener('input', update);
+      inp.addEventListener('focus', sync);
       inp.addEventListener('blur', update);
       update();
     }
@@ -987,7 +998,91 @@
       renderSelfEmail();
     }
 
-    document.getElementById('who').addEventListener('click', () => openProfile('profile'));
+    // --- Darstellung: Hell/Dunkel ------------------------------------------
+    // Reihenfolge der Anwendung: 1) localStorage (sofort, kein Flackern),
+    // 2) Server-Wert nach dem Login (gilt geraeteuebergreifend).
+    // Der Server ist die Wahrheit; localStorage nur der schnelle Start.
+    const THEME_KEY = 'armory-theme';
+
+    function applyTheme(theme) {
+      const t = theme === 'light' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+      document.querySelectorAll('[data-theme-choice]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.themeChoice === t);
+      });
+      return t;
+    }
+
+    function themeFromCache() {
+      try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'; }
+      catch { return 'dark'; }
+    }
+
+    // Vor dem ersten Zeichnen setzen, damit nichts dunkel aufblitzt.
+    applyTheme(themeFromCache());
+
+    async function loadTheme() {
+      const { status, data } = await api('/api/auth/prefs');
+      if (status !== 200) return;              // alt: kein Endpunkt -> Cache bleibt
+      const t = applyTheme(data.theme);
+      try { localStorage.setItem(THEME_KEY, t); } catch { /* privat -> egal */ }
+    }
+
+    async function saveTheme(theme) {
+      applyTheme(theme);
+      try { localStorage.setItem(THEME_KEY, theme); } catch { /* privat -> egal */ }
+      const { status } = await api('/api/auth/prefs', {
+        method: 'PUT', body: JSON.stringify({ theme }),
+      });
+      if (status !== 200) toast('Darstellung konnte nicht gespeichert werden.');
+    }
+
+    // Klick auf einen Darstellungs-Knopf: sofort anwenden, im Hintergrund speichern.
+    document.querySelectorAll('[data-theme-choice]').forEach((b) => {
+      b.addEventListener('click', () => saveTheme(b.dataset.themeChoice));
+    });
+
+    // Wird vom Menue unten gesetzt; andere Stellen (Logout, Reload) nutzen es.
+    let closeWhoMenu = () => {};
+
+    // Kontomenue: Klick auf den Namen klappt auf, Klick daneben zu.
+    (function initWhoMenu() {
+      const wrap = document.getElementById('whoMenu');
+      const btn = document.getElementById('who');
+      const acc = document.getElementById('menuAccount');
+      if (!wrap || !btn) return;
+
+      const setOpen = (open) => {
+        wrap.classList.toggle('open', open);
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      };
+
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        setOpen(!wrap.classList.contains('open'));
+      });
+
+      // Klick irgendwo sonst schliesst das Menue.
+      document.addEventListener('click', (ev) => {
+        if (!wrap.classList.contains('open')) return;
+        if (!wrap.contains(ev.target)) setOpen(false);
+      });
+
+      // Escape schliesst und gibt den Fokus zurueck.
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        if (!wrap.classList.contains('open')) return;
+        setOpen(false);
+        btn.focus();
+      });
+
+      closeWhoMenu = () => setOpen(false);
+
+      if (acc) acc.addEventListener('click', () => {
+        setOpen(false);
+        openProfile('profile');
+      });
+    })();
     document.getElementById('profileClose').addEventListener('click', closeProfile);
     document.getElementById('permsSave').addEventListener('click', savePermissions);
 
@@ -2075,6 +2170,7 @@
       }
       // Profil-Modal mit den aktuellen Daten befuellen; Admin-Tabs freischalten.
       initProfile();
+      loadTheme();     // Darstellung aus dem Konto nachziehen (Server ist die Wahrheit)
       loadVersion();
 
       // Swords zuerst laden - loadSidebar() leitet daraus die Startauswahl ab
@@ -2087,6 +2183,7 @@
     })();
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
+      closeWhoMenu();
       await api('/api/auth/logout', { method: 'POST' });
       location.href = '/login';
     });
@@ -2400,14 +2497,6 @@ function renderSidebar() {
     }
   }
 
-  // Shop-Knopf: immer fuer Admins sichtbar (der Shop zeigt selbst, was schon da ist).
-  if (can('sword.create')) {
-    const hidden = racksCache.filter((r) => !shown.some((v) => v.id === r.id));
-    const label = hidden.length > 0
-      ? '＋ Rack hinzufügen (' + hidden.length + ')'
-      : '＋ Rack hinzufügen';
-    html += '<button class="rack-add" id="rackAddBtn">' + label + '</button>';
-  }
   // Rack-Verwaltung (anlegen/bearbeiten/loeschen) - eigenes Recht.
   if (can('rack.create')) {
     html += '<button class="rack-add" id="rackManageBtn">⚙ Racks verwalten</button>';
@@ -2416,6 +2505,20 @@ function renderSidebar() {
 
   // Alle Klicks (Filter, Entfernen, Shop) laufen ueber den delegierten
   // document-Handler - hier wird nichts mehr einzeln gebunden.
+}
+
+// Blendet ein Rack in der Sidebar ein oder aus (persistiert die Auswahl).
+// Getrennt von removeRackFromSidebar: hier ohne Seiteneffekte auf den Filter,
+// weil der Aufrufer die Verwaltungsliste offen hat.
+async function toggleRackSidebar(id) {
+  const shown = visibleRacks().map((r) => r.id);
+  const isShown = shown.includes(id);
+  const next = isShown ? shown.filter((x) => x !== id) : [...shown, id];
+  await saveSidebarSelection(next);
+  if (!isShown && activeRackId === null) { /* nichts */ }
+  if (isShown && activeRackId === id) activeRackId = null;
+  renderRackManage();
+  applyRackFilter();
 }
 
 // Entfernt ein Rack aus der Sidebar (persistiert die Auswahl).
@@ -2436,42 +2539,6 @@ async function saveSidebarSelection(ids) {
   renderSidebar();
 }
 
-// --- Shop: verfuegbare Racks dazuholen ------------------------------------
-async function openRackShop() {
-  const overlay = document.getElementById('rackShop');
-  const list = document.getElementById('rackShopList');
-  if (!overlay || !list) return;
-  overlay.classList.add('open');
-  list.innerHTML = '<div class="meta">Lade…</div>';
-  try {
-    const { status, data } = await api('/api/sidebar-racks');
-    if (status !== 200) throw new Error('HTTP ' + status);
-    racksCache = data.all ?? racksCache;
-  } catch (err) {
-    list.innerHTML = '<div class="meta">Konnte Racks nicht laden: ' + esc(err.message) + '</div>';
-    return;
-  }
-  renderRackShop();
-}
-
-function renderRackShop() {
-  const list = document.getElementById('rackShopList');
-  if (!list) return;
-  const shownIds = new Set(visibleRacks().map((r) => r.id));
-  list.innerHTML = (racksCache.length === 0
-    ? '<div class="meta">Keine Racks vorhanden.</div>'
-    : racksCache.map((r) => {
-        const already = shownIds.has(r.id);
-        const icon = r.icon === 'minecraft' ? '🟩' : (r.game === '7d2d' ? '🧟' : '🎮');
-        return '<div class="shop-item' + (already ? ' already' : '') + '" data-add="' + esc(r.id) + '">'
-          + '<span>' + icon + '</span>'
-          + '<span class="si-name">' + esc(r.name)
-          + ' <span class="si-meta">' + esc(r.game) + ' · ' + esc(r.installMethod ?? '') + '</span></span>'
-          + '<span>' + (already ? '✓ sichtbar' : '＋') + '</span></div>';
-      }).join(''));
-
-  // Klicks werden zentral am document behandelt (siehe delegierter Handler).
-}
 
 // Filtert die gezeigten Swords auf das aktive Rack.
 function applyRackFilter() {
@@ -2507,22 +2574,44 @@ function renderRackManage() {
   }
   // Nach id sortiert anzeigen, damit die Liste stabil bleibt.
   const list = [...racksCache].sort((a, b) => a.id.localeCompare(b.id));
-  box.innerHTML = list.map((r) => {
+  const shownIds = new Set(visibleRacks().map((r) => r.id));
+  // Sichtbarkeit in der Sidebar getrennt vom Anlegen: eigenes Recht.
+  const canSidebar = can('rack.sidebar.write');
+  const hiddenCount = list.filter((r) => !shownIds.has(r.id)).length;
+
+  let html = '';
+  if (canSidebar) {
+    html += '<p class="hint" style="margin:0 0 10px;">'
+      + 'Das Auge schaltet die Sidebar-Ansicht. Ausgeblendete Racks verschwinden '
+      + 'nur aus der Ansicht \u2013 Rechte und Installationen bleiben unber\u00fchrt.'
+      + (hiddenCount > 0 ? ' <b>' + hiddenCount + ' ausgeblendet.</b>' : '')
+      + '</p>';
+  }
+
+  html += list.map((r) => {
     const used = allSwords.filter((s) => s.rack === r.id).length;
     const canDel = can('rack.delete');
     const canEdit = can('rack.create');
+    const isShown = shownIds.has(r.id);
     const delTitle = used > 0
       ? 'Wird von ' + used + ' Server(n) benutzt - erst diese entfernen'
       : 'Rack loeschen';
     return '<div class="rack-manage-row">'
       + '<div class="rm-name"><b>' + esc(r.name) + '</b>'
-      + '<span class="si-meta">' + esc(r.id) + ' · ' + esc(r.game) + ' · '
-      + esc(r.installMethod) + ' · ' + used + ' Server</span></div>'
+      + '<span class="si-meta">' + esc(r.id) + ' \u00b7 ' + esc(r.game) + ' \u00b7 '
+      + esc(r.installMethod) + ' \u00b7 ' + used + ' Server</span></div>'
+      + (canSidebar
+        ? '<button data-toggle-rack="' + esc(r.id) + '"'
+          + ' title="' + (isShown ? 'Aus der Sidebar ausblenden' : 'In der Sidebar anzeigen') + '">'
+          + (isShown ? '\ud83d\udc41 sichtbar' : 'ausgeblendet') + '</button>'
+        : '')
       + (canEdit ? '<button data-edit-rack="' + esc(r.id) + '">Bearbeiten</button>' : '')
       + (canDel ? '<button class="danger" data-del-rack="' + esc(r.id) + '"'
-          + (used > 0 ? ' disabled' : '') + ' title="' + esc(delTitle) + '">Loeschen</button>' : '')
+        + (used > 0 ? ' disabled' : '') + ' title="' + esc(delTitle) + '">Loeschen</button>' : '')
       + '</div>';
   }).join('');
+
+  box.innerHTML = html;
 }
 
 // Oeffnet den Editor. rack = null -> neues Rack, sonst bearbeiten.
@@ -2674,13 +2763,6 @@ async function refreshRacks() {
 const _newRackBtn = document.getElementById('newRackBtn');
     if (_newRackBtn) _newRackBtn.addEventListener('click', openNewSwordModal);
 
-// Shop-Steuerung: EIN delegierter Handler am document.
-// Robuster als Einzel-Handler: greift unabhaengig davon, wann/wie die
-// Elemente entstehen oder neu gerendert werden. Kein Binde-Zeitpunkt-Problem.
-function closeRackShop() {
-  const overlay = document.getElementById('rackShop');
-  if (overlay) overlay.classList.remove('open');
-}
 
 document.addEventListener('click', (ev) => {
   // Textknoten-Klicks (z.B. genau auf dem Buchstaben) auf das Element heben.
@@ -2691,25 +2773,7 @@ document.addEventListener('click', (ev) => {
   const hit = (sel) => !!t.closest(sel);
 
   // Reihenfolge: spezifischste Ziele zuerst, dann allgemeine.
-  if (hit('#rackShopClose')) { closeRackShop(); return; }
 
-  const overlay = document.getElementById('rackShop');
-  if (overlay && t === overlay) { closeRackShop(); return; }
-
-  if (hit('#rackShopAll')) {
-    saveSidebarSelection('all').then(() => renderRackShop()).catch(() => {});
-    return;
-  }
-
-  const shopItem = t.closest('.shop-item');
-  if (shopItem) {
-    if (shopItem.classList.contains('already')) return;   // schon sichtbar
-    const id = shopItem.dataset.add;
-    const shown = visibleRacks().map((r) => r.id);
-    if (id && !shown.includes(id)) shown.push(id);
-    saveSidebarSelection(shown).then(() => renderRackShop()).catch(() => {});
-    return;
-  }
 
   const rem = t.closest('.rack-remove');
   if (rem && rem.dataset.removeRack) {
@@ -2717,14 +2781,18 @@ document.addEventListener('click', (ev) => {
     return;
   }
 
-  if (hit('#rackAddBtn')) { openRackShop(); return; }
-
   // --- Rack-Verwaltung ---
   if (hit('#rackManageBtn')) { openRackManage(); return; }
   if (hit('#rackManageClose')) { closeRackManage(); return; }
   if (hit('#rackManageNew')) { openRackEditor(null); return; }
   const manageOverlay = document.getElementById('rackManageModal');
   if (manageOverlay && t === manageOverlay) { closeRackManage(); return; }
+
+  const toggleRackBtn = t.closest('[data-toggle-rack]');
+  if (toggleRackBtn && toggleRackBtn.dataset.toggleRack) {
+    toggleRackSidebar(toggleRackBtn.dataset.toggleRack).catch(() => {});
+    return;
+  }
 
   const editRackBtn = t.closest('[data-edit-rack]');
   if (editRackBtn && editRackBtn.dataset.editRack) {
@@ -2754,10 +2822,11 @@ document.addEventListener('click', (ev) => {
 
 // Escape schliesst Shop und Rack-Modals.
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape') { closeRackShop(); closeRackManage(); closeRackEditor(); }
+  if (ev.key === 'Escape') { closeRackManage(); closeRackEditor(); }
 });
 
     document.getElementById('reloadSwordsBtn').addEventListener('click', async () => {
+      closeWhoMenu();
       const { status, data } = await api('/api/swords/reload', { method: 'POST' });
       if (status !== 200 || !data.ok) {
         return toast('Fehler: ' + (data.error ?? status));
@@ -2811,12 +2880,22 @@ document.addEventListener('keydown', (ev) => {
     document.getElementById('connectBtn').addEventListener('click', connect);
     document.getElementById('disconnectBtn').addEventListener('click', () => {
       if (ws) { ws.close(); }
+      // Menue schliessen: Trennen ist eine Aktion, keine Einstellung.
+      const wrap = document.getElementById('consoleMenu');
+      const btn = document.getElementById('consoleMenuBtn');
+      if (wrap) wrap.classList.remove('open');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
     });
     document.getElementById('clearBtn').addEventListener('click', () => {
       logLines = [];
       const box = document.getElementById('console');
       box.textContent = '';
       box.dataset.placeholder = '1';
+      // Menue schliessen: Leeren ist eine Aktion, keine Einstellung.
+      const wrap = document.getElementById('consoleMenu');
+      const btn = document.getElementById('consoleMenuBtn');
+      if (wrap) wrap.classList.remove('open');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
     });
     document.getElementById('timestamps').addEventListener('change', renderConsoleAll);
 
@@ -2827,7 +2906,27 @@ document.addEventListener('keydown', (ev) => {
       if (!atBottom) document.getElementById('autoscroll').checked = false;
     });
 
-    // Dropdown-Menues schliessen: Klick irgendwo ausserhalb oder Escape.
+    // Konsolen-Praeferenzen: Knopf klappt das Menue auf/zu. Die Schalter selbst
+// bleiben unveraendert verdrahtet (change-Events weiter unten).
+{
+  const wrap = document.getElementById('consoleMenu');
+  const btn = document.getElementById('consoleMenuBtn');
+  if (wrap && btn) {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const open = !wrap.classList.contains('open');
+      wrap.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    // Klick auf einen Schalter soll das Menue NICHT schliessen - man will
+    // meist beides umstellen. Nur ein Klick daneben schliesst.
+    wrap.querySelectorAll('input').forEach((inp) => {
+      inp.addEventListener('click', (ev) => ev.stopPropagation());
+    });
+  }
+}
+
+// Dropdown-Menues schliessen: Klick irgendwo ausserhalb oder Escape.
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.menu')) {
         document.querySelectorAll('.menu.open').forEach((m) => m.classList.remove('open'));

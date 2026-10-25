@@ -87,3 +87,32 @@
         setMsg(data?.error ?? 'Fehler beim Login.', 'err');
       }
     });
+
+// --- Darstellung hell/dunkel --------------------------------------------------
+// Login und Reset kennen kein Konto, deshalb liegt die Wahl nur im Browser.
+// Nach dem Login ueberschreibt der gespeicherte Wert aus users.prefs diese Wahl.
+(() => {
+  const KEY = 'armory-theme';
+  const btn = document.getElementById('themeSwitch');
+  if (!btn) return;
+
+  const read = () => {
+    try { return localStorage.getItem(KEY) === 'light' ? 'light' : 'dark'; }
+    catch { return 'dark'; }
+  };
+
+  const paint = (theme) => {
+    const light = theme === 'light';
+    if (light) document.documentElement.setAttribute('data-theme', 'light');
+    else document.documentElement.removeAttribute('data-theme');
+    btn.setAttribute('aria-checked', light ? 'true' : 'false');
+  };
+
+  paint(read());
+
+  btn.addEventListener('click', () => {
+    const next = read() === 'light' ? 'dark' : 'light';
+    try { localStorage.setItem(KEY, next); } catch { /* privat -> egal */ }
+    paint(next);
+  });
+})();

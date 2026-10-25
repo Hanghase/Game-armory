@@ -5,10 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game-Armory</title>
   <style>
+    /* Dunkles Thema (Standard). Alle Flaechen, die vorher hart als Hex
+       im CSS standen, laufen jetzt ueber diese Variablen - sonst bleibt im
+       hellen Modus ein Flickenteppich aus dunklen Kaesten stehen. */
     :root {
       --bg: #0f1115; --card: #1a1d24; --border: #2a2f3a;
       --text: #e6e8ee; --muted: #8b93a7; --accent: #7c5cff; --green: #35c46a;
       --red: #e5484d; --yellow: #e5a93d;
+      /* Bedienelemente (Knopf, Feld, Menue) */
+      --ctl: #23272f;        /* Knopf/Feld-Grundflaeche */
+      --ctl-hover: #2a2f3a;  /* Hover-Vertonung */
+      --sunken: #0b0d11;     /* eingelassene Flaechen: Konsole, Code, Fortschritt */
+      --on-accent: #fff;     /* Schrift auf der Akzentfarbe */
+      --ok: #3fb950;         /* Version aktuell */
+      --warn: #d29922;       /* Version veraltet */
+    }
+
+    /* Helles Thema. Wird per data-theme="light" am Wurzelelement aktiviert. */
+    :root[data-theme="light"] {
+      --bg: #f6f7fa; --card: #ffffff; --border: #d6dae3;
+      --text: #171a21; --muted: #5c6474; --accent: #6446f0; --green: #128a45;
+      --red: #c02a2f; --yellow: #9a6b00;
+      --ctl: #eef0f4; --ctl-hover: #e2e6ee; --sunken: #f0f2f6;
+      --on-accent: #ffffff; --ok: #157f3b; --warn: #8a5f00;
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text);
@@ -18,18 +37,42 @@
     header h1 { margin: 0; font-size: 19px; letter-spacing: .5px; }
     header .logo { font-size: 23px; }
     header .spacer { flex: 1; }
-    header .who { font-size: 13px; color: var(--muted); }
-    /* Klickbarer Name im Header -> oeffnet das Profil-Modal */
-    button.who { font-size: 13px; color: var(--muted); padding: 6px 10px; display: flex;
-      align-items: center; gap: 4px; }
-    button.who:hover { color: var(--text); border-color: var(--accent); }
-    .modal .box.tabbed { max-width: 560px; }
+      /* Kontomenue-Knopf: muss als Knopf erkennbar sein, nicht als Text.
+      Rahmen + Hintergrund + Chevron, das beim Aufklappen dreht. */
+      header .who { font-size: 13px; }
+      button.who { font-size: 13px; color: var(--text); padding: 7px 12px; display: flex;
+      align-items: center; gap: 8px; background: var(--ctl);
+      border: 1px solid var(--border); border-radius: 8px; }
+      button.who:hover { border-color: var(--accent); background: var(--ctl-hover); }
+      button.who:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      /* Chevron als CSS-Dreieck - kein Icon-Font noetig. */
+      button.who::after { content: ""; width: 0; height: 0;
+      border-left: 4px solid transparent; border-right: 4px solid transparent;
+      border-top: 5px solid var(--muted); transition: transform .15s ease; }
+      .menu.open button.who::after { transform: rotate(180deg); }
+      .menu.open button.who { border-color: var(--accent); background: var(--ctl-hover); }
+    /* Tab-Modal: feste Hoehe, damit die Box beim Tab-Wechsel nicht springt.
+       Kopf, Reiter und Fuss stehen still; nur .tabbody scrollt. */
+    .modal .box.tabbed { max-width: min(960px, 94vw); width: 100%;
+      height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+    .modal .box.tabbed > h3,
+    .modal .box.tabbed > .tabs,
+    .modal .box.tabbed > .modal-foot { flex: 0 0 auto; }
+    .tabbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+      padding-right: 6px; }
     .tabpane { display: none; }
     .tabpane.active { display: block; }
     .profile-box { display: flex; flex-direction: column; gap: 6px; }
     .profile-box .k { color: var(--muted); font-size: 12px; text-transform: uppercase;
       letter-spacing: .06em; }
     .profile-box .v { font-size: 16px; }
+
+    /* Darstellungs-Schalter: Beschriftung oben, zwei Knoepfe darunter.
+       Der aktive Knopf bekommt den Akzentrahmen (Klasse .active). */
+    .theme-row { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+    .theme-choice { display: flex; gap: 8px; }
+    .theme-choice button { flex: 1; }
+    .theme-choice button.active { border-color: var(--accent); color: var(--accent); }
     .rolechip { font-size: 11px; padding: 2px 8px; border-radius: 99px;
       border: 1px solid var(--accent); color: var(--accent); margin-left: 6px; }
     main { padding: 24px 28px; max-width: 1100px; }
@@ -56,26 +99,12 @@
       border-radius: 6px; border: 1px solid transparent; background: transparent;
       color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
       line-height: 1; }
-    .sidebar .rack-remove:hover { background: rgba(255,80,80,.16); border-color: rgba(255,80,80,.5); color: #ff8c8c; }
+    .sidebar .rack-remove:hover { background: rgba(255,80,80,.16); border-color: rgba(255,80,80,.5); color: var(--red); }
     .sidebar .rack-add { display: flex; align-items: center; justify-content: center; gap: 6px;
       width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px;
       border: 1px dashed var(--border); background: transparent; color: var(--muted);
       cursor: pointer; font: inherit; font-size: 13px; }
     .sidebar .rack-add:hover { border-color: var(--accent); color: var(--text); }
-    /* Shop-Overlay: verfuegbare Racks zum Dazuholen */
-    .shop-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
-      align-items: center; justify-content: center; z-index: 60; }
-    .shop-overlay.open { display: flex; }
-    .shop-box { background: var(--panel, #14161c); border: 1px solid var(--border); border-radius: 12px;
-      width: min(520px, 92vw); max-height: 80vh; overflow: auto; padding: 18px 20px; }
-    .shop-box h3 { margin: 0 0 4px; font-size: 16px; }
-    .shop-box .shop-sub { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); }
-    .shop-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px;
-      border: 1px solid var(--border); margin-bottom: 8px; cursor: pointer; }
-    .shop-item:hover { border-color: var(--accent); }
-    .shop-item.already { opacity: .5; cursor: default; }
-    .shop-item .si-name { flex: 1; }
-    .shop-item .si-meta { font-size: 11.5px; color: var(--muted); }
     .sidebar .hint { margin-top: 14px; font-size: 11.5px; line-height: 1.5; }
     @media (max-width: 820px) {
       .app-shell { grid-template-columns: 1fr; }
@@ -93,8 +122,8 @@
     .ver { font-size: 12px; font-weight: 500; opacity: .6; margin-left: 6px; }
     /* Versions-Gegenprobe (2026-10-18): gruen = aktuell, gelb = Update da,
        grau = Quelle sagt nichts (unbekannt). Nie gruen ohne Beleg. */
-    .ver.v-current { opacity: 1; color: #3fb950; font-weight: 600; }
-    .ver.v-outdated { opacity: 1; color: #d29922; font-weight: 600; }
+    .ver.v-current { opacity: 1; color: var(--ok); font-weight: 600; }
+    .ver.v-outdated { opacity: 1; color: var(--warn); font-weight: 600; }
     .ver.v-unknown { opacity: .55; color: inherit; }
     .ver .v-hint { font-size: 11px; opacity: .8; font-weight: 400; margin-left: 4px; }
     /* Header-Badge (2026-10-19): traegt .ver fuer die Farben, soll aber wie ein
@@ -126,22 +155,27 @@
     .menu.open .menu-list { display: block; }
     .menu-list button { display: block; width: 100%; text-align: left; background: transparent;
       border: 0; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
-    .menu-list button:hover { background: #23272f; border-color: transparent; }
+    .menu-list button:hover { background: var(--ctl-hover); border-color: transparent; }
     .menu-list button.danger { color: var(--red); }
     .menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
-    button { background: #23272f; color: var(--text); border: 1px solid var(--border);
+    button { background: var(--ctl); color: var(--text); border: 1px solid var(--border);
       padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; }
     button:hover { border-color: var(--accent); }
-    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
     button:disabled { opacity: .45; cursor: not-allowed; }
     button.ghost { background: transparent; }
     button.active { border-color: var(--green); color: var(--green); }
     .locked { color: var(--muted); font-size: 13px; margin-top: 12px; }
     .hint { color: var(--muted); font-size: 13px; margin-top: 4px; }
-    /* Passwort-Richtlinie: sichtbar unter dem Passwort-Feld (2026-10-22) */
-    .pw-rules { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--border);
-      border-radius: 6px; background: rgba(124, 92, 255, .06); font-size: 12px;
-      line-height: 1.7; color: var(--muted); max-width: 420px; }
+      /* Passwort-Regeln: eingeklappt, solange niemand tippt. Klappt beim
+      ersten Zeichen auf und bleibt offen, bis das Feld geleert wird. */
+      .pw-rules { margin-top: 0; padding: 0; border: 0; background: none;
+        font-size: 12px; line-height: 1.7; color: var(--muted);
+        max-height: 0; overflow: hidden; opacity: 0;
+        transition: max-height .18s ease, opacity .18s ease, margin-top .18s ease; }
+      .pw-rules.open { margin-top: 6px; padding: 8px 10px; max-height: 260px;
+        opacity: 1; border: 1px solid var(--border); border-radius: 6px;
+        background: rgba(124, 92, 255, .06); max-width: 420px; }
     .pw-rules b { color: var(--text); font-size: 12px; }
     .pw-rules ul { margin: 4px 0 0; padding-left: 18px; }
     .pw-rules li { transition: color .12s ease; }
@@ -149,11 +183,19 @@
     .pw-rules li.bad { color: var(--red); }
     .console-wrap { margin-top: 24px; }
     .console-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    /* Menue, das nach OBEN aufklappt (Konsolen-Einstellungen). */
+    .menu.up .menu-list { top: auto; bottom: calc(100% + 6px); }
+    /* Eintrag mit Kaestchen: ganze Zeile klickbar, Kaestchen links. */
+    .menu-list .menu-check { display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 6px; font-size: 13px; color: var(--text);
+      cursor: pointer; margin: 0; }
+    .menu-list .menu-check:hover { background: var(--ctl-hover); }
+    .menu-list .menu-check input { margin: 0; cursor: pointer; }
     .console-status { color: var(--muted); font-size: 12.5px; margin-left: auto; }
-    pre#console { background: #0b0d11; border: 1px solid var(--border); border-radius: 10px;
+    pre#console { background: var(--sunken); border: 1px solid var(--border); border-radius: 10px;
       padding: 14px; height: 340px; overflow: auto; font-size: 12.5px; line-height: 1.5;
       white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; }
-    select { background: #23272f; color: var(--text); border: 1px solid var(--border);
+    select { background: var(--ctl); color: var(--text); border: 1px solid var(--border);
       padding: 8px; border-radius: 8px; }
     label.chk { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
     .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none;
@@ -162,6 +204,8 @@
     .modal .box { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
       padding: 22px; width: 100%; max-width: 480px; max-height: 80vh; overflow: auto; }
     .modal h3 { margin: 0 0 16px; }
+    /* Erklaerender Text unter einer Modal-Ueberschrift. */
+    .modal-sub { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
     /* Nutzerverwaltung: feste Spaltenbreiten + saubere Felder statt Gequetsche */
@@ -170,7 +214,7 @@
     table.users-tbl th:nth-child(3), table.users-tbl td:nth-child(3) { width: 30%; }
     table.users-tbl th:last-child, table.users-tbl td:last-child { width: 20%; white-space: nowrap; }
     table.users-tbl input[type=email] { width: 100%; box-sizing: border-box; padding: 6px 8px;
-      background: #23272f; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+      background: var(--ctl); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
       font: inherit; font-size: 12.5px; }
     table.users-tbl input[type=email]:focus { outline: none; border-color: var(--accent); }
     table.users-tbl input[type=email]::placeholder { color: var(--muted); opacity: .8; }
@@ -179,11 +223,14 @@
     .row-actions button { padding: 4px 9px; font-size: 12px; }
     /* Rechte-Matrix: Raster aus Rollen (Spalten) x Rechte (Zeilen).
        superuser-Spalte ist sichtbar, aber gesperrt (Haken + Hinweis). */
-    .perms-wrap { overflow-x: auto; margin: 10px 0; }
-    table.perms { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .perms-wrap { margin: 10px 0; }
+    table.perms { width: 100%; border-collapse: collapse; font-size: 12.5px;
+      table-layout: fixed; }
     table.perms th, table.perms td { padding: 5px 7px; border-bottom: 1px solid var(--border); }
-    table.perms th { color: var(--muted); font-weight: 500; text-align: center; white-space: nowrap; }
-    table.perms th.perm-col, table.perms td.perm-col { text-align: left; color: var(--text); }
+    table.perms th { color: var(--muted); font-weight: 500; text-align: center;
+      line-height: 1.2; padding: 6px 4px; }
+    table.perms th.perm-col, table.perms td.perm-col { text-align: left; color: var(--text);
+      width: 240px; padding-right: 10px; }
     table.perms td { text-align: center; }
     table.perms tr.grouprow td { color: var(--accent); font-weight: 600; padding-top: 12px;
       border-bottom: 1px solid var(--accent); }
@@ -193,8 +240,8 @@
     table.perms .perm-label { display: block; }
     table.perms .perm-key { display: block; color: var(--muted); font-size: 11px; }
     form.inline input, form.inline select { width: 100%; padding: 9px; margin: 6px 0;
-      background: #0b0d11; border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
-    .toast { position: fixed; bottom: 20px; right: 20px; background: #23272f;
+      background: var(--sunken); border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+    .toast { position: fixed; bottom: 20px; right: 20px; background: var(--ctl);
       border: 1px solid var(--border); border-left: 3px solid var(--accent);
       padding: 12px 16px; border-radius: 8px; font-size: 13px; display: none; z-index: 50; }
     /* --- Einstellungen / Update / Neuer Server (v0.3.0) --- */
@@ -202,7 +249,7 @@
     .modal .box h4 { margin: 18px 0 6px; font-size: 14px; }
     .modal .box h4:first-of-type { margin-top: 4px; }
     .modal input[type="text"], .modal input[type="password"], .modal input[type="number"] {
-      width: 100%; padding: 9px; margin: 6px 0; background: #0b0d11;
+      width: 100%; padding: 9px; margin: 6px 0; background: var(--sunken);
       border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
     .modal .row2 { display: flex; gap: 10px; flex-wrap: wrap; }
     .modal .row2 > * { flex: 1; min-width: 150px; }
@@ -215,16 +262,16 @@
     .list .item { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
       border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
     .list .item:last-child { border-bottom: none; }
-    .list .item:hover { background: #23272f; }
-    .list .item.sel { background: #23272f; border-left: 3px solid var(--accent); }
+    .list .item:hover { background: var(--ctl-hover); }
+    .list .item.sel { background: var(--ctl-hover); border-left: 3px solid var(--accent); }
     .list .item img { width: 34px; height: 34px; border-radius: 6px; flex: none;
-      background: #0b0d11; object-fit: cover; }
+      background: var(--sunken); object-fit: cover; }
     .list .item .meta { color: var(--muted); font-size: 11.5px; }
     .list .item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .badge.rel { border-color: var(--green); color: var(--green); }
     .badge.beta { border-color: var(--yellow); color: var(--yellow); }
     .badge.alpha { border-color: var(--red); color: var(--red); }
-    .progress { height: 10px; background: #0b0d11; border: 1px solid var(--border);
+    .progress { height: 10px; background: var(--sunken); border: 1px solid var(--border);
       border-radius: 99px; overflow: hidden; margin: 10px 0 6px; }
     .progress > div { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
     .status-box { font-size: 13px; color: var(--muted); }
@@ -232,13 +279,13 @@
       text-align: center; cursor: pointer; color: var(--muted); font-size: 14px;
       margin: 6px 0; transition: border-color .15s, background .15s; }
     .dropzone:hover { border-color: var(--accent); }
-    .dropzone.over { border-color: var(--accent); background: #1a1d24; }
+    .dropzone.over { border-color: var(--accent); background: var(--card); }
     .dropzone.ok { border-color: var(--green); }
     .status-box .phase { color: var(--text); }
     .status-box.error .phase { color: var(--red); }
     .status-box.done .phase { color: var(--green); }
     .modal-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
-    code.pathhint { background: #0b0d11; border: 1px solid var(--border);
+    code.pathhint { background: var(--sunken); border: 1px solid var(--border);
       border-radius: 6px; padding: 1px 5px; font-size: 12px; }
   
     .cfg-grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 12px; }
@@ -247,7 +294,7 @@
     /* --- Rack-Editor (Rack-Verwaltung im Panel) --- */
     .rack-editor label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 2px; }
     .rack-editor input, .rack-editor select, .rack-editor textarea {
-      width: 100%; padding: 8px; background: #0b0d11; border: 1px solid var(--border);
+      width: 100%; padding: 8px; background: var(--sunken); border: 1px solid var(--border);
       border-radius: 8px; color: var(--text); font-size: 13px; box-sizing: border-box; }
     .rack-editor .re-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .rack-editor .re-hint { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
@@ -288,10 +335,19 @@
     <h1>Game-Armory</h1>
     <span class="badge" id="versionBadge" title="Version wird geladen…">v–</span>
     <span class="spacer"></span>
-    <button class="ghost who" id="who" title="Profil öffnen" aria-haspopup="dialog"></button>
-    <button class="ghost" id="reloadSwordsBtn" style="display:none;">↻ Swords neu laden</button>
-    <button class="ghost" id="newRackBtn" style="display:none;">＋ Neuer Server</button>
-    <button class="ghost" id="logoutBtn">Logout</button>
+    <button class="ghost" id="newRackBtn" style="display:none;">＋ Neues Sword</button>
+    <!-- Kontomenue: ein Klick auf den Namen klappt die Verwaltung auf.
+         Aufbau ueber .menu/.menu-list (dasselbe Muster wie die Sword-Menues). -->
+    <div class="menu" id="whoMenu">
+      <button class="ghost who" id="who" title="Konto und Verwaltung öffnen"
+              aria-haspopup="true" aria-expanded="false"></button>
+      <div class="menu-list" role="menu">
+        <button type="button" id="menuAccount" role="menuitem">Konto &amp; Verwaltung</button>
+        <button type="button" id="reloadSwordsBtn" role="menuitem" style="display:none;">↻ Swords neu laden</button>
+        <div class="menu-sep"></div>
+        <button type="button" class="danger" id="logoutBtn" role="menuitem">Logout</button>
+      </div>
+    </div>
   </header>
 
   <div class="app-shell">
@@ -300,8 +356,6 @@
     <div class="rack-list" id="rackList">
       <div class="item"><span class="meta">Racks werden geladen…</span></div>
     </div>
-    <div class="hint">Ein <b>Rack</b> ist die Schablone (Spiel, Loader, Install-Quelle).
-      Wähle eins, um nur dessen Server zu sehen und neue anzulegen.</div>
   </aside>
 
   <main>
@@ -313,10 +367,25 @@
       <div class="console-bar">
         <select id="swordSelect"></select>
         <button id="connectBtn" class="primary">Verbinden</button>
-        <button id="disconnectBtn" disabled>Trennen</button>
-        <button id="clearBtn">Leeren</button>
-        <label class="chk"><input type="checkbox" id="autoscroll" checked /> Auto-Scroll</label>
-        <label class="chk"><input type="checkbox" id="timestamps" /> Zeitstempel</label>
+        <!-- Konsolen-Optionen: alles ausser Verbinden. Aktionen oben, dann
+             Einstellungen. Klappt nach oben auf, damit die Liste nicht unter
+             den Rand landet. Die IDs bleiben unveraendert, damit die
+             bestehende Verdrahtung (disabled-Zustand, Auto-Scroll) greift. -->
+        <div class="menu up" id="consoleMenu">
+          <button type="button" class="ghost" id="consoleMenuBtn"
+                  aria-haspopup="true" aria-expanded="false">⚙ Optionen</button>
+          <div class="menu-list" role="menu">
+            <button type="button" id="disconnectBtn" role="menuitem" disabled>Trennen</button>
+            <button type="button" id="clearBtn" role="menuitem">Leeren</button>
+            <div class="menu-sep"></div>
+            <label class="menu-check" role="menuitem">
+              <input type="checkbox" id="timestamps" /> Zeitstempel
+            </label>
+            <label class="menu-check" role="menuitem">
+              <input type="checkbox" id="autoscroll" checked /> Auto-Scroll
+            </label>
+          </div>
+        </div>
         <span class="console-status" id="consoleStatus">nicht verbunden</span>
       </div>
       <pre id="console">[armory] Wähle ein Sword und klicke "Verbinden".</pre>
@@ -328,19 +397,6 @@
        Nutzer/Einstellungen nur fuer Admin sichtbar. Die bestehenden IDs
        (#newUserForm, #usersList, #cfKeyState, ...) bleiben unveraendert,
        damit alle Event-Handler weiter funktionieren. -->
-  <!-- Shop: verfuegbare Racks zum Dazuholen in die Sidebar -->
-  <div class="shop-overlay" id="rackShop">
-    <div class="shop-box">
-      <h3>Racks hinzufügen</h3>
-      <p class="shop-sub">Wähle Racks, die in der Sidebar erscheinen sollen. Bereits
-        sichtbare sind ausgegraut.</p>
-      <div id="rackShopList"><div class="meta">Lade…</div></div>
-      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
-        <button class="ghost" id="rackShopAll">Alle zurücksetzen</button>
-        <button class="primary" id="rackShopClose">Fertig</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Rack-Verwaltung: Racks anlegen/bearbeiten/loeschen (nur rack.create/delete).
        Liste -> Editor. Ein Rack ist die SCHABLONE (Spiel, Loader, Install-Quelle,
@@ -348,7 +404,7 @@
   <div class="modal" id="rackManageModal">
     <div class="box wide">
       <h3>Racks verwalten</h3>
-      <p class="shop-sub">Eine Schablone für einen Server-Typ: Spiel, Loader,
+      <p class="modal-sub">Eine Schablone für einen Server-Typ: Spiel, Loader,
         Install-Quelle und Zielpfad. Bestehende Server (Swords) bleiben unberührt.</p>
       <div id="rackManageList"><div class="meta">Lade…</div></div>
       <div style="display:flex; gap:8px; justify-content:space-between; margin-top:14px;">
@@ -511,15 +567,18 @@
 
   <div class="modal" id="profileModal">
     <div class="box tabbed">
-      <h3>Profil</h3>
+      <h3>Konto &amp; Verwaltung</h3>
       <div class="tabs" id="profileTabs">
-        <button class="ghost active" data-ptab="profile">Profil</button>
+        <button class="ghost active" data-ptab="profile">Konto</button>
         <button class="ghost" data-ptab="users" data-need="user.read" style="display:none;">Nutzer</button>
         <button class="ghost" data-ptab="settings" data-need="settings.read" style="display:none;">Einstellungen</button>
         <button class="ghost" data-ptab="updates" data-need="settings.read" style="display:none;">Updates</button>
         <button class="ghost" data-ptab="diagnose" data-need="system.diagnostics" style="display:none;">Diagnose</button>
           <button class="ghost" data-ptab="perms" data-need="user.role" style="display:none;">Rechte</button>
       </div>
+
+      <!-- Nur dieser Bereich scrollt; Kopf, Tabs und Fuss bleiben stehen. -->
+      <div class="tabbody">
 
       <!-- Tab: Profil -->
       <div class="tabpane active" id="pTabProfile">
@@ -551,6 +610,14 @@
           <button class="primary" type="submit" style="margin-top:8px;">E-Mail speichern</button>
         </form>
         <div class="hint" id="seHint"></div>
+        <!-- Darstellung: pro Nutzer gespeichert (users.prefs) -->
+        <div class="theme-row">
+          <span class="k">Darstellung</span>
+          <div class="theme-choice" id="themeChoice">
+            <button type="button" class="ghost" data-theme-choice="dark">🌙 Dunkel</button>
+            <button type="button" class="ghost" data-theme-choice="light">☀️ Hell</button>
+          </div>
+        </div>
       </div>
 
       <!-- Tab: Nutzerverwaltung (bestehender Inhalt aus #usersModal) -->
@@ -805,6 +872,8 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
         </div>
         <div id="diagResult" class="status-box">Wird geladen…</div>
       </div>
+      </div><!-- /.tabbody -->
+
 
       <div class="modal-foot">
         <button class="ghost" id="profileClose">Schließen</button>

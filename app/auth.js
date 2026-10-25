@@ -164,7 +164,10 @@ db.exec(`
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'friend',
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    -- Darstellung je Nutzer (JSON): z.B. {"theme":"light"}.
+    -- NULL = noch nichts gewaehlt, dann gilt der Standard (dunkel).
+    prefs TEXT
   );
   CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
@@ -181,6 +184,45 @@ db.exec(`
     banned_until INTEGER
   );
 `);
+
+// Migration: die Spalte prefs kam spaeter dazu. CREATE TABLE IF NOT EXISTS
+// aendert eine bestehende Tabelle NICHT - deshalb hier nachziehen.
+(() => {
+  const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!cols.includes('prefs')) {
+    db.exec('ALTER TABLE users ADD COLUMN prefs TEXT');
+    console.log('[auth] Migration: users.prefs angelegt');
+  }
+})();
+
+// --- Darstellung je Nutzer ---------------------------------------------------
+// prefs ist ein JSON-Objekt. Unbekannte Schluessel werden beim Lesen verworfen,
+// damit ein alter/verbogener Wert das Frontend nicht durcheinanderbringt.
+const THEMES = ['dark', 'light'];
+
+export function getUserPrefs(userId) {
+  const row = db.prepare('SELECT prefs FROM users WHERE id = ?').get(userId);
+  const out = { theme: 'dark' };
+  if (!row || !row.prefs) return out;
+  try {
+    const parsed = JSON.parse(row.prefs);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (THEMES.includes(parsed.theme)) out.theme = parsed.theme;
+    }
+  } catch {
+    /* ungueltig -> Standard */
+  }
+  return out;
+}
+
+export function setUserPrefs(userId, patch) {
+  const next = getUserPrefs(userId);
+  if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
+    if (THEMES.includes(patch.theme)) next.theme = patch.theme;
+  }
+  db.prepare('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify(next), userId);
+  return next;
+}
 
 // --- Setup-Hilfe: ersten Admin anlegen, falls keine User existieren ---------
 export function hasUsers() {
