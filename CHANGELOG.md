@@ -3,6 +3,20 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.7] - 2026-10-25
+
+### Behoben
+
+- **Das Selbst-Update starb am Neustart des eigenen Dienstes und meldete
+  deshalb nichts.** Der Helfer laeuft als Kind des Panels in dessen cgroup;
+  die Unit hat `KillMode=control-group` (systemd-Standard), also trifft
+  `systemctl restart game-armory` per SIGTERM die ganze Prozessgruppe - den
+  Helfer mit. Das Update lief durch, das Panel antwortete, aber
+  `last-result.json` behielt den Stand des Trockenlaufs davor und der
+  Browser zeigte 502.
+  Der Neustart laeuft jetzt in einer transienten Unit (`systemd-run`,
+  eigene cgroup); der Rollback nutzt denselben Weg.
+
 ## [1.1.6] - 2026-10-25
 
 ### Behoben
