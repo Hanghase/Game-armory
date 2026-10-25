@@ -3,6 +3,35 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.3] - 2026-10-25
+
+Bugfix-Release.
+
+### Behoben
+
+- **Frische Installation war unbrauchbar:** `users.email` fehlte im Schema,
+  `auth_tokens` wurde nirgends angelegt. Bestandsdatenbanken liefen nur, weil
+  beides historisch vorhanden war. Migration jetzt generisch.
+- **Eigenes Passwort aendern liess fremde Sitzungen gueltig** - der Wechsel war
+  damit wirkungslos gegen eine gestohlene Sitzung. Die eigene bleibt bestehen.
+- **Eigene E-Mail im Konto-Tab unsichtbar:** `getSessionUser`/`verifyLogin`
+  gaben das Feld nicht weiter.
+- **Moderatoren/Admins konnten einen gestoppten Server nicht starten**
+  (Stoppen und Neustart waren erlaubt). Seed-Version 5.
+- **Sword-Diagnose meldete "keine Fehler" bei unlesbarem Verzeichnis.**
+- **Verlorene Aenderungen bei gleichzeitigen Sword-Schreibzugriffen:**
+  die vier Setter laufen jetzt unter einer Sperre.
+- **Rack mit abweichender id im Inhalt:** `loadRacks` prueft jetzt gegen den
+  Dateinamen.
+- **Verwaistes Upload-Archiv** bei fehlgeschlagenen Metadaten wird mitgeloescht.
+- **`setTargetVersion`/`setSwordProjectId` gaben `undefined` zurueck** und
+  warfen im Panel `Cannot read properties of undefined`.
+
+### Hinweise
+
+- Die Standard-Rechte sind nur die Startbelegung; Aenderungen aus dem Panel
+  bleiben unangetastet.
+
 ## [1.1.1] - 2026-10-23
 
 Sicherheits-Release. Zwei offene Punkte aus 1.1.0 abgeschlossen.
