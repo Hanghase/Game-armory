@@ -38,6 +38,28 @@ usage() {
 }
 
 log() { echo "[self-update] $*"; }
+
+# Ergebnis zusaetzlich als JSON ablegen. Grund: beim apply startet der Helfer
+# den Panel-Dienst neu, die HTTP-Verbindung stirbt und mit ihr die Antwort.
+# Der Nutzer sieht 502, obwohl das Update gelaufen ist. Das Panel liest diese
+# Datei nach dem Neustart und zeigt das echte Ergebnis an.
+# Geschrieben wird nur, was der Helfer ohnehin auf stdout ausgibt - die Datei
+# ist eine zweite Senke, keine zweite Wahrheit.
+RESULT_FILE="$BACKUP_DIR/last-result.json"
+write_result() {
+  # $1=result $2=tag $3=previous $4=reason(optional) $5=backup(optional)
+  mkdir -p "$BACKUP_DIR" 2>/dev/null || true
+  {
+    printf '{\n'
+    printf '  "result": "%s",\n' "$1"
+    printf '  "tag": "%s",\n' "$2"
+    printf '  "previous": "%s",\n' "$3"
+    printf '  "reason": %s,\n' "$( [ -n "${4:-}" ] && printf '"%s"' "$4" || printf 'null' )"
+    printf '  "backup": %s,\n' "$( [ -n "${5:-}" ] && printf '"%s"' "$5" || printf 'null' )"
+    printf '  "at": %s\n' "$(date +%s)"
+    printf '}\n'
+  } > "$RESULT_FILE.tmp" 2>/dev/null && mv "$RESULT_FILE.tmp" "$RESULT_FILE" 2>/dev/null || true
+}
 fail() { echo "FEHLER: $*" >&2; exit "${2:-1}"; }
 
 # --- Vorpruefungen -----------------------------------------------------------
@@ -266,6 +288,7 @@ case "$step" in
       log "TROCKENLAUF: alles geprueft, kein checkout, kein Neustart"
       printf 'result=dry-run\ntag=%s\nprevious=%s\nbackup=%s\n' \
         "$target" "$old_tag" "$BACKUP_DIR/before-$target.tar"
+      write_result "dry-run" "$target" "$old_tag" "" "$BACKUP_DIR/before-$target.tar"
       exit 0
     fi
 
@@ -284,6 +307,7 @@ case "$step" in
       log "OK: $target laeuft (Panel antwortet)"
       rm -rf "$BACKUP_DIR"/*
       printf 'result=ok\ntag=%s\nprevious=%s\n' "$target" "$old_tag"
+      write_result "ok" "$target" "$old_tag"
     else
       log "Panel antwortet NICHT - ROLLBACK auf $old_tag"
       systemctl stop "$UNIT" || true
@@ -293,15 +317,18 @@ case "$step" in
           restore_owner
           log "Rollback ok: $old_tag laeuft wieder"
           printf 'result=rolled-back\ntag=%s\nprevious=%s\nreason=panel-unhealthy\n' "$old_tag" "$old_tag"
+          write_result "rolled-back" "$old_tag" "$old_tag" "panel-unhealthy"
         else
           log "WARNUNG: Rollback-Checkout ok, aber Panel antwortet weiterhin nicht"
           printf 'result=rollback-failed\ntag=%s\nprevious=%s\n' "$old_tag" "$old_tag"
+          write_result "rollback-failed" "$old_tag" "$old_tag"
           exit 11
         fi
       else
         log "KRITISCH: Rollback-Checkout fehlgeschlagen. Sicherung: $BACKUP_DIR/before-$target.tar"
         printf 'result=rollback-checkout-failed\ntag=%s\nprevious=%s\nbackup=%s\n' \
           "$old_tag" "$old_tag" "$BACKUP_DIR/before-$target.tar"
+        write_result "rollback-checkout-failed" "$old_tag" "$old_tag" "" "$BACKUP_DIR/before-$target.tar"
         exit 12
       fi
     fi

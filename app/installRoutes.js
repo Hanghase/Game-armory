@@ -45,7 +45,7 @@ import { loadPendingRestarts, getPendingRestart, setPendingRestart, clearPending
 import { getVersion } from './version.js';
 import { getRightsStatus, recheckRights } from './systemRights.js';
 import { getSelfUpdateState, runSelfUpdateCheck } from './selfUpdateCheck.js';
-import { getSelfUpdateStatus, listSelfUpdateTags, dryRunSelfUpdate, applySelfUpdate, SelfUpdateError } from './selfUpdate.js';
+import { getSelfUpdateStatus, listSelfUpdateTags, dryRunSelfUpdate, applySelfUpdate, SelfUpdateError, getLastSelfUpdateResult } from './selfUpdate.js';
 import {
   uploadMiddleware, registerUpload, readUpload, deleteUpload, listUploads,
   cleanupOldUploads, UploadError, UPLOADS_DIR,
@@ -895,6 +895,13 @@ installRouter.post('/self-update/check', requireRole('superuser'), async (req, r
 installRouter.get('/system/self-update/status', requireRole('superuser'), async (req, res) => {
   const st = await getSelfUpdateStatus();
   res.json(st);
+});
+
+// Ergebnis des letzten Selbst-Updates. Getrennt von /status: der Status fragt den
+// Helfer live (git, Dienst), das Ergebnis ist eine abgelegte Tatsache. Nach einem
+// Neustart ist der Helfer kurz nicht erreichbar, das Ergebnis aber schon da.
+installRouter.get('/system/self-update/last-result', requireRole('superuser'), async (req, res) => {
+  res.json({ result: await getLastSelfUpdateResult() });
 });
 
 installRouter.get('/system/self-update/tags', requireRole('superuser'), async (req, res) => {

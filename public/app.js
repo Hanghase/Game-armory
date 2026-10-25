@@ -1102,6 +1102,35 @@
       if (tone) el.classList.add(tone);
     }
 
+    // Ergebnis des letzten Selbst-Updates anzeigen (Karte 2026-10-25).
+    // Beim Update startet der Dienst neu, die HTTP-Antwort stirbt - der Browser
+    // sieht 502, obwohl es geklappt hat. Das Ergebnis liegt deshalb als Datei
+    // vor und wird hier nachgelesen. Kein Eintrag = noch nie gelaufen: dann
+    // bleibt die Box unsichtbar, statt "unbekannt" zu behaupten.
+    async function loadLastResult() {
+      const el = document.getElementById('suLastResult');
+      if (!el) return;
+      const r = await api('/api/system/self-update/last-result');
+      const d = r.status === 200 ? r.data.result : null;
+      if (!d) { el.style.display = 'none'; return; }
+
+      const when = d.at ? new Date(d.at).toLocaleString('de-DE') : 'unbekannt';
+      const map = {
+        'ok': ['Update auf ' + (d.tag ?? '?') + ' erfolgreich (' + when + ')', 'ok'],
+        'dry-run': ['Nur Trockenlauf, nichts getauscht (' + when + ')', null],
+        'rolled-back': ['Update auf ' + (d.tag ?? '?') + ' zurückgerollt — Grund: ' +
+          (d.reason ?? 'unbekannt') + ' (' + when + ')', 'warn'],
+        'rollback-failed': ['Update fehlgeschlagen UND Rückrollung fehlgeschlagen — ' +
+          'bitte Dienst prüfen (' + when + ')', 'bad'],
+        'rollback-checkout-failed': ['Update fehlgeschlagen, Rückrollung nicht möglich — ' +
+          'Sicherung: ' + (d.backup ?? 'unbekannt') + ' (' + when + ')', 'bad'],
+      };
+      const [text, tone] = map[d.result] ?? ['Letztes Update: ' + d.result + ' (' + when + ')', null];
+      let full = text;
+      if (d.previous && d.previous !== d.tag) full = 'Vorher ' + d.previous + ' — ' + text;
+      suBox('suLastResult', full, tone);
+    }
+
     async function loadSelfUpdate() {
       // Rechte zuerst: ohne sie ist alles andere sinnlos.
       const r = await api('/api/system/rights');
@@ -1156,6 +1185,7 @@
       }
 
       // Zustand der taeglichen Gegenprobe: dieselbe Farbe wie das Header-Badge.
+      await loadLastResult();
       await loadSelfUpdateState();
     }
 

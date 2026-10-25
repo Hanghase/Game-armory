@@ -12,6 +12,7 @@
 //   - Zeitlimits: 'status'/'tags' kurz, 'apply' laenger (Neustart + Rollback).
 
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 
 export const SELF_UPDATE_HELPER = '/usr/local/bin/armory-self-update';
 
@@ -264,4 +265,47 @@ export async function checkSelfUpdate() {
     return { state: 'outdated', installed, available: newest, reason: null, checkedAt };
   }
   return { state: 'current', installed, available: newest, reason: null, checkedAt };
+}
+
+// --- Ergebnis des letzten Selbst-Updates -------------------------------------
+//
+// Beim apply startet der Helfer den Panel-Dienst neu. Die HTTP-Verbindung
+// stirbt dabei, der Browser sieht 502 - obwohl das Update gelaufen ist. Der
+// Nutzer kann aus dieser Antwort nicht unterscheiden: "Update erfolgreich,
+// Panel gerade neu gestartet" oder "Update fehlgeschlagen".
+//
+// Deshalb legt der Helfer sein Ergebnis zusaetzlich als JSON ab (zweite Senke,
+// keine zweite Wahrheit: dieselben Felder, die er auf stdout schreibt). Diese
+// Funktion liest sie. Ist keine Datei da, gibt es schlicht nichts zu melden -
+// das ist kein Fehler.
+//
+// Der Inhalt bleibt sichtbar, bis jemand ein neues Update startet (dann
+// ueberschreibt der Helfer die Datei). Bewusst NICHT "einmal zeigen und
+// loeschen": "das war das letzte Update, am 25.10." ist die ehrlichere Aussage
+// als ein Hinweis, der beim naechsten Neuladen spurlos verschwindet.
+const RESULT_FILE = '/opt/game-armory/.self-update-backup/last-result.json';
+
+export async function getLastSelfUpdateResult() {
+  let raw;
+  try {
+    raw = await readFile(RESULT_FILE, 'utf8');
+  } catch {
+    return null;   // keine Datei: noch nie gelaufen oder Verzeichnis geleert
+  }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;   // halb geschriebene Datei: lieber nichts als Unsinn
+  }
+  if (!data || typeof data !== 'object') return null;
+  const at = Number(data.at);
+  return {
+    result: typeof data.result === 'string' ? data.result : 'unknown',
+    tag: typeof data.tag === 'string' ? data.tag : null,
+    previous: typeof data.previous === 'string' ? data.previous : null,
+    reason: typeof data.reason === 'string' ? data.reason : null,
+    backup: typeof data.backup === 'string' ? data.backup : null,
+    at: Number.isFinite(at) && at > 0 ? at * 1000 : null,
+  };
 }

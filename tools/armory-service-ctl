@@ -1,0 +1,36 @@
+#!/bin/bash
+# Game-Armory - Service-Steuerung (privilegierter Helfer)
+# Wird per sudo vom armory-User aufgerufen. Erlaubt NUR:
+#   - Aktionen: start | stop | restart | is-active | logs
+#   - Services, die als Sword-Instanz existieren (Whitelist aus swords/*.sword.json)
+# Kein Shell-Durchreichen, keine freien Argumente.
+set -euo pipefail
+
+ALLOWED_ACTIONS="start stop restart is-active logs"
+SWORDS_DIR="/opt/game-armory/swords"
+
+action="${1:-}"
+service="${2:-}"
+
+# 1) Aktion whitelisten
+case " $ALLOWED_ACTIONS " in
+  *" $action "*) ;;
+  *) echo "Unerlaubte Aktion: $action" >&2; exit 2 ;;
+esac
+
+# 2) Service-Name streng validieren (nur sichere Zeichen)
+if [[ ! "$service" =~ ^[a-zA-Z0-9@._-]+\.service$ ]]; then
+  echo "Ungueltiger Service-Name: $service" >&2; exit 2
+fi
+
+# 3) Service muss als Sword-Instanz existieren (kein beliebiger Service!)
+if ! grep -lq "\"service\"[[:space:]]*:[[:space:]]*\"$service\"" "$SWORDS_DIR"/*.sword.json 2>/dev/null; then
+  echo "Service nicht als Sword registriert: $service" >&2; exit 3
+fi
+
+# 4) Logs: fest definierte, unschaedliche Argumente (kein Durchreichen von aussen)
+if [[ "$action" == "logs" ]]; then
+  exec /usr/bin/journalctl -u "$service" -n 100 --no-pager -o cat
+fi
+
+exec /usr/bin/systemctl "$action" "$service"

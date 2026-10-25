@@ -810,6 +810,10 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
           <button class="ghost mini" id="suRecheck">Rechte neu prüfen</button>
         </div>
         <div id="suVersion" class="status-box">Version wird gelesen…</div>
+<!-- Ergebnis des letzten Selbst-Updates. Beim Update stirbt die HTTP-Antwort
+     (der Dienst startet neu), deshalb liest das Panel das Ergebnis nach dem
+     Neustart aus der Datei, die der Helfer abgelegt hat. -->
+<div id="suLastResult" class="status-box" style="display:none;"></div>
         <div id="suState" class="status-box">Prüfung läuft…</div>
         <div class="modal-foot" style="justify-content:flex-start;">
           <button class="ghost mini" id="suCheckNow">Jetzt auf neue Version prüfen</button>
