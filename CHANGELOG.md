@@ -3,6 +3,19 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.5] - 2026-10-25
+
+### Behoben
+
+- **Erfolgsmeldung des Selbst-Updates ging beim Aufraeumen verloren.**
+  Das Update lief durch, aber es entstand keine Ergebnisdatei. Ursache:
+  im Erfolgszweig stand `rm -rf` vor dem Melden; greift das Glob ins Leere,
+  gibt `rm` Status 1 zurueck und `set -e` beendet den Helfer vorher.
+  Melden und Besitz-Rueckgabe laufen jetzt vor dem Aufraeumen.
+- **Sicherung des Vorzustands bleibt 24 h liegen.** Vorher wurde sie sofort
+  nach dem Neustart geloescht - eine Woche spaeter war sie nicht mehr da.
+  Die neueste Sicherung wird nie automatisch entfernt.
+
 ## [1.1.4] - 2026-10-25
 
 ### Behoben
