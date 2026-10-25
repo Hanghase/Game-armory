@@ -118,15 +118,22 @@ export async function listSelfUpdateTags() {
   return tags;
 }
 
-// dry-run: alles pruefen (Tag, Sauberkeit, Sicherung), aber nichts tauschen.
+// dry-run: alles pruefen (Tag, Sauberkeit), aber nichts tauschen.
+//
+// Eigener Helfer-Schritt statt 'apply' mit DRY_RUN=1 (2026-10-25).
+// Grund: sudo laeuft auf diesem Host mit 'env_reset' und reicht keine
+// Umgebungsvariablen durch. Der Helfer sah dry_run=0 und hat ein ECHTES
+// Update gefahren - ein Klick auf "Trockenlauf pruefen" hat den Dienst
+// neu gestartet. Argumente ueberleben sudo, Umgebungen nicht.
 export async function dryRunSelfUpdate(tag) {
   const t = assertTag(tag);
-  const res = await runHelper(['apply', t], { timeoutMs: 90000, env: { DRY_RUN: '1' } });
+  const res = await runHelper(['dry-run', t], { timeoutMs: 90000 });
   const data = parseOutput(res.stdout);
   if (!res.ok) {
     throw new SelfUpdateError(res.stderr.trim() || res.error || 'Trockenlauf fehlgeschlagen', 502);
   }
-  return { tag: data.tag ?? t, previous: data.previous ?? null, backup: data.backup ?? null };
+  // Kein backup-Feld: im Trockenlauf entsteht keine Sicherung.
+  return { tag: data.tag ?? t, previous: data.previous ?? null };
 }
 
 // apply: echte Umstellung. Laeuft lange, weil der Dienst neu startet und der

@@ -34,11 +34,24 @@ LOCK_FILE="/run/armory-self-update.lock"
 
 usage() {
   echo "Usage: armory-self-update <step> [args...]" >&2
-  echo "Steps: status | tags | apply <tag>   (DRY_RUN=1 fuer Trockenlauf)" >&2
+  echo "Steps: status | tags | dry-run <tag> | apply <tag>" >&2
   exit 2
 }
 
-log() { echo "[self-update] $*"; }
+# Jede Zeile zusaetzlich in eine Datei (2026-10-25).
+#
+# Grund: beim apply startet der Helfer den Dienst neu. Sein stdout haengt
+# an der Verbindung des Panel-Prozesses, die dabei stirbt - die Ausgabe
+# ist danach nirgends mehr zu finden. Bei der Fehlersuche am 25.10. gab
+# es deshalb keine Spur, wo ein Lauf stehenblieb, und drei
+# Ursachenvermutungen waren falsch. Die Datei klaert das in einer Minute.
+log() {
+  local line="[self-update] $*"
+  echo "$line"
+  mkdir -p "$BACKUP_DIR" 2>/dev/null || true
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line" \
+    >> "$RUN_LOG" 2>/dev/null || true
+}
 
 # Ergebnis zusaetzlich als JSON ablegen. Grund: beim apply startet der Helfer
 # den Panel-Dienst neu, die HTTP-Verbindung stirbt und mit ihr die Antwort.
@@ -47,6 +60,7 @@ log() { echo "[self-update] $*"; }
 # Geschrieben wird nur, was der Helfer ohnehin auf stdout ausgibt - die Datei
 # ist eine zweite Senke, keine zweite Wahrheit.
 RESULT_FILE="$BACKUP_DIR/last-result.json"
+RUN_LOG="$BACKUP_DIR/last-run.log"
 write_result() {
   # $1=result $2=tag $3=previous $4=reason(optional) $5=backup(optional)
   mkdir -p "$BACKUP_DIR" 2>/dev/null || true
@@ -204,6 +218,156 @@ prune_backups() {
 
 # --- Schritte ----------------------------------------------------------------
 
+# Gemeinsamer Rumpf von apply und dry-run (2026-10-25).
+# $1=Ziel-Tag  $2=1 fuer Trockenlauf
+run_apply() {
+  local target="$1"
+  local dry_run="${2:-0}"
+
+  [[ -n "$target" ]] || usage
+  [[ "$target" =~ $TAG_RE ]] || fail "Ungueltiger Tag: $target (erwartet vX.Y.Z)" 2
+
+  # Trockenlauf (2026-10-19): DRY_RUN=1 prueft ALLES bis zum checkout und
+  # hoert dann auf. Kein Tausch, kein Neustart. Ein echter Probelauf gegen
+  # den Live-Dienst waere der einzige Moment, in dem sich das Panel selbst
+  # die Verbindung kappt - deshalb getrennt testbar.
+
+  # Nur EIN Update gleichzeitig - sonst tauschen zwei Laeufe gegeneinander.
+  # Im Trockenlauf kein Lock: er veraendert nichts, darf aber auch nicht
+  # einem echten Update in die Quere kommen.
+  if [[ "$dry_run" != "1" ]]; then
+    exec 9>"$LOCK_FILE" || fail "Lock-Datei nicht schreibbar: $LOCK_FILE"
+    if ! flock -n 9; then fail "Es laeuft bereits ein Selbst-Update." 4; fi
+  fi
+
+  check_repo_safe
+
+  # Eigentuemer merken, BEVOR irgendetwas getauscht wird: der Helfer laeuft
+  # als root und schreibt in .git, die Dateien sollen danach aber wieder
+  # dem Betrieb gehoeren (root bei einer root-Installation, armory bei einer
+  # Installation, die dem Panel-User gehoert).
+  remember_owner
+
+  log "hole Tags von $GIT_REMOTE"
+  fetch_tags
+
+  # Tag muss existieren UND aus dem Remote kommen (kein lokal gebastelter).
+  git_cmd rev-parse --verify --quiet "refs/tags/$target" >/dev/null \
+    || fail "Tag existiert nicht: $target" 6
+  # Auch hier HTTPS statt SSH (2026-10-20): dieselbe Falle wie in fetch_tags.
+  # Mit "$GIT_REMOTE" (= origin, SSH-Form) scheiterte der Abruf im Dienst an
+  # ProtectHome=yes - "Host key verification failed". Die Variable traegt
+  # jetzt die bereits umgeschriebene URL.
+  remote_url="$(https_url)" || fail "Remote-URL nicht ermittelbar" 6
+  git_cmd ls-remote --tags --quiet "$remote_url" "refs/tags/$target" | grep -q . \
+    || fail "Tag ist nicht im Remote-Repo: $target" 6
+
+  old_tag="$(current_tag)"
+  old_commit="$(git_cmd rev-parse HEAD)"
+  log "aktuell: $old_tag ($old_commit) -> Ziel: $target"
+
+  # Arbeitsverzeichnis muss sauber sein: sonst wuerde checkout lokale
+  # Aenderungen verwerfen (oder abbrechen) - beides ist hier unerwuenscht.
+  #
+  # Getrennt gezaehlt (2026-10-19):
+  #   tracked   - verfolgte Datei geaendert -> Sperre, harte Regel.
+  #   untracked - neue Datei ausserhalb .gitignore. Ein 'checkout' fasst sie
+  #               nicht an, aber jemand hat von Hand etwas ins Repo gelegt.
+  #               Das wird gemeldet (nicht still ueberschrieben), sperrt aber
+  #               nicht das Update - sonst blockiert eine vergessene Datei
+  #               den Betrieb dauerhaft.
+  # Ignorierte Dateien (logs/, data/) zaehlt git ohnehin nicht.
+  tracked_changes=''
+  untracked_files=''
+  tracked_changes="$(git_cmd status --porcelain --untracked-files=no | wc -l)"
+  untracked_files="$(git_cmd status --porcelain | grep -c '^??' || true)"
+  if [[ "$tracked_changes" -ne 0 ]]; then
+    fail "Arbeitsverzeichnis nicht sauber ($tracked_changes geaenderte verfolgte Datei(en)) - Update abgelehnt. Erst Aenderungen klaeren." 7
+  fi
+  if [[ "$untracked_files" -ne 0 ]]; then
+    log "Hinweis: $untracked_files nicht versionierte Datei(en) im Repo - sie bleiben unberuehrt."
+  fi
+
+  # Sicherung als root (der Helfer hat die Rechte auf .git und Arbeitsbaum).
+  # Nur die VERSIONIERTEN Dateien - data/, swords/, logs/ sind nicht dabei.
+  mkdir -p "$BACKUP_DIR"
+  # Nur die alten Sicherungen loeschen - NICHT das Verzeichnis leeren.
+  # Ein 'rm -rf "$BACKUP_DIR"/*' hat am 25.10. auch last-run.log und
+  # last-result.json mitgenommen: die Logzeilen bis zu dieser Stelle waren
+  # danach weg, was wie ein Fehler in log() aussah.
+  rm -f "$BACKUP_DIR"/before-*.tar 2>/dev/null || true
+
+  # Im Trockenlauf keine Sicherung anlegen: er tauscht nichts, es gibt nichts
+  # zu sichern. Vorher entstanden bei jedem Klick 788 KB, die beim naechsten
+  # echten Update ohnehin ueberschrieben wurden.
+  backup_path=""
+  if [[ "$dry_run" == "1" ]]; then
+    log "Trockenlauf: keine Sicherung angelegt (es wird nichts getauscht)"
+  else
+    if ! git_cmd archive --format=tar "$old_commit" -o "$BACKUP_DIR/before-$target.tar"; then
+      fail "Sicherung des alten Stands fehlgeschlagen - Update abgelehnt." 8
+    fi
+    backup_path="$BACKUP_DIR/before-$target.tar"
+    log "Sicherung: $backup_path"
+  fi
+
+  # --- Trockenlauf endet hier --------------------------------------------
+  if [[ "$dry_run" == "1" ]]; then
+    log "TROCKENLAUF: alles geprueft, kein checkout, kein Neustart"
+    # Kein backup-Feld: im Trockenlauf entsteht keine Sicherung, ein Pfad
+    # auf eine nicht existierende Datei waere eine falsche Aussage.
+    printf 'result=dry-run\ntag=%s\nprevious=%s\n' "$target" "$old_tag"
+    write_result "dry-run" "$target" "$old_tag"
+    exit 0
+  fi
+
+  # --- Ab hier wird veraendert -------------------------------------------
+  log "checkout $target"
+  if ! git_cmd checkout --detach "$target" >/dev/null; then
+    log "checkout fehlgeschlagen - nichts veraendert, Stand bleibt $old_tag"
+    fail "checkout fehlgeschlagen" 9
+  fi
+
+  log "Dienst neu starten"
+  systemctl restart "$UNIT" || true   # Ergebnis bewertet der Health-Check
+
+  if wait_for_panel; then
+    # Reihenfolge zaehlt (2026-10-25): erst melden und Besitz zuruecksetzen,
+    # dann aufraeumen. Vorher stand hier ein 'rm -rf "$BACKUP_DIR"/*', das
+    # beim Loeschen ins Leere Status 1 zurueckgab und mit 'set -e' das
+    # Skript beendete - VOR write_result. Folge: das Update war erfolgreich,
+    # aber es gab keine Ergebnisdatei und restore_owner lief nicht.
+    printf 'result=ok\ntag=%s\nprevious=%s\n' "$target" "$old_tag"
+    write_result "ok" "$target" "$old_tag"
+    restore_owner
+    log "OK: $target laeuft (Panel antwortet)"
+    prune_backups
+  else
+    log "Panel antwortet NICHT - ROLLBACK auf $old_tag"
+    systemctl stop "$UNIT" || true
+    if git_cmd checkout --detach "$old_commit" >/dev/null; then
+      systemctl restart "$UNIT" || true
+      if wait_for_panel; then
+        restore_owner
+        log "Rollback ok: $old_tag laeuft wieder"
+        printf 'result=rolled-back\ntag=%s\nprevious=%s\nreason=panel-unhealthy\n' "$old_tag" "$old_tag"
+        write_result "rolled-back" "$old_tag" "$old_tag" "panel-unhealthy"
+      else
+        log "WARNUNG: Rollback-Checkout ok, aber Panel antwortet weiterhin nicht"
+        printf 'result=rollback-failed\ntag=%s\nprevious=%s\n' "$old_tag" "$old_tag"
+        write_result "rollback-failed" "$old_tag" "$old_tag"
+        exit 11
+      fi
+    else
+      log "KRITISCH: Rollback-Checkout fehlgeschlagen. Sicherung: $BACKUP_DIR/before-$target.tar"
+      printf 'result=rollback-checkout-failed\ntag=%s\nprevious=%s\nbackup=%s\n' \
+        "$old_tag" "$old_tag" "$BACKUP_DIR/before-$target.tar"
+      write_result "rollback-checkout-failed" "$old_tag" "$old_tag" "" "$BACKUP_DIR/before-$target.tar"
+      exit 12
+    fi
+  fi
+}
+
 step="${1:-}"
 
 case "$step" in
@@ -237,136 +401,21 @@ case "$step" in
     git_cmd tag --list --sort=-v:refname | grep -E "$TAG_RE" | head -20
     ;;
 
-  apply)
-    target="${2:-}"
-    [[ -n "$target" ]] || usage
-    [[ "$target" =~ $TAG_RE ]] || fail "Ungueltiger Tag: $target (erwartet vX.Y.Z)" 2
-
-    # Trockenlauf (2026-10-19): DRY_RUN=1 prueft ALLES bis zum checkout und
-    # hoert dann auf. Kein Tausch, kein Neustart. Ein echter Probelauf gegen
-    # den Live-Dienst waere der einzige Moment, in dem sich das Panel selbst
-    # die Verbindung kappt - deshalb getrennt testbar.
-    dry_run="${DRY_RUN:-0}"
-
-    # Nur EIN Update gleichzeitig - sonst tauschen zwei Laeufe gegeneinander.
-    # Im Trockenlauf kein Lock: er veraendert nichts, darf aber auch nicht
-    # einem echten Update in die Quere kommen.
-    if [[ "$dry_run" != "1" ]]; then
-      exec 9>"$LOCK_FILE" || fail "Lock-Datei nicht schreibbar: $LOCK_FILE"
-      if ! flock -n 9; then fail "Es laeuft bereits ein Selbst-Update." 4; fi
-    fi
-
-    check_repo_safe
-
-    # Eigentuemer merken, BEVOR irgendetwas getauscht wird: der Helfer laeuft
-    # als root und schreibt in .git, die Dateien sollen danach aber wieder
-    # dem Betrieb gehoeren (root bei einer root-Installation, armory bei einer
-    # Installation, die dem Panel-User gehoert).
-    remember_owner
-
-    log "hole Tags von $GIT_REMOTE"
-    fetch_tags
-
-    # Tag muss existieren UND aus dem Remote kommen (kein lokal gebastelter).
-    git_cmd rev-parse --verify --quiet "refs/tags/$target" >/dev/null \
-      || fail "Tag existiert nicht: $target" 6
-    # Auch hier HTTPS statt SSH (2026-10-20): dieselbe Falle wie in fetch_tags.
-    # Mit "$GIT_REMOTE" (= origin, SSH-Form) scheiterte der Abruf im Dienst an
-    # ProtectHome=yes - "Host key verification failed". Die Variable traegt
-    # jetzt die bereits umgeschriebene URL.
-    remote_url="$(https_url)" || fail "Remote-URL nicht ermittelbar" 6
-    git_cmd ls-remote --tags --quiet "$remote_url" "refs/tags/$target" | grep -q . \
-      || fail "Tag ist nicht im Remote-Repo: $target" 6
-
-    old_tag="$(current_tag)"
-    old_commit="$(git_cmd rev-parse HEAD)"
-    log "aktuell: $old_tag ($old_commit) -> Ziel: $target"
-
-    # Arbeitsverzeichnis muss sauber sein: sonst wuerde checkout lokale
-    # Aenderungen verwerfen (oder abbrechen) - beides ist hier unerwuenscht.
+  dry-run)
+    # Eigener Schritt statt DRY_RUN=1 (2026-10-25).
     #
-    # Getrennt gezaehlt (2026-10-19):
-    #   tracked   - verfolgte Datei geaendert -> Sperre, harte Regel.
-    #   untracked - neue Datei ausserhalb .gitignore. Ein 'checkout' fasst sie
-    #               nicht an, aber jemand hat von Hand etwas ins Repo gelegt.
-    #               Das wird gemeldet (nicht still ueberschrieben), sperrt aber
-    #               nicht das Update - sonst blockiert eine vergessene Datei
-    #               den Betrieb dauerhaft.
-    # Ignorierte Dateien (logs/, data/) zaehlt git ohnehin nicht.
-    tracked_changes=''
-    untracked_files=''
-    tracked_changes="$(git_cmd status --porcelain --untracked-files=no | wc -l)"
-    untracked_files="$(git_cmd status --porcelain | grep -c '^??' || true)"
-    if [[ "$tracked_changes" -ne 0 ]]; then
-      fail "Arbeitsverzeichnis nicht sauber ($tracked_changes geaenderte verfolgte Datei(en)) - Update abgelehnt. Erst Aenderungen klaeren." 7
-    fi
-    if [[ "$untracked_files" -ne 0 ]]; then
-      log "Hinweis: $untracked_files nicht versionierte Datei(en) im Repo - sie bleiben unberuehrt."
-    fi
-
-    # Sicherung als root (der Helfer hat die Rechte auf .git und Arbeitsbaum).
-    # Nur die VERSIONIERTEN Dateien - data/, swords/, logs/ sind nicht dabei.
-    mkdir -p "$BACKUP_DIR"
-    rm -rf "$BACKUP_DIR"/* 2>/dev/null || true
-    if ! git_cmd archive --format=tar "$old_commit" -o "$BACKUP_DIR/before-$target.tar"; then
-      fail "Sicherung des alten Stands fehlgeschlagen - Update abgelehnt." 8
-    fi
-    log "Sicherung: $BACKUP_DIR/before-$target.tar"
-
-    # --- Trockenlauf endet hier --------------------------------------------
-    if [[ "$dry_run" == "1" ]]; then
-      log "TROCKENLAUF: alles geprueft, kein checkout, kein Neustart"
-      printf 'result=dry-run\ntag=%s\nprevious=%s\nbackup=%s\n' \
-        "$target" "$old_tag" "$BACKUP_DIR/before-$target.tar"
-      write_result "dry-run" "$target" "$old_tag" "" "$BACKUP_DIR/before-$target.tar"
-      exit 0
-    fi
-
-    # --- Ab hier wird veraendert -------------------------------------------
-    log "checkout $target"
-    if ! git_cmd checkout --detach "$target" >/dev/null; then
-      log "checkout fehlgeschlagen - nichts veraendert, Stand bleibt $old_tag"
-      fail "checkout fehlgeschlagen" 9
-    fi
-
-    log "Dienst neu starten"
-    systemctl restart "$UNIT" || true   # Ergebnis bewertet der Health-Check
-
-    if wait_for_panel; then
-      # Reihenfolge zaehlt (2026-10-25): erst melden und Besitz zuruecksetzen,
-      # dann aufraeumen. Vorher stand hier ein 'rm -rf "$BACKUP_DIR"/*', das
-      # beim Loeschen ins Leere Status 1 zurueckgab und mit 'set -e' das
-      # Skript beendete - VOR write_result. Folge: das Update war erfolgreich,
-      # aber es gab keine Ergebnisdatei und restore_owner lief nicht.
-      printf 'result=ok\ntag=%s\nprevious=%s\n' "$target" "$old_tag"
-      write_result "ok" "$target" "$old_tag"
-      restore_owner
-      log "OK: $target laeuft (Panel antwortet)"
-      prune_backups
-    else
-      log "Panel antwortet NICHT - ROLLBACK auf $old_tag"
-      systemctl stop "$UNIT" || true
-      if git_cmd checkout --detach "$old_commit" >/dev/null; then
-        systemctl restart "$UNIT" || true
-        if wait_for_panel; then
-          restore_owner
-          log "Rollback ok: $old_tag laeuft wieder"
-          printf 'result=rolled-back\ntag=%s\nprevious=%s\nreason=panel-unhealthy\n' "$old_tag" "$old_tag"
-          write_result "rolled-back" "$old_tag" "$old_tag" "panel-unhealthy"
-        else
-          log "WARNUNG: Rollback-Checkout ok, aber Panel antwortet weiterhin nicht"
-          printf 'result=rollback-failed\ntag=%s\nprevious=%s\n' "$old_tag" "$old_tag"
-          write_result "rollback-failed" "$old_tag" "$old_tag"
-          exit 11
-        fi
-      else
-        log "KRITISCH: Rollback-Checkout fehlgeschlagen. Sicherung: $BACKUP_DIR/before-$target.tar"
-        printf 'result=rollback-checkout-failed\ntag=%s\nprevious=%s\nbackup=%s\n' \
-          "$old_tag" "$old_tag" "$BACKUP_DIR/before-$target.tar"
-        write_result "rollback-checkout-failed" "$old_tag" "$old_tag" "" "$BACKUP_DIR/before-$target.tar"
-        exit 12
-      fi
-    fi
+    # Grund: das Panel rief 'apply' mit DRY_RUN=1 in der Umgebung auf.
+    # 'sudo' laeuft mit env_reset und reicht die Variable nicht durch -
+    # der Helfer sah dry_run=0 und hat ein ECHTES Update gefahren.
+    # Genau das passierte am 25.10. um 20:17: ein Klick auf
+    # "Trockenlauf pruefen" hat den Dienst neu gestartet.
+    #
+    # Argumente ueberleben sudo, Umgebungsvariablen nicht. Ein eigener
+    # Schritt kann deshalb nicht versehentlich zum echten Update werden.
+    run_apply "${2:-}" 1
+    ;;
+  apply)
+    run_apply "${2:-}" 0
     ;;
 
   *)
