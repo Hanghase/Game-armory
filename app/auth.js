@@ -165,6 +165,10 @@ db.exec(`
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'friend',
     created_at INTEGER NOT NULL,
+    -- E-Mail fuer Passwort-Reset und Einladungen. Kam nach dem ersten
+    -- Schema dazu: bestehende Datenbanken bekommen sie per Migration
+    -- weiter unten, frische Installationen direkt hier.
+    email TEXT,
     -- Darstellung je Nutzer (JSON): z.B. {"theme":"light"}.
     -- NULL = noch nichts gewaehlt, dann gilt der Standard (dunkel).
     prefs TEXT
@@ -183,16 +187,35 @@ db.exec(`
     first_fail_at INTEGER NOT NULL,
     banned_until INTEGER
   );
+  -- Einmal-Token fuer Passwort-Reset und Einladungen. Gehalten wird nur der
+  -- HASH des Tokens, nie der Token selbst: wer die Datenbank liest, kann
+  -- damit keinen Reset ausloesen. used_at ist NULL solange unverbraucht.
+  CREATE TABLE IF NOT EXISTS auth_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    purpose    TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at    INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
-// Migration: die Spalte prefs kam spaeter dazu. CREATE TABLE IF NOT EXISTS
+// Migration: spaeter hinzugekommene Spalten. CREATE TABLE IF NOT EXISTS
 // aendert eine bestehende Tabelle NICHT - deshalb hier nachziehen.
+// WICHTIG: Jede Spalte, die im CREATE TABLE oben steht und irgendwo benutzt
+// wird (createUser, listUsers, setUserEmail), MUSS hier auftauchen. Sonst
+// laeuft eine bestehende Installation weiter, aber eine frische bricht beim
+// ersten Schreibvorgang mit "no such column" ab. (2026-10-25: email fehlte)
 (() => {
   const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
-  if (!cols.includes('prefs')) {
-    db.exec('ALTER TABLE users ADD COLUMN prefs TEXT');
-    console.log('[auth] Migration: users.prefs angelegt');
-  }
+  const add = (name, ddl) => {
+    if (cols.includes(name)) return;
+    db.exec(`ALTER TABLE users ADD COLUMN ${ddl}`);
+    console.log(`[auth] Migration: users.${name} angelegt`);
+  };
+  add('email', 'email TEXT');
+  add('prefs', 'prefs TEXT');
 })();
 
 // --- Darstellung je Nutzer ---------------------------------------------------
@@ -254,7 +277,13 @@ export async function createUser(username, password, role = 'friend', email = nu
 // nicht versehentlich einen stillen null-Fall als Erfolg behandeln.
 // Kein Rueckgabewert enthaelt je Passwort oder Hash.
 
-export async function changeOwnPassword(userId, currentPassword, newPassword) {
+// 2026-10-25: loescht die Sessions des Nutzers genauso wie der Admin-Reset.
+// Begruendung: Wer sein Passwort aendert, tut das (auch) dann, wenn er glaubt,
+// dass jemand anderes seines kennt. Blieben die alten Sessions gueltig, waere
+// die Aenderung wirkungslos - der Angreifer saesse weiter drin. Die eigene
+// Sitzung wird danach ueber keepSessionId am Leben gehalten, damit den Nutzer
+// nicht seine eigene Anmeldung rauswirft.
+export async function changeOwnPassword(userId, currentPassword, newPassword, keepSessionId = null) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!user) throw new Error('Benutzer nicht gefunden');
   if (!currentPassword || !bcrypt.compareSync(currentPassword, user.password_hash)) {
@@ -263,7 +292,15 @@ export async function changeOwnPassword(userId, currentPassword, newPassword) {
   await validatePassword(newPassword, user.username);
 
   const hash = bcrypt.hashSync(newPassword, 12);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
+    if (keepSessionId) {
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(userId, keepSessionId);
+    } else {
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+    }
+  });
+  tx();
   return true;
 }
 
@@ -290,7 +327,7 @@ export function verifyLogin(username, password) {
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   if (!user) return null;
   if (!bcrypt.compareSync(password, user.password_hash)) return null;
-  return { id: user.id, username: user.username, role: user.role };
+  return { id: user.id, username: user.username, role: user.role, email: user.email ?? null };
 }
 
 export function createSession(userId) {
@@ -304,7 +341,7 @@ export function createSession(userId) {
 export function getSessionUser(token) {
   if (!token) return null;
   const row = db
-    .prepare(`SELECT u.id, u.username, u.role, s.expires_at
+    .prepare(`SELECT u.id, u.username, u.role, u.email, s.expires_at
               FROM sessions s JOIN users u ON u.id = s.user_id
               WHERE s.token = ?`)
     .get(token);
@@ -313,7 +350,10 @@ export function getSessionUser(token) {
     db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     return null;
   }
-  return { id: row.id, username: row.username, role: row.role };
+  // email MUSS mit: das Panel zeigt sie im Konto-Tab an. Fehlt sie hier,
+  // sieht der Nutzer seine hinterlegte Adresse nie und tippt sie im Zweifel
+  // immer wieder neu ein.
+  return { id: row.id, username: row.username, role: row.role, email: row.email ?? null };
 }
 
 export function destroySession(token) {

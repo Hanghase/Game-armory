@@ -208,6 +208,20 @@ export async function loadRacks() {
       const rack = JSON.parse(raw);
       const fileWarnings = [];
       validateRack(rack, file, fileWarnings);
+      // Die id im Inhalt MUSS zum Dateinamen passen. Sonst liegt das Rack im
+      // Cache unter einer id, zu der keine Datei existiert: getRack() findet
+      // es, Aendern oder Loeschen sucht aber "<id>.rack.json" und meldet
+      // "nicht vorhanden". createRack() verhindert genau diese Abweichung
+      // beim Anlegen - beim Laden fehlte die Pruefung bisher, eine von Hand
+      // kopierte Datei kam also durch. Harter Fehler statt Warnung: das Rack
+      // ist so nicht bearbeitbar, und ein stiller Sonderfall waere schlimmer
+      // als eine sichtbare Meldung.
+      const expectedId = file.slice(0, -'.rack.json'.length);
+      if (rack.id !== expectedId) {
+        throw new Error(
+          `id im Inhalt ("${rack.id}") stimmt nicht mit dem Dateinamen ("${expectedId}") ueberein`,
+        );
+      }
       // Sperrlogik vorgesehen: Premium-Racks werden geladen, aber markiert.
       // Aktive Sperre (Lizenzpruefung) wird spaeter aktiviert.
       rack.locked = rack.tier === 'premium' && rack.licenseRequired === true;

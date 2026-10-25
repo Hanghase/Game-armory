@@ -79,6 +79,9 @@ const FIXED_ROLES = new Set(['superuser']);
 // --- Startbelegung (erbt die alte Leiter) ----------------------------------
 // Pro Rolle die erlaubten Rechte. Nur was hier steht, wird migriert.
 const MODERATOR_PERMS = [
+  // Wer stoppen und neu starten darf, darf auch starten - sonst bleibt ein
+  // gestoppter Server fuer diese Rolle liegen. (2026-10-25, Felix)
+  'sword.control.start',
   'sword.control.stop',
   'sword.control.restart',
   'sword.config.read',
@@ -119,7 +122,7 @@ export const DEFAULT_MATRIX = {
 // Seed-Version: erhoehen, wenn sich DEFAULT_MATRIX/Katalog aendert. Beim Start
 // wird eine aeltere DB-Version deterministisch auf diese Soll-Belegung
 // nachgezogen - aber NUR fuer Seed-Zeilen (Betreiber-Aenderungen bleiben).
-export const PERMISSIONS_SEED_VERSION = 4;
+export const PERMISSIONS_SEED_VERSION = 5;
 
 // --- Migration / Init (deterministisch, selbstheilend, idempotent) ---------
 // Mechanismus (Begruendung):

@@ -227,7 +227,9 @@ authRouter.post('/email', requireAuth, (req, res) => {
 authRouter.post('/password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body ?? {};
   try {
-    await changeOwnPassword(req.user.id, currentPassword, newPassword);
+    // Eigene Sitzung behalten, alle anderen des Nutzers verwerfen: eine
+    // gestohlene Sitzung soll durch den Passwortwechsel hinausfliegen.
+    await changeOwnPassword(req.user.id, currentPassword, newPassword, req.cookies?.armory_session);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });

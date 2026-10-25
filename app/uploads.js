@@ -172,7 +172,17 @@ export async function registerUpload(file, user, rack = null) {
     // Dient als Pack-Version beim Install; null, wenn nicht erkennbar.
     packVersion: extractCurseForgeVersion({ fileName: originalName }),
   };
-  await writeMetadata(id, meta);
+  // Metadaten schreiben. Schlaegt das fehl, MUSS das Archiv mit weg: die
+  // Bereinigung findet ihre Kandidaten ausschliesslich ueber die JSON-Dateien
+  // (listUploads/cleanupOldUploads), ein Archiv ohne Metadaten liegt also fuer
+  // immer auf der Platte und belegt Speicher, ohne im Panel aufzutauchen.
+  try {
+    await writeMetadata(id, meta);
+  } catch (err) {
+    await rm(archivePath, { force: true });
+    await rm(metaPath(id), { force: true });
+    throw new UploadError(`Upload konnte nicht registriert werden: ${err.message}`);
+  }
   return meta;
 }
 
