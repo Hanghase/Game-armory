@@ -328,8 +328,19 @@ run_apply() {
     fail "checkout fehlgeschlagen" 9
   fi
 
-  log "Dienst neu starten"
-  systemctl restart "$UNIT" || true   # Ergebnis bewertet der Health-Check
+  # Neustart ausserhalb der eigenen Prozessgruppe (2026-10-25).
+  #
+  # Der Helfer laeuft als Kind des Panels in dessen cgroup, und systemd hat
+  # KillMode=control-group: 'systemctl restart game-armory' schickt SIGTERM an
+  # die ganze Gruppe. Der Helfer starb dabei selbst, bevor er das Ergebnis
+  # schreiben konnte - die Datei behielt den Stand des Trockenlaufs.
+  # systemd-run legt eine eigene Unit (eigene cgroup) an; der Neustart laeuft
+  # dort und kann den Melder nicht mitreissen.
+  log "Dienst neu starten (ausserhalb der Panel-cgroup)"
+  restart_unit="armory-restart-$(date +%s)"
+  systemd-run --unit="$restart_unit" --collect --quiet \
+    --description="Game-Armory Neustart nach Selbst-Update" \
+    systemctl restart "$UNIT" || true
 
   if wait_for_panel; then
     # Reihenfolge zaehlt (2026-10-25): erst melden und Besitz zuruecksetzen,
@@ -344,9 +355,12 @@ run_apply() {
     prune_backups
   else
     log "Panel antwortet NICHT - ROLLBACK auf $old_tag"
-    systemctl stop "$UNIT" || true
     if git_cmd checkout --detach "$old_commit" >/dev/null; then
-      systemctl restart "$UNIT" || true
+      # stop+restart in eigener Unit, damit der Melder den Rollback ueberlebt.
+      rollback_unit="armory-rollback-$(date +%s)"
+      systemd-run --unit="$rollback_unit" --collect --quiet \
+        --description="Game-Armory Rollback nach Selbst-Update" \
+        /bin/sh -c "systemctl stop $UNIT; systemctl restart $UNIT" || true
       if wait_for_panel; then
         restore_owner
         log "Rollback ok: $old_tag laeuft wieder"
