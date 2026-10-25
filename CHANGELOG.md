@@ -3,6 +3,29 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.6] - 2026-10-25
+
+### Behoben
+
+- **"Trockenlauf pruefen" hat ein echtes Update gefahren.** Das Panel rief
+  den Helfer mit `DRY_RUN=1` in der Umgebung auf; `sudo` laeuft mit
+  `env_reset` und reicht die Variable nicht durch. Der Helfer las
+  `dry_run=0` und startete den Dienst neu. Trockenlauf ist jetzt ein eigener
+  Schritt (`dry-run <tag>`), dessen Argument sudo ueberlebt.
+- **Trockenlauf legte eine Sicherung an.** 788 KB pro Klick, die beim
+  naechsten Update ohnehin ueberschrieben wurden. Entfaellt jetzt; das
+  `backup`-Feld bleibt leer statt auf eine nicht existierende Datei zu zeigen.
+- **Das Aufraeumen loeschte das Lauf-Protokoll.** `rm -rf <verzeichnis>/*`
+  nahm auch `last-run.log` und `last-result.json` mit - die Logzeilen bis
+  dahin waren weg. Es werden nur noch `before-*.tar` entfernt.
+
+### Hinzugefuegt
+
+- Der Helfer schreibt jede Logzeile zusaetzlich nach
+  `.self-update-backup/last-run.log`. Beim Selbst-Update stirbt die
+  Verbindung des Panel-Prozesses, seine Ausgabe ist danach nicht mehr
+  auffindbar - bei der Fehlersuche fehlte deshalb jede Spur.
+
 ## [1.1.5] - 2026-10-25
 
 ### Behoben
