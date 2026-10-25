@@ -3,6 +3,24 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.4] - 2026-10-25
+
+### Behoben
+
+- **Selbst-Update meldete nach dem Neustart einen Fehler, obwohl es lief.**
+  Der Helfer startet den Dienst neu, die HTTP-Verbindung stirbt und der
+  Browser zeigte 502. Das Ergebnis liegt jetzt zusaetzlich als JSON vor
+  (`.self-update-backup/last-result.json`) und wird beim Oeffnen des
+  Update-Tabs angezeigt - auch fuer die Fehlerfaelle Rueckrollung,
+  fehlgeschlagene Rueckrollung und Trockenlauf.
+
+### Geaendert
+
+- Die privilegierten Helfer liegen im Repo unter `tools/`.
+  `tools/install-helpers.sh` kopiert sie nach `/usr/local/bin`
+  (bewusst Kopie statt Symlink, damit sich der laufende Helfer waehrend
+  eines Updates nicht selbst unter den Fuessen wegzieht).
+
 ## [1.1.3] - 2026-10-25
 
 Bugfix-Release.
