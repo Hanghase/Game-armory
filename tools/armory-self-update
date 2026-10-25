@@ -29,6 +29,7 @@ TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
 HEALTH_TIMEOUT=45        # Sekunden, die das Panel zum Hochkommen hat
 HEALTH_INTERVAL=1
 BACKUP_DIR="/opt/game-armory/.self-update-backup"
+BACKUP_MAX_AGE=86400     # Sicherung erst nach 24 h aufraeumen (siehe prune_backups)
 LOCK_FILE="/run/armory-self-update.lock"
 
 usage() {
@@ -172,6 +173,35 @@ wait_for_panel() {
   return 1
 }
 
+# Sicherungen aufraeumen (2026-10-25).
+#
+# Nach einem erfolgreichen Update wird die Sicherung des Vorzustands NICHT
+# sofort geloescht: faellt Tage spaeter etwas auf, ist sie sonst weg. Sie
+# bleibt mindestens BACKUP_MAX_AGE Sekunden liegen (24 h) und wird erst beim
+# naechsten Aufraeumen entfernt.
+#
+# Bewusst kein Timer und kein Cron: ein Dauerlaeufer, der nachts Dateien
+# loescht, waere fuer diese Kleinigkeit zu viel. Folge: das Tar kann laenger
+# liegen als 24 h, wenn lange kein Update laeuft. Der Fehler geht in die
+# sichere Richtung - es bleibt mehr liegen, nie weniger.
+#
+# Die neueste Sicherung wird nie angefasst, egal wie alt sie ist.
+prune_backups() {
+  local now latest f ts
+  now="$(date +%s)"
+  latest="$(ls -1t "$BACKUP_DIR"/before-*.tar 2>/dev/null | head -1 || true)"
+
+  for f in "$BACKUP_DIR"/before-*.tar; do
+    [[ -f "$f" ]] || continue
+    if [[ -n "$latest" && "$f" == "$latest" ]]; then continue; fi
+    ts="$(stat -c '%Y' "$f" 2>/dev/null || echo "$now")"
+    if (( now - ts > BACKUP_MAX_AGE )); then
+      rm -f "$f" 2>/dev/null || true
+      log "Alte Sicherung geloescht: $(basename "$f")"
+    fi
+  done
+}
+
 # --- Schritte ----------------------------------------------------------------
 
 step="${1:-}"
@@ -277,7 +307,7 @@ case "$step" in
     # Sicherung als root (der Helfer hat die Rechte auf .git und Arbeitsbaum).
     # Nur die VERSIONIERTEN Dateien - data/, swords/, logs/ sind nicht dabei.
     mkdir -p "$BACKUP_DIR"
-    rm -rf "$BACKUP_DIR"/*
+    rm -rf "$BACKUP_DIR"/* 2>/dev/null || true
     if ! git_cmd archive --format=tar "$old_commit" -o "$BACKUP_DIR/before-$target.tar"; then
       fail "Sicherung des alten Stands fehlgeschlagen - Update abgelehnt." 8
     fi
@@ -303,11 +333,16 @@ case "$step" in
     systemctl restart "$UNIT" || true   # Ergebnis bewertet der Health-Check
 
     if wait_for_panel; then
-      restore_owner
-      log "OK: $target laeuft (Panel antwortet)"
-      rm -rf "$BACKUP_DIR"/*
+      # Reihenfolge zaehlt (2026-10-25): erst melden und Besitz zuruecksetzen,
+      # dann aufraeumen. Vorher stand hier ein 'rm -rf "$BACKUP_DIR"/*', das
+      # beim Loeschen ins Leere Status 1 zurueckgab und mit 'set -e' das
+      # Skript beendete - VOR write_result. Folge: das Update war erfolgreich,
+      # aber es gab keine Ergebnisdatei und restore_owner lief nicht.
       printf 'result=ok\ntag=%s\nprevious=%s\n' "$target" "$old_tag"
       write_result "ok" "$target" "$old_tag"
+      restore_owner
+      log "OK: $target laeuft (Panel antwortet)"
+      prune_backups
     else
       log "Panel antwortet NICHT - ROLLBACK auf $old_tag"
       systemctl stop "$UNIT" || true
