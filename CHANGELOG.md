@@ -3,6 +3,41 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.8] - 2026-10-26
+
+### Behoben
+
+- **Steam-Installationen brachen nach dem Download ab.** In
+  `installFromSteam` standen drei Zeilen, die `fileVersion` benutzten - eine
+  Variable, die es nur in `installFromCurseForge` gibt. Jeder Steam-Install
+  lief damit in einen `ReferenceError`, nachdem SteamCMD schon geladen hatte.
+  Steam-Racks haben keine CurseForge-Version; die Felder stehen jetzt bewusst
+  auf `null` statt geraten.
+- **Installationen aus einer URL warfen sofort.** `installRoutes.js` rief
+  `downloadGithubAsset` und `installFromTarball` auf, importierte beide aber
+  nie. Der Fehler kam als `ReferenceError: downloadGithubAsset is not defined`.
+- **Backups scheiterten an `EACCES`.** `createBackup` legte
+  `<workingDir>/backups` mit einem direkten `mkdir` an. Unter einem
+  Instanz-Verzeichnis gehoert der Baum dem Instanz-User, `armory` darf dort
+  nicht anlegen. Das Anlegen laeuft jetzt ueber den Helfer (`mkdir-tree`), der
+  in einem Schritt auch den Eigentuemer setzt.
+
+### Sicherheit
+
+- **Servernamen mit Steuerzeichen werden abgewiesen.** Der Name landet in der
+  systemd-Unit (`Description=` und die Kommentarzeile davor). Ein
+  Zeilenumbruch haette dort echte Direktiven angelegt, etwa
+  `ExecStartPre=/bin/sh -c ...`. `validateInstallInput` prueft jetzt den
+  Zeichenbereich `\x00-\x1f` und `\x7f`; Umlaute und normale Sonderzeichen
+  bleiben zulaessig.
+
+### Hintergrund
+
+Alle vier Fehler stammen aus einem Code-Audit (drei Modelle, drei Linsen,
+Zitatpflicht: 84 Befunde, davon 13 als KRITISCH gemeldet). Nur fuenf hielten
+der Pruefung am Code stand - die uebrigen waren geratene Zeilennummern oder
+Annahmen ueber Dateien ausserhalb des Pruefumfangs.
+
 ## [1.1.7] - 2026-10-25
 
 ### Behoben
