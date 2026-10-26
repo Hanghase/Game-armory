@@ -271,13 +271,19 @@ case "$step" in
       exit 4
     fi
     chown -R "$id:$id" "$tmp_root"
-    # Durchquerungsrecht nur auf der Wurzel (wie extract-pack): die Armory muss
-    # pruefen koennen, darf aber nicht in den Inhalt schreiben.
-    chmod o+x "$tmp_root"
     # GNU tar erkennt die Kompression selbst (xz/gz/bz2). --no-same-owner, damit
     # die Dateien im Temp dem Instanz-User gehoeren, nicht ihrem Archiv-Owner.
     if sudo -u "$id" tar -xf "$tmp_tb" -C "$tmp_root" --no-same-owner 2>/dev/null; then
       rm -f "$tmp_tb"
+      # Rechte NACH dem Entpacken setzen - Bugfix 2026-10-26:
+      # tar setzt den Modus des Wurzelverzeichnisses aus dem Archiv, sobald ein
+      # "./"-Eintrag enthalten ist. Ein chmod davor wird damit ueberschrieben
+      # (dann 0755, armory kann lesen) oder bleibt bei 0701 (dann kann armory
+      # NICHT readdir -> EACCES "Pack-Temp nicht lesbar"). Je nachdem, wie der
+      # Hersteller packt, brach die Installation mal ab und mal nicht.
+      # Wie bei extract-pack: lesen + durchqueren rekursiv, ohne Schreibrecht
+      # und ohne die Eigentuemer zu aendern (Kopieren macht der Instanz-User).
+      chmod -R o+rX "$tmp_root"
       echo "extracted $tmp_root"
     else
       rm -rf "$tmp_root"
