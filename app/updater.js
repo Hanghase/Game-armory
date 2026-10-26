@@ -87,7 +87,16 @@ async function run(cmd, args) {
 // Raeumt danach alte Generationen auf (keepGenerations, Standard 2).
 export async function createBackup(workingDir, { id, paths = [], log = () => {}, keepGenerations = 2, label = 'backup' } = {}) {
   const backupDir = join(workingDir, 'backups');
-  await mkdir(backupDir, { recursive: true });
+  // Bugfix 2026-10-26 (Audit): 'armory' darf unter einem Instanz-Verzeichnis
+  // kein mkdir (Owner ist der Instanz-User). Deshalb ueber den Helfer, der
+  // legt an und setzt den Eigentuemer in einem Schritt - wie bei den anderen
+  // Schreibpfaden (AGENTS.md: Schreibpfade ueber den Helfer).
+  // Nicht fatal: existiert es schon, ist der Aufruf ein No-Op. Schlaegt er
+  // fehl, entscheidet der tar-Aufruf darunter, ob es geht (Backup ist optional).
+  if (!(await pathExists(backupDir))) {
+    const mk = await runHelper('mkdir-tree', [id, backupDir], { log });
+    if (!mk.ok) log(`[backup] Warnung: ${backupDir} konnte nicht angelegt werden: ${mk.stderr || mk.error}`);
+  }
 
   const present = [];
   for (const p of paths) {
