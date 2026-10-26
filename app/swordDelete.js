@@ -78,7 +78,17 @@ export async function removeSword(id, { deleteFiles = true, log = () => {} } = {
   }
 
   // 2) Service disablen + Unit entfernen.
-  const dis = await systemctl(['disable', service]);
+  // Bugfix 2026-10-26: systemctl() kann WERFEN (unerlaubte Aktion, ungueltiger
+  // Name). Ungefangen haette das die Loeschung abgebrochen - nach dem Stop,
+  // aber vor Unit/User/Ordner, also mit halb geloeschtem Server. Der weitere
+  // Weg (rm der Unit + daemon-reload) raeumt auch dann auf, wenn disable
+  // scheitert: die Unit ist per force weg, ein enable-Rest ist damit wirkungslos.
+  let dis = { ok: false, stderr: '', error: 'disable nicht ausgefuehrt' };
+  try {
+    dis = await systemctl(['disable', service]);
+  } catch (err) {
+    dis = { ok: false, stderr: '', error: err.message };
+  }
   if (!dis.ok) log(`[delete] disable-Warnung: ${dis.stderr || dis.error}`);
   await rm(join(SYSTEMD_DIR, service), { force: true });
   const reload = await systemctl(['daemon-reload']);

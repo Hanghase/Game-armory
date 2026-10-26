@@ -468,5 +468,17 @@ case "$step" in
     exec /usr/bin/systemctl enable "$service"
     ;;
 
+  # disable: Gegenstueck zu enable. Ohne diesen Step konnte die Armory einen
+  # Sword zwar stoppen, aber nicht sauber deregistrieren - 'systemctl()' wirft
+  # fuer alles ausser daemon-reload/enable, also brach das Loeschen ab
+  # (Bugfix 2026-10-26). Same valid_service + Sword-Pruefung wie bei enable.
+  disable)
+    service="${1:-}"
+    valid_service "$service" || { echo "Ungueltiger Unit-Name" >&2; exit 2; }
+    grep -lq "\"service\"[[:space:]]*:[[:space:]]*\"$service\"" "$SWORDS_DIR"/*.sword.json 2>/dev/null \
+      || { echo "Service nicht als Sword registriert: $service" >&2; exit 3; }
+    exec /usr/bin/systemctl disable "$service"
+    ;;
+
   *) usage ;;
 esac

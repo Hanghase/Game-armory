@@ -196,6 +196,11 @@ export async function systemctl(args) {
   if (action === 'enable' && target !== null) {
     return runCmd('sudo', ['-n', INSTALL_HELPER, 'enable', target]);
   }
+  // disable gehoert ins Paar mit enable: ohne diesen Zweig warf jede Sword-
+  // Loeschung hier ab (Bugfix 2026-10-26).
+  if (action === 'disable' && target !== null) {
+    return runCmd('sudo', ['-n', INSTALL_HELPER, 'disable', target]);
+  }
   throw new InstallerError(`systemctl: Aktion nicht ueber Helfer abbildbar: ${action}`);
 }
 

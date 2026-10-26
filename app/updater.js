@@ -15,7 +15,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, readdir, readFile, stat, writeFile, access } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile, access, open } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 
 import { extractToTemp, replacePackContents } from './pack.js';
@@ -228,7 +228,7 @@ export async function checkNeoforgeVersion(workingDir, zipLibPaths, { log = () =
 
 // --- Log-Warten auf "Done (" -------------------------------------------------
 
-async function waitForDone(sword, { timeoutMs = 180_000, pollMs = 3000, log = () => {} } = {}) {
+export async function waitForDone(sword, { timeoutMs = 180_000, pollMs = 3000, log = () => {} } = {}) {
   const logPath = sword.logs?.path;
   const deadline = Date.now() + timeoutMs;
   let startOffset = 0;
@@ -242,9 +242,24 @@ async function waitForDone(sword, { timeoutMs = 180_000, pollMs = 3000, log = ()
       const { size } = await stat(logPath);
       if (size < startOffset) startOffset = 0; // Log rotiert/geleert -> neu einsteigen
       if (size > startOffset) {
-        const buf = await readFile(logPath);
-        const fresh = buf.subarray(Math.min(startOffset, buf.length)).toString('utf8');
-        startOffset = size;
+        // Bugfix 2026-10-26: vorher `readFile(logPath)` - das las die GANZE
+        // Datei in den Speicher und nutzte davon nur die Bytes ab startOffset.
+        // Beim atm10-Update sind das 98 MB pro Poll, alle 3 Sekunden, bis zu
+        // 60 Mal. Jetzt nur der neue Bereich per Datei-Deskriptor, mit Deckel
+        // gegen Ausreisser (Log-Ausbrueche durch Mod-Fehler).
+        const MAX_FRESH = 8 * 1024 * 1024;
+        const from = Math.min(startOffset, size);
+        const to = Math.min(size, from + MAX_FRESH);
+        const fh = await open(logPath, 'r');
+        let fresh;
+        try {
+          const buf = Buffer.alloc(to - from);
+          const { bytesRead } = await fh.read(buf, 0, buf.length, from);
+          fresh = buf.subarray(0, bytesRead).toString('utf8');
+        } finally {
+          await fh.close();
+        }
+        startOffset = to;
         if (fresh.includes('Done (')) return { ok: true, matched: 'Done (' };
       }
     } catch { /* Logdatei evtl. noch nicht da */ }

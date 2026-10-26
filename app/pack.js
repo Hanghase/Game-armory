@@ -113,8 +113,17 @@ export async function detectArchiveKind(filePath) {
       return 'zip';   // PK\x03\x04 (normal), PK\x05\x06 (leer), PK\x07\x08 (spanned)
     }
     if (bytesRead >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) return 'tar';  // gzip
-    // xz (0xFD 37 7A 58 5A) und unkomprimiertes tar ('ustar' @257) - billig pruefen
+    // xz (0xFD 37 7A 58 5A)
     if (bytesRead >= 4 && buf[0] === 0xfd && buf[1] === 0x37 && buf[2] === 0x7a && buf[3] === 0x58) return 'tar';
+    // bzip2 ("BZh") - tar -xf liest das klaglos, wurde aber vorher abgewiesen.
+    if (bytesRead >= 3 && buf[0] === 0x42 && buf[1] === 0x5a && buf[2] === 0x68) return 'tar';
+    // Unkomprimiertes tar traegt "ustar" erst bei Byte 257 - die 4-Byte-Lesung
+    // oben erreicht das nicht. Bugfix 2026-10-26: der Kommentar versprach diese
+    // Pruefung, der Code hatte sie nicht, also wurde ein .tar mit "Unbekanntes
+    // Archivformat" abgewiesen, obwohl tar es entpacken kann.
+    const magic = Buffer.alloc(5);
+    const got = await fh.read(magic, 0, 5, 257);
+    if (got.bytesRead === 5 && magic.toString('latin1') === 'ustar') return 'tar';
     return null;
   } finally {
     await fh.close();
