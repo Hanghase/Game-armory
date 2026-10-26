@@ -70,6 +70,12 @@ export function validateInstallInput({ id, name, port }) {
   if (String(name).length > 60) {
     throw new InstallerError('Name zu lang (max. 60 Zeichen).');
   }
+  // Bugfix 2026-10-26 (Audit): name landet in der systemd-Unit (Description= und
+  // als Kommentarzeile). Ein Zeilenumbruch wuerde dort echte Direktiven anlegen
+  // (z.B. ExecStartPre=). Steuerzeichen sind nie Teil eines Servernamens.
+  if (/[\x00-\x1f\x7f]/.test(String(name))) {
+    throw new InstallerError('Name enthaelt Steuerzeichen (Zeilenumbrueche sind nicht erlaubt).');
+  }
   const p = Number(port);
   if (!Number.isInteger(p) || p < 1024 || p > 65535) {
     throw new InstallerError('Ungueltiger Port (1024-65535).');
