@@ -1267,9 +1267,12 @@ export async function installFromSteam(
     javaInstalled: null,
     javaWarning: null,
     // Version der Instanz (Spec 2026-10-10): CurseForge-Release, z.B. "1.5.0".
-    installedVersion: fileVersion,
-    installedVersionSource: fileVersion ? 'curseforge' : null,
-    installedVersionAt: fileVersion ? Date.now() : null,
+    // Steam-Racks haben keine CurseForge-Version. Bewusst null statt geraten
+    // (Bugfix 2026-10-26: hier stand fileVersion, die nur in
+    // installFromCurseForge existiert -> ReferenceError, Install brach ab).
+    installedVersion: null,
+    installedVersionSource: null,
+    installedVersionAt: null,
   };
   await mkdir(SWORDS_DIR, { recursive: true });
   const swordPath = join(SWORDS_DIR, `${v.id}.sword.json`);

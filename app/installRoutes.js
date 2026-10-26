@@ -38,7 +38,7 @@ import { checkSwordVersion } from './versionCheck.js';
 import { serviceStatus } from './control.js';
 import { loadRacks, getRacks, getRack, getRackDiagnostics, createRack, updateRack, deleteRack, RackError } from './racks.js';
 import { readConfig, writeConfig, getEditorFields, SUPPORTED_GAMES, ConfigEditorError } from './configEditor.js';
-import { installFromZip, installFromCurseForge, installFromSteam, acceptEulaForRack, InstallerError } from './installer.js';
+import { installFromZip, installFromCurseForge, installFromSteam, downloadGithubAsset, installFromTarball, acceptEulaForRack, InstallerError } from './installer.js';
 import { updateFromZip, updateFromCurseForge, getUpdateState, UpdaterError } from './updater.js';
 import { removeSword, SwordDeleteError } from './swordDelete.js';
 import { loadPendingRestarts, getPendingRestart, setPendingRestart, clearPendingRestart } from './pendingRestart.js';
