@@ -685,7 +685,7 @@
 
         <h4>Brute-Force-Schutz</h4>
         <p class="hint">Fehlgeschlagene Login-Versuche je IP. Wer das Limit im
-          Zeitfenster ueberschreitet, wird fuer die Sperrdauer blockiert.</p>
+          Zeitfenster überschreitet, wird für die Sperrdauer blockiert.</p>
         <div id="bfgState" class="status-box">Wird geladen…</div>
         <div id="bfgFields">
           <label for="bfgMaxFails">Fehlversuche bis Sperre</label>
@@ -703,14 +703,14 @@
           <button class="primary" id="bfgSave">Speichern</button>
         </div>
 
-        <h4>Passwort-Pruefung</h4>
-<p class="hint">Abgleich neuer Passwoerter gegen bekannte Datenleaks
+        <h4>Passwort-Prüfung</h4>
+<p class="hint">Abgleich neuer Passwörter gegen bekannte Datenleaks
 (Have I Been Pwned). Es werden nur die ersten 5 Zeichen eines Hashes
-uebertragen - das Passwort selbst verlaesst den Server nie.</p>
+übertragen - das Passwort selbst verlässt den Server nie.</p>
 <label for="hibpEnabled" style="display:inline-flex;align-items:center;gap:.4rem;">
-  <input id="hibpEnabled" type="checkbox" checked /> Leak-Pruefung aktiv
+  <input id="hibpEnabled" type="checkbox" checked /> Leak-Prüfung aktiv
 </label>
-<p class="hint">Bei Netzfehler oder Zeitueberschreitung wird das Passwort
+<p class="hint">Bei Netzfehler oder Zeitüberschreitung wird das Passwort
 durchgelassen und der Vorfall geloggt (fail-open).</p>
 
 <h4>E-Mail-Versand (SMTP)</h4>
@@ -724,7 +724,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
         <input id="smtpHost" type="text" placeholder="smtp.beispiel.de" autocomplete="off" />
         <label for="smtpPort">Port</label>
         <input id="smtpPort" type="number" min="1" max="65535" step="1" inputmode="numeric" placeholder="587" />
-        <label for="smtpSecure">Verschluesselung</label>
+        <label for="smtpSecure">Verschlüsselung</label>
         <select id="smtpSecure">
           <option value="false">STARTTLS (587)</option>
           <option value="true">TLS (465)</option>
@@ -742,7 +742,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
         </div>
 
         <h4>Testmail</h4>
-        <label for="smtpTestTo">Empfaenger</label>
+        <label for="smtpTestTo">Empfänger</label>
         <input id="smtpTestTo" type="text" placeholder="du@beispiel.de" autocomplete="off" />
         <div class="modal-foot">
           <button class="ghost" id="smtpTest">Testmail senden</button>
@@ -750,7 +750,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
         <div id="smtpTestResult" class="status-box" style="display:none;"></div>
 
         <h4>API-Zugänge einrichten</h4>
-        <p class="hint">Welche Quelche welchen Zugang braucht - und was ohne Zugang trotzdem geht.
+        <p class="hint">Welche Quelle welchen Zugang braucht - und was ohne Zugang trotzdem geht.
           Die Anleitung steht direkt hier, damit niemand eine Doku suchen muss.</p>
         <details class="api-guide">
           <summary>CurseForge (Modpacks: atm10, atm11)</summary>
@@ -867,12 +867,12 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
            Racks/Swords werden beim Oeffnen frisch von der Platte geladen. -->
       <div class="tabpane" id="pTabDiagnose">
         <h4>Racks &amp; Swords</h4>
-        <p class="hint">Prueft die Konfigurationsdateien auf der Platte. Ein
+        <p class="hint">Prüft die Konfigurationsdateien auf der Platte. Ein
           <b>Fehler</b> heisst: die Datei wird nicht geladen (z.B. ungültiger
-          Wert). Ein <b>Hinweis</b> heisst: die Datei laeuft, enthaelt aber
-          Ungewoehnliches (z.B. ein unbekanntes Feld).</p>
+          Wert). Ein <b>Hinweis</b> heisst: die Datei läuft, enthält aber
+          Ungewöhnliches (z.B. ein unbekanntes Feld).</p>
         <div class="modal-foot">
-          <button class="primary" id="diagReload">Erneut pruefen</button>
+          <button class="primary" id="diagReload">Erneut prüfen</button>
         </div>
         <div id="diagResult" class="status-box">Wird geladen…</div>
       </div>
@@ -1028,7 +1028,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
     <div class="box">
       <h3>Sword entfernen</h3>
       <div class="warn" id="removeWarn"></div>
-      <p class="hint">Der Server wird dafuer zuerst gestoppt. Danach werden systemd-Unit,
+      <p class="hint">Der Server wird dafür zuerst gestoppt. Danach werden systemd-Unit,
         Sword-Datei und Logs entfernt.</p>
       <label class="chk" style="align-items:flex-start;margin-top:12px;">
         <input type="checkbox" id="removeFiles" style="margin-top:3px;" />
