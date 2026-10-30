@@ -3,6 +3,86 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.92] - 2026-10-30
+
+Die 15 verbliebenen HOCH-Befunde aus dem Audit wurden einzeln nachgeprueft.
+Zehn waren echt, fuenf falsch. Dazu drei Fehler, die erst beim Testen der
+Fixes aus 1.1.91 auffielen.
+
+### Behoben
+
+- **`query.port` stand auf dem RCON-Port.** Bei atm11 live belegt:
+  `rcon.port=25576`, `server-port=25566`, `query.port=25576`. Minecrafts Query
+  laeuft ueber UDP, RCON ueber TCP - der Server startet deshalb, aber Query
+  antwortet auf dem falschen Port. Der Kommentar daneben behauptete das
+  Gegenteil.
+
+- **CurseForge-`projectId` war an zwei Stellen fest `null`.** In der
+  Rack-Schablone (`rack.source.projectId`) und im Sword (`update.projectId`).
+  Folge: atm10/atm11 meldeten dauerhaft "keine projectId im Rack", die
+  Versionspruefung lief nie, und ein Update brach mit "Kein CurseForge-Projekt
+  (modId) vorhanden" ab. Die `modId` kennt der Aufrufer - sie wird jetzt
+  durchgereicht.
+
+- **`sword.rack` ignorierte die uebergebene `rackId`.** Ein Steam-Install mit
+  `rackId='7d2d'` wurde als `rack='<id>'` persistiert und zeigte damit auf ein
+  Rack, das es nicht gibt. Das Rack traegt Spiel, Quelle und Java-Version - alles
+  Folgende las daran vorbei.
+
+- **`world_nether` und `world_the_end` waren nicht geschuetzt.** Der Kommentar
+  dokumentierte seit jeher einen Glob `world*`, der Code prueft aber mit
+  `includes()` auf exakte Gleichheit - also traf nur `world`. Ein Pack-Update
+  haette die Nether- und End-Welt ueberschrieben.
+
+- **Update-Status war fuer jeden Angemeldeten lesbar.** `GET
+  /api/swords/:id/update-status` hing an `requireAuth` statt an
+  `requirePerm('sword.update')`.
+
+- **Ein fehlgeschlagener Serverstart wurde als "erfolgreich" gemeldet.** Die
+  Statusmeldung sagte "Update erfolgreich abgeschlossen", auch wenn der Start
+  scheiterte; der Balken wurde gruen. Der widersprechende Hinweis stand nur im
+  Ergebnis-Panel darunter.
+
+- **Pflichtfelder durften `null` sein.** `validateSword` prueft nur auf
+  `undefined` - `{"id": null}` und `{"control": null}` kamen durch. Jetzt zaehlt
+  auch `null` und ein leerer String als fehlend.
+
+- **Sword-id und Dateiname waren nicht verbunden.** Eine Datei
+  `atm11.sword.json` mit `"id":"atm10"` wurde als atm10 geladen; zwei Dateien mit
+  derselben id ueberschrieben sich im Cache. Der Dateiname bestimmt jetzt die
+  Instanz.
+
+- **`createRack` war nicht serialisiert.** Pruefung und Schreiben lagen durch ein
+  `await` getrennt: zwei gleichzeitige Anfragen sahen beide "existiert nicht",
+  beide bekamen 201, der zweite `rename` ueberschrieb den ersten. Laeuft jetzt
+  unter einem Lock wie `withSwordLock`.
+
+- **`$()` in `ExecStop` (Nachtrag zu 1.1.91).** `rcon-stop.mjs` liest den
+  RCON-Port jetzt aus der Sword-Datei (`rcon.port`) statt fest 25575 zu nehmen -
+  atm11 laeuft auf 25576. Ein Verbindungsfehler endet mit `exit 2` statt `0`,
+  damit im Journal steht, dass der saubere Weg nicht geklappt hat. Die Unit
+  `atm11.service` wurde neu geschrieben.
+
+- **Kommentar `"Antwortet IMMER mit 200"`** bei `version-check` widersprach dem
+  Code. Jetzt stehen die tatsaechlichen Statuscodes da.
+
+### Behoben (beim Testen von 1.1.91 gefunden)
+
+- **Jede ZIP-Installation brach sofort ab.** `installFromZip` rief
+  `extractToTemp(zipPath)` ohne die Instanz-id; das entpackt aber mit den Rechten
+  des Server-Users und warf `PackError`.
+- **`ensureUser` fehlte vor dem Entpacken.** Sobald die id durchgereicht war,
+  scheiterte der `chown` im Helfer mit "invalid user" - der User entsteht erst
+  spaeter.
+- **Der Aufraeum-Hinweis fehlte genau im haeufigsten Fall.** Bei "Zielordner
+  existiert bereits" (dem Zustand nach einem Abbruch) nannte die Meldung weder
+  `userdel` noch `rm -rf`.
+
+### Nicht geaendert (Befund war falsch)
+
+`D318`, `A03`, `C201`, `C202`, `D122` - nachgeprueft und widerlegt. Bei `C202`
+wurde `rm()` gegen echte Symlinks getestet: es loescht den Link, nicht das Ziel.
+
 ## [1.1.91] - 2026-10-30
 
 ### Behoben

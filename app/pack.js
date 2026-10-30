@@ -40,6 +40,22 @@ export const PROTECTED_PATHS = [
   '.mixin.out', 'dynamic-data-pack-cache', 'backups',
 ];
 
+// Muster, die nicht als exakter Name in PROTECTED_PATHS stehen koennen
+// (Audit-Fix 2026-10-30, C102). Der Kommentar oben dokumentierte seit jeher
+// "world*", der Code prueft aber mit includes() auf exakte Gleichheit - also
+// traf nur 'world'. Minecraft legt bei mehreren Dimensionen zusaetzlich
+// world_nether/ und world_the_end/ an; ein Pack-Update haette sie ueberschrieben.
+// Alles, was auf diese Muster passt, gilt ebenfalls als geschuetzt.
+const PROTECTED_PATTERNS = [
+  /^world(_nether|_the_end)?$/,   // world, world_nether, world_the_end
+];
+
+// Einheitliche Pruefung - EINE Stelle, damit Liste und Muster nie auseinanderlaufen.
+export function isProtectedPath(name) {
+  if (PROTECTED_PATHS.includes(name)) return true;
+  return PROTECTED_PATTERNS.some((re) => re.test(name));
+}
+
 // Pack-Ordner, die wie Einstellungen aussehen, aber zur Pack-Version gehoeren.
 // Sie werden seit 2026-10-18 immer ersetzt (keepConfigs-Default false): ein
 // Pack-Update bringt passende Configs mit, alte Configs + neuer Mod = Crash.
@@ -332,13 +348,13 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   //    kann darin nichts loeschen (EPERM). Alle in einem Aufruf gebuendelt.
   const protPresent = [];
   for (const name of sourceEntries) {
-    if (PROTECTED_PATHS.includes(name)) protPresent.push(join(sourceDir, name));
+    if (isProtectedPath(name)) protPresent.push(join(sourceDir, name));
   }
   if (protPresent.length > 0) {
     const res = await runHelper('cleanup-path', protPresent, { log });
     if (!res.ok) throw new PackError(`Geschuetzte Pfade entfernen fehlgeschlagen: ${res.stderr || res.error}`);
     for (const name of sourceEntries) {
-      if (PROTECTED_PATHS.includes(name)) {
+      if (isProtectedPath(name)) {
         report.skipped.push(name);
         log(`[pack] Geschuetzt, aus Pack entfernt: ${name}`);
       }
@@ -350,7 +366,7 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   //    Rollback) und kann auch mit Ordnern/Dateien gemischt umgehen.
   let replaced = 0;
   for (const name of sourceEntries) {
-    if (PROTECTED_PATHS.includes(name)) continue;
+    if (isProtectedPath(name)) continue;
     if (keepConfigs && CONFIG_LIKE.has(name)) {
       report.skipped.push(name);
       log(`[pack] Uebersprungen (Configs behalten): ${name}`);

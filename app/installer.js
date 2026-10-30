@@ -277,20 +277,25 @@ export async function ensureRconProperties(propertiesPath, { port, password, ser
     existed = true;
   } catch { /* neu anlegen */ }
 
+  // Audit-Fix 2026-10-30 (B04): query.port stand auf dem RCON-Port. Bei atm11
+  // belegt: rcon.port=25576, server-port=25566, query.port=25576. Minecrafts
+  // Query laeuft ueber UDP, RCON ueber TCP - der Server startet deshalb, aber
+  // Query antwortet auf dem RCON-Port statt auf dem Spielport, und jeder
+  // Portscanner sieht dort den falschen Dienst.
+  // Der Parameter 'port' ist der RCON-Port; der Spielport kommt als serverPort.
   const want = {
     'enable-rcon': 'true',
     'rcon.password': password,
     'rcon.port': String(port),
     'enable-query': 'true',
-    'query.port': String(port),
   };
   // Spielport nur setzen, wenn ausdruecklich uebergeben. Ohne Angabe bleibt
   // das Pack-Verhalten erhalten (Rueckwaertskompatibilitaet fuer Aufrufer,
   // die nur RCON pflegen wollen).
   if (serverPort !== null && serverPort !== undefined) {
     want['server-port'] = String(serverPort);
-    // Query lauscht standardmaessig auf dem Spielport; RCON bleibt separat.
-    want['query.port'] = String(port);
+    // Query lauscht auf dem Spielport; RCON bleibt separat.
+    want['query.port'] = String(serverPort);
   }
 
   const seen = new Set();
@@ -358,7 +363,7 @@ WantedBy=multi-user.target
 
 // Rack-SCHABLONE (Spieltyp-Adapter): id, name, tier, game + Loader/Quelle/Java.
 // KEIN port/control/logs/rcon - das ist Sache der Sword-Instanz.
-function buildRackTemplate({ id, name, javaVersion = null }) {
+function buildRackTemplate({ id, name, javaVersion = null, projectId = null }) {
   return {
     $schema: './rack.schema.json',
     id,
@@ -371,7 +376,10 @@ function buildRackTemplate({ id, name, javaVersion = null }) {
     licenseRequired: false,
     source: {
       type: 'curseforge',
-      projectId: null,
+      // Audit-Fix 2026-10-30 (B06): stand hier fest auf null. Folge: atm10/atm11
+      // meldeten dauerhaft "keine projectId im Rack" und die Versionspruefung
+      // lief nie. Die modId kennt der Aufrufer - sie muss nur durchgereicht werden.
+      projectId: projectId ?? null,
     },
     // Vom Pack verlangte Java-Hauptversion (aus startserver.sh/-.bat); null = unbekannt.
     javaRequired: javaVersion,
@@ -407,7 +415,10 @@ function buildSword({ id, name, port, user, workingDir, startScript, rconPort, j
     },
     update: {
       source: 'curseforge',
-      projectId: null,
+      // Audit-Fix 2026-10-30 (B06): stand hier fest auf null. updater.js:464
+      // liest sword.update.projectId, installRoutes.js:663 ebenso - ohne Wert
+      // scheitert jedes Update mit "Kein CurseForge-Projekt (modId) vorhanden".
+      projectId: projectId ?? null,
       enabled: true,
       keep: ['world', 'server.properties', 'ops.json', 'whitelist.json', 'banned-ips.json', 'banned-players.json', 'eula.txt'],
       backupBeforeUpdate: true,
@@ -562,7 +573,39 @@ export async function ensureUser(id, { workingDir = null } = {}) {
   }
 }
 
-async function installFromSource({ id, name, port, sourceDir, workDir, log, acceptEula = false, acceptedBy = null, packVersion = null, packVersionSource = null }) {
+// Handgriffe nach einem abgebrochenen Install (Audit-Fix 2026-10-30, B09).
+//
+// Problem vorher: brach eine Installation ab, nachdem Service-User und
+// Zielordner angelegt waren, blieben beide liegen. Der naechste Versuch scheiterte
+// dann an "Zielordner existiert bereits" - und die Meldung sagte nicht, dass ein
+// userdel und ein rm -rf noetig sind. Der Betreiber kam ohne Handarbeit nicht weiter.
+//
+// Bewusst KEIN automatisches Loeschen: ein rm -rf als root ueber das Panel ist mehr
+// Risiko als Nutzen. Die Meldung nennt die zwei Zeilen, die helfen.
+//
+// Gilt ab dem Moment, in dem der Service-User angelegt ist - vorher gibt es nichts
+// aufzuraeumen.
+function anleitungZumAufraeumen(serviceUser, workDir, { userAngelegt = true } = {}) {
+  const zeilen = [''];
+  if (userAngelegt) {
+    zeilen.push('Angelegt wurde bereits:');
+    zeilen.push(`  - Service-User  ${serviceUser}`);
+    zeilen.push(`  - Verzeichnis   ${workDir}`);
+    zeilen.push('');
+    zeilen.push('Vor einem neuen Versuch von Hand entfernen (als root):');
+    zeilen.push(`  userdel ${serviceUser}`);
+    zeilen.push(`  rm -rf ${workDir}`);
+  } else {
+    zeilen.push('Vor einem neuen Versuch von Hand entfernen (als root):');
+    zeilen.push(`  rm -rf ${workDir}`);
+  }
+  zeilen.push('');
+  zeilen.push('Das Panel hat nichts geloescht - bewusst, weil ein Loeschvorgang als root');
+  zeilen.push('ueber das Panel mehr Risiko traegt als der Nutzen.');
+  return zeilen.join('\n');
+}
+
+async function installFromSource({ id, name, port, sourceDir, workDir, log, acceptEula = false, acceptedBy = null, packVersion = null, packVersionSource = null, projectId = null }) {
   const service = `${id}.service`;
   const serviceUser = id;
   const rconPort = Number(port) + 10; // Standard: RCON = Spielport + 10
@@ -660,7 +703,7 @@ async function installFromSource({ id, name, port, sourceDir, workDir, log, acce
 
   // Rack-SCHABLONE (nur falls noch nicht vorhanden) + Sword-INSTANZ.
   const rackTemplate = buildRackTemplate({
-    id, name, javaVersion: javaCheck.javaVersion,
+    id, name, javaVersion: javaCheck.javaVersion, projectId,
   });
   await mkdir(RACKS_DIR, { recursive: true });
   const rackPath = join(RACKS_DIR, `${id}.rack.json`);
@@ -751,7 +794,7 @@ export async function acceptEulaForRack(rack, { acceptedBy = null, log = () => {
 
 // --- Oeffentliche API ------------------------------------------------------
 
-export async function installFromZip({ id, name, port, zipPath, acceptEula = false, acceptedBy = null, packVersion = null, packVersionSource = null }, { log = () => {} } = {}) {
+export async function installFromZip({ id, name, port, zipPath, acceptEula = false, acceptedBy = null, packVersion = null, packVersionSource = null, projectId = null }, { log = () => {} } = {}) {
   const v = validateInstallInput({ id, name, port });
   if (!zipPath || !(await pathExists(zipPath))) {
     throw new InstallerError(`ZIP nicht gefunden: ${zipPath}`);
@@ -762,12 +805,29 @@ export async function installFromZip({ id, name, port, zipPath, acceptEula = fal
 
   const workDir = join(MINECRAFT_ROOT, v.id);
   if (await pathExists(workDir)) {
-    throw new InstallerError(`Zielordner existiert bereits: ${workDir}`);
+    // Audit-Fix 2026-10-30 (B09): Ein liegengebliebener Ordner ist meist die Folge
+    // eines abgebrochenen Versuchs - dann gibt es auch den Service-User schon.
+    // Die Meldung nennt die zwei Handgriffe, sonst dreht sich der Betreiber im Kreis.
+    const userDa = await new Promise((res) => {
+      execFile('id', [v.id], (err) => res(!err));
+    });
+    throw new InstallerError(
+      `Zielordner existiert bereits: ${workDir}`
+        + anleitungZumAufraeumen(v.id, workDir, { userAngelegt: userDa }),
+    );
   }
 
-  const { tmpRoot, sourceDir } = await extractToTemp(zipPath);
+  // Audit-Fix 2026-10-30: extractToTemp verlangt die Instanz-id (es entpackt mit
+  // den Rechten des Server-Users und legt das Temp in dessen Namen an). Ohne id
+  // warf es PackError, bevor User oder Zielordner existierten - jede
+  // ZIP-Installation brach sofort ab.
+  // Die id allein genuegt aber nicht: der User muss VORHER existieren, sonst
+  // scheitert der chown im Helfer ("invalid user"). installFromSource legt ihn
+  // erst NACH dem Entpacken an - deshalb hier vorziehen (idempotent).
+  await ensureUser(v.id);
+  const { tmpRoot, sourceDir } = await extractToTemp(zipPath, { id: v.id, log });
   try {
-    return await installFromSource({ ...v, sourceDir, workDir, log, acceptEula, acceptedBy, packVersion, packVersionSource });
+    return await installFromSource({ ...v, sourceDir, workDir, log, acceptEula, acceptedBy, packVersion, packVersionSource, projectId });
   } finally {
     await rm(tmpRoot, { recursive: true, force: true });
   }
@@ -1073,19 +1133,7 @@ export async function installFromTarball(
     // dann an "Zielordner existiert bereits". Bewusst KEIN automatisches Loeschen:
     // ein rm -rf als root ueber das Panel ist mehr Risiko als Nutzen. Stattdessen
     // eine Meldung, mit der der Betreiber in zwei Zeilen weiterkommt.
-    const hinweis = [
-      '',
-      'Die Installation wurde abgebrochen. Angelegt wurden bereits:',
-      `  - Service-User  ${serviceUser}`,
-      `  - Verzeichnis   ${workDir}`,
-      '',
-      'Vor einem neuen Versuch von Hand entfernen (als root):',
-      `  userdel ${serviceUser}`,
-      `  rm -rf ${workDir}`,
-      '',
-      'Das Panel hat nichts geloescht - bewusst, weil ein Loeschvorgang als root',
-      'ueber das Panel mehr Risiko traegt als der Nutzen.',
-    ].join('\n');
+    const hinweis = `\nDie Installation wurde abgebrochen.${anleitungZumAufraeumen(serviceUser, workDir)}`;
     logFn(hinweis);
     if (err instanceof InstallerError) {
       throw new InstallerError(`${err.message}${hinweis}`);
@@ -1295,7 +1343,12 @@ export async function installFromSteam(
   const sword = {
     $schema: './sword.schema.json',
     id: v.id,
-    rack: v.id,
+    // Audit-Fix 2026-10-30 (B11): stand hier fest auf v.id. Die Signatur nimmt
+    // aber ein rackId entgegen - ein Steam-Install mit rackId='7d2d' wurde also
+    // als rack='<id>' persistiert und zeigte damit auf ein Rack, das es nicht
+    // gibt. Das Rack traegt Spiel, Quelle und Java-Version; alles Folgende
+    // (Versionspruefung, game-Ableitung) liest daran vorbei.
+    rack: v.rackId ?? v.id,
     name,
     port,
     protocol: 'udp',
@@ -1504,7 +1557,7 @@ export async function installFromCurseForge({ id, name, modId, fileId, port, acc
   try {
     await downloadFile(url, tmpZip);
     return await installFromZip(
-      { ...v, zipPath: tmpZip, acceptEula, acceptedBy, packVersion: fileVersion, packVersionSource: fileVersion ? 'curseforge' : null },
+      { ...v, zipPath: tmpZip, acceptEula, acceptedBy, packVersion: fileVersion, packVersionSource: fileVersion ? 'curseforge' : null, projectId: modId },
       { log },
     );
   } finally {

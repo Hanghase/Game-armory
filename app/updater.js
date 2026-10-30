@@ -366,7 +366,15 @@ async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, 
       doneSeen: result.doneSeen,
     };
 
-    if (done.ok) {
+    // Audit-Fix 2026-10-30 (C124): Die message sagte "Update erfolgreich
+    // abgeschlossen", auch wenn der Serverstart fehlgeschlagen war (start.ok
+    // false). Die UI faerbt den Balken bei phase='done' gruen - der
+    // widersprechende Hinweis stand nur im Ergebnis-Panel darunter.
+    // Jetzt nennt die message den Start mit; error bleibt null, weil das UPDATE
+    // selbst durchgelaufen ist. Ein API-Aufrufer sieht am Text, was los ist.
+    if (!result.started) {
+      setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber Serverstart FEHLGESCHLAGEN - bitte Log pruefen.', finishedAt: Date.now(), error: null, result: summary });
+    } else if (done.ok) {
       setState(swordId, { phase: 'done', progress: 100, message: 'Update erfolgreich abgeschlossen', finishedAt: Date.now(), error: null, result: summary });
     } else {
       setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber "Done (" nicht bestaetigt (Timeout 180s).', finishedAt: Date.now(), error: null, result: summary });

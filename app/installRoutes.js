@@ -216,8 +216,15 @@ installRouter.post('/swords/:id/project-id', requirePerm('sword.config.write'), 
 
 // POST /api/swords/:id/version-check   - Versions-Gegenprobe jetzt ausfuehren
 // Fragt die zum Rack passende Quelle (Steam/GitHub/CurseForge/manuell) und
-// schreibt das Ergebnis ins Sword. Antwortet IMMER mit 200, auch wenn die
-// Quelle "unknown" meldet - das ist ein Zustand, kein Fehler.
+// schreibt das Ergebnis ins Sword.
+//
+// Antwort-Codes (Audit-Fix 2026-10-30, A04 - der alte Kommentar sagte "IMMER 200"
+// und widersprach dem Code):
+//   200  Pruefung gelaufen. Auch wenn die Quelle "unknown" meldet - das ist ein
+//        Zustand, kein Fehler.
+//   404  Sword nicht gefunden.
+//   500  Echte Ausnahme (Sword-Datei nicht lesbar, Quelle antwortet nicht).
+//        Der Fehlertext steht in { error }.
 installRouter.post('/swords/:id/version-check', requirePerm('sword.config.read'), async (req, res) => {
   const sword = getSword(req.params.id);
   if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
@@ -664,7 +671,13 @@ installRouter.post('/swords/:id/update', requirePerm('sword.update'), async (req
   start().catch((err) => console.error(`[update:${sword.id}] Fehler: ${err.message}`));
 });
 
-installRouter.get('/swords/:id/update-status', requireAuth, (req, res) => {
+// Audit-Fix 2026-10-30 (A06): requireAuth war zu weit. Der Update-Status ist
+// Betriebsinformation (laeuft ein Update? ist es gescheitert? welcher Fehler?).
+// Wer ein Update starten darf, darf auch dessen Verlauf sehen - und nur der.
+// Log-Zeilen enthaelt der Status nicht (setState speichert phase/progress/
+// message/error), deshalb ist die Offenlegung begrenzt - aber sie gehoert
+// trotzdem nicht jedem Angemeldeten.
+installRouter.get('/swords/:id/update-status', requirePerm('sword.update'), (req, res) => {
   const sword = getSword(req.params.id);
   if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
   res.json(getUpdateState(sword.id));

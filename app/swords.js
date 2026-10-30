@@ -43,9 +43,16 @@ let swordErrors = [];    // Ladefehler des letzten loadSwords() - fuer die Diagn
 let swordWarnings = [];  // weiche Hinweise (z.B. unbekanntes Rack), Sword laedt trotzdem
 
 function validateSword(sword, filename, warnings) {
-  const missing = REQUIRED_FIELDS.filter((f) => sword[f] === undefined);
+  // Audit-Fix 2026-10-30 (D209): Vorher wurde nur auf `undefined` geprueft -
+  // `{"id": null}` und `{"control": null}` kamen durch. Ein Sword mit id=null
+  // landet im Cache, und alles Folgende (Service-Name, Pfade, Logzeilen) arbeitet
+  // mit null; `control: null` laesst jeden Zugriff auf control.service als
+  // TypeError irgendwo weit weg von der Ursache knallen.
+  // Jetzt zaehlt: fehlend, null oder leerer String = Pflichtfeld fehlt.
+  const istLeer = (v) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+  const missing = REQUIRED_FIELDS.filter((f) => istLeer(sword[f]));
   if (missing.length > 0) {
-    throw new Error(`Sword ${filename}: Pflichtfelder fehlen: ${missing.join(', ')}`);
+    throw new Error(`Sword ${filename}: Pflichtfelder fehlen oder sind leer: ${missing.join(', ')}`);
   }
   if (sword.tier !== undefined && !['free', 'premium'].includes(sword.tier)) {
     throw new Error(`Sword ${filename}: tier muss "free" oder "premium" sein`);
@@ -88,6 +95,8 @@ export async function loadSwords() {
     return { swords: [], errors, warnings };
   }
 
+  const gesehen = new Map(); // id -> Datei, fuer die Doppel-ID-Pruefung
+
   for (const file of files.filter((f) => f.endsWith('.sword.json'))) {
     const path = join(SWORDS_DIR, file);
     try {
@@ -95,6 +104,27 @@ export async function loadSwords() {
       const sword = JSON.parse(raw);
       const fileWarnings = [];
       validateSword(sword, file, fileWarnings);
+
+      // Audit-Fix 2026-10-30 (D211): sword.id und der Dateiname waren nicht
+      // verbunden. Eine Datei atm11.sword.json mit "id":"atm10" wurde als atm10
+      // geladen - getSword('atm11') fand nichts, getSword('atm10') traf den
+      // falschen Eintrag. Zwei Dateien mit derselben id ueberschrieben sich
+      // gegenseitig im Cache, ohne dass es auffiel.
+      // Jetzt: der Dateiname bestimmt die Datei, die id muss dazu passen.
+      const ausDatei = file.slice(0, -'.sword.json'.length);
+      if (sword.id !== ausDatei) {
+        throw new Error(
+          `Sword ${file}: id "${String(sword.id)}" passt nicht zum Dateinamen `
+          + `(erwartet "${ausDatei}"). Der Dateiname bestimmt die Instanz - `
+          + 'bitte id in der Datei korrigieren oder die Datei passend umbenennen.',
+        );
+      }
+      if (gesehen.has(sword.id)) {
+        throw new Error(
+          `Sword ${file}: id "${sword.id}" ist bereits von ${gesehen.get(sword.id)} belegt.`,
+        );
+      }
+      gesehen.set(sword.id, file);
       // Sperrlogik vorgesehen: Premium-Swords werden geladen, aber markiert.
       // Aktive Sperre (Lizenzprüfung) wird später aktiviert.
       sword.locked = sword.tier === 'premium' && sword.licenseRequired === true;

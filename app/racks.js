@@ -325,22 +325,36 @@ async function writeRackFile(id, rack) {
   return file;
 }
 
+// Serialisiert alle Rack-Schreibvorgaenge (Audit-Fix 2026-10-30, D302).
+// Vorher lagen Pruefung und Schreiben in createRack durch ein `await` getrennt:
+// zwei gleichzeitige Anfragen sahen beide "existiert nicht", beide bekamen 201,
+// und der zweite rename ueberschrieb den ersten. Die 409-Zusage war damit
+// gebrochen. Gleiche Bauart wie withSwordLock in swords.js.
+let rackLockTail = Promise.resolve();
+function withRackLock(fn) {
+  const run = rackLockTail.then(fn, fn);
+  rackLockTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 // Legt ein neues Rack an. Existiert die id schon -> Konflikt (409).
 export async function createRack(rack) {
-  const id = rack?.id;
-  rackFilenameFor(id); // wirft bei ungueltiger id
-  if (await rackFileExists(id)) {
-    throw new RackError(`Rack mit id "${id}" existiert bereits`, 409);
-  }
-  const { rack: clean, warnings } = validateRackDraft(rack, `${id}.rack.json`);
-  // id im Inhalt MUSS zur Datei passen - sonst laedt die Datei spaeter unter
-  // falschem Namen und das Rack verschwindet still aus dem Cache.
-  if (clean.id !== id) {
-    throw new RackError('id im Inhalt stimmt nicht mit der Rack-id ueberein');
-  }
-  await writeRackFile(id, clean);
-  await loadRacks(); // Cache sofort synchronisieren
-  return { id, warnings };
+  return withRackLock(async () => {
+    const id = rack?.id;
+    rackFilenameFor(id); // wirft bei ungueltiger id
+    if (await rackFileExists(id)) {
+      throw new RackError(`Rack mit id "${id}" existiert bereits`, 409);
+    }
+    const { rack: clean, warnings } = validateRackDraft(rack, `${id}.rack.json`);
+    // id im Inhalt MUSS zur Datei passen - sonst laedt die Datei spaeter unter
+    // falschem Namen und das Rack verschwindet still aus dem Cache.
+    if (clean.id !== id) {
+      throw new RackError('id im Inhalt stimmt nicht mit der Rack-id ueberein');
+    }
+    await writeRackFile(id, clean);
+    await loadRacks(); // Cache sofort synchronisieren
+    return { id, warnings };
+  });
 }
 
 // Ueberschreibt ein BESTEHENDES Rack. Die id ist unveraenderlich (Dateiname
