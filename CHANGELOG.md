@@ -3,6 +3,45 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.94] - 2026-10-31
+
+Drei Befunde aus dem ersten echten Update-Durchlauf nach 1.1.93 (atm11,
+00:25). Alle drei sind live nachgemessen, nicht aus dem Audit uebernommen -
+der Versionsbefund stand in keinem Audit, weil er nur mit einem echten
+Update-ZIP auftritt.
+
+### Behoben
+
+- **Steam-Install schreibt `installedVersion: null` (B27).** `swords.js` laedt
+  nur Dateien, deren Version ein nicht-leerer String ist - eine per Steam
+  installierte Instanz verschwand deshalb beim naechsten Panel-Start aus der
+  Liste, obwohl systemd sie weiter betrieb. Die Bewertung "Steam-Racks haben
+  keine Version" war zusaetzlich falsch: steamcmd schreibt
+  `steamapps/appmanifest_<appId>.acf` mit `"buildid"`. `installFromSteam`
+  liest die Build-ID jetzt und traegt `steam <buildid>` ein. Belegt mit der
+  laufenden 7d2d-Instanz: `24994542` -> `steam 24994542`, wird von
+  `swords.js:64` akzeptiert; alter Wert `null` wird abgewiesen.
+
+- **Update uebernimmt die Version nicht aus dem ZIP-Namen.** Der Upload liegt
+  als `upload-<uuid>.zip` auf der Platte (bewusst), der Originalname nur in den
+  Metadaten daneben. `runUpdate` gab dem Parser den Plattennamen, der
+  korrekt keine Version traegt - Ergebnis: `Keine neue Version ermittelbar`,
+  die Sword-Version blieb auf dem Stand des Erstinstalls stehen. Live belegt
+  beim atm11-Update: Anzeige blieb `0.12.0-beta` vom 20.10. Der Originalname
+  geht jetzt von der Route ueber `updateFromZip` bis in den Parser; der
+  Plattenname dient nur noch als Rueckfall. Belegt:
+  `All the Mods 11 - ATM11 0.12.0-beta.zip` -> `0.12.0`.
+
+- **`start`/`stop`/`restart` waren nicht abbildbar (B22).** Die drei Aktionen
+  standen in `SYSTEMCTL_ACTIONS`, hatten aber keinen Zweig - jeder Klick im
+  Panel warf `Aktion nicht ueber Helfer abbildbar`. Sie liefen ausserdem gegen
+  den falschen Helfer: `armory-install-helper` schreibt Units und kennt kein
+  start/stop; dafuer gibt es `armory-service-ctl` (seit 25.09. vorhanden,
+  ungenutzt). Die Aktionen laufen jetzt ueber `SERVICE_HELPER`, der
+  zusaetzlich prueft, dass der Service als Sword registriert ist. Belegt:
+  `start`/`stop`/`restart` gegen `teamspeak6.service` je `rc=0`, und ueber den
+  Code-Weg `systemctl(['restart', ...])` -> `ok=true`, Dienst danach `active`.
+
 ## [1.1.93] - 2026-10-31
 
 Die MITTEL- und NIEDRIG-Runde aus dem Audit. 57 MITTEL und 66 NIEDRIG/HINWEIS

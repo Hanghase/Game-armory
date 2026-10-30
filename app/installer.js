@@ -37,6 +37,9 @@ export const SYSTEMD_DIR = '/etc/systemd/system';
 // Privilegierter Install-Helfer (siehe /etc/sudoers.d/armory). Die Armory laeuft
 // unprivilegiert; alle root-pflichtigen Install-Schritte gehen ueber dieses Skript.
 export const INSTALL_HELPER = '/usr/local/bin/armory-install-helper';
+// Laufzeit-Steuerung (start/stop/restart/logs). Getrennt vom Install-Helfer,
+// weil dieser Units schreibt und keine Dienste startet (Audit-Fix B22).
+export const SERVICE_HELPER = '/usr/local/bin/armory-service-ctl';
 // Privilegierter Steam-Helfer: SteamCMD-Setup + App-Installationen.
 // Zugangsdaten gehen ausschliesslich per STDIN (nie als Argument -> kein ps-Leak).
 export const STEAM_HELPER = '/usr/local/bin/armory-steam-helper';
@@ -200,6 +203,18 @@ export async function systemctl(args) {
   // Loeschung hier ab (Bugfix 2026-10-26).
   if (action === 'disable' && target !== null) {
     return runCmd('sudo', ['-n', INSTALL_HELPER, 'disable', target]);
+  }
+  // Laufzeit-Aktionen (Audit-Fix 2026-10-31, B22). start/stop/restart standen
+  // in SYSTEMCTL_ACTIONS, hatten aber keinen Zweig - jeder Klick im Panel warf
+  // "Aktion nicht ueber Helfer abbildbar". Sie laufen NICHT ueber den
+  // Install-Helfer (der schreibt Units, kennt aber kein start/stop), sondern
+  // ueber armory-service-ctl. Der prueft zusaetzlich, dass der Service als
+  // Sword registriert ist - auch hier, damit der Fehler frueh und klar kommt.
+  if (action === 'start' || action === 'stop' || action === 'restart') {
+    if (target === null) {
+      throw new InstallerError(`systemctl: ${action} braucht einen Service-Namen`);
+    }
+    return runCmd('sudo', ['-n', SERVICE_HELPER, action, target]);
   }
   throw new InstallerError(`systemctl: Aktion nicht ueber Helfer abbildbar: ${action}`);
 }
@@ -1374,6 +1389,20 @@ export async function installFromSteam(
     }
   }
 
+  // Steam-Build-ID lesen (Audit-Fix B27). steamcmd legt appmanifest unter
+  // <workDir>/steamapps/ ab; die Datei traegt "buildid". Lesefehler sind kein
+  // Grund, den Install zu verwerfen - dann bleibt die Version eben leer und der
+  // Betreiber traegt sie nach.
+  let steamVersion = null;
+  try {
+    const { readSteamBuildId } = await import('./versionCheck.js');
+    const manifest = join(workDir, 'steamapps', `appmanifest_${Number(appId)}.acf`);
+    const build = await readSteamBuildId(manifest);
+    if (build) steamVersion = `steam ${build}`;
+  } catch (err) {
+    log(`[install] Steam-Build-ID nicht lesbar (${err.message}) - Version bleibt offen.`);
+  }
+
   // 6) Sword-Instanz (kein Java, kein Minecraft-RCON; Telnet optional).
   //    game kommt aus dem Rack, nicht aus dieser Datei.
   const service = `${v.id}.service`;
@@ -1404,13 +1433,21 @@ export async function installFromSteam(
     javaRequired: null,
     javaInstalled: null,
     javaWarning: null,
-    // Version der Instanz (Spec 2026-10-10): CurseForge-Release, z.B. "1.5.0".
-    // Steam-Racks haben keine CurseForge-Version. Bewusst null statt geraten
-    // (Bugfix 2026-10-26: hier stand fileVersion, die nur in
-    // installFromCurseForge existiert -> ReferenceError, Install brach ab).
-    installedVersion: null,
-    installedVersionSource: null,
-    installedVersionAt: null,
+    // Version der Instanz (Spec 2026-10-10).
+    // Audit-Fix 2026-10-31 (B27): hier stand `installedVersion: null`. Das war
+    // doppelt falsch:
+    //   1) swords.js:64 lehnt alles ab, was kein nicht-leerer String ist -
+    //      die Datei wurde beim naechsten Laden NICHT geladen, und die Instanz
+    //      verschwand aus dem Panel, obwohl systemd sie weiter betrieb.
+    //   2) Die Bewertung "Steam-Racks haben keine Version" war schlicht falsch:
+    //      steamcmd schreibt steamapps/appmanifest_<appId>.acf mit "buildid".
+    // Deshalb: Build-ID lesen, als `steam <buildid>` eintragen. Ist sie (noch)
+    // nicht lesbar, bleibt installedVersion null - dann greift die Meldung in
+    // swords.js, die den Betreiber bittet, die Version nachzutragen. Das ist
+    // ehrlicher als eine geratene Zahl.
+    installedVersion: steamVersion,
+    installedVersionSource: steamVersion ? 'steam-buildid' : null,
+    installedVersionAt: steamVersion ? new Date().toISOString() : null,
   };
   await mkdir(SWORDS_DIR, { recursive: true });
   const swordPath = join(SWORDS_DIR, `${v.id}.sword.json`);

@@ -322,7 +322,7 @@ async function waitForInactive(service, { timeoutMs = 60_000, pollMs = 2000, log
 
 const BACKUP_PATHS = ['world', 'server.properties', 'ops.json', 'whitelist.json', 'banned-ips.json', 'banned-players.json', 'usercache.json', 'usernamecache.json', 'server-icon.png'];
 
-async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, newVersion = null, newVersionSource = null }) {
+async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, newVersion = null, newVersionSource = null, originalName = null }) {
   const swordId = sword.id;
   const service = sword.control?.service;
   const workingDir = sword.control?.workingDir;
@@ -427,7 +427,13 @@ async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, 
     try {
       // (b) Dateiname: dieselbe gepruefte Logik wie beim Erstinstall
       //     (extractCurseForgeVersion, Spec 2026-10-10) - kein zweiter Parser.
-      const fromFilename = extractCurseForgeVersion({ fileName: basename(zipPath) });
+      // Audit-Fix 2026-10-31: Originalname bevorzugen. Der Plattenname ist
+      // upload-<uuid>.zip und traegt bewusst keine Version; der Parser weist ihn
+      // korrekt ab (installer.js:1572). Live belegt: atm11-Update blieb ohne
+      // Versionsfortschreibung, obwohl der Originalname sie enthielt.
+      const fromFilename = extractCurseForgeVersion({
+        fileName: originalName || basename(zipPath),
+      });
       // (c) BUGFIX 2026-10-16: checkNeoforgeVersion liefert { packVersion, installed,
       //     changed } - es gab nie ein Feld 'needed'. Dadurch war die Version
       //     immer null und die Anzeige blieb auf dem Stand des Erstinstalls.
@@ -500,10 +506,14 @@ async function listSourcePaths(sourceDir, sub) {
 
 // --- Oeffentliche API --------------------------------------------------------
 
-export async function updateFromZip(sword, zipPath, { onLog = () => {}, keepConfigs } = {}) {
+export async function updateFromZip(sword, zipPath, { onLog = () => {}, keepConfigs, originalName = null } = {}) {
   if (!(await pathExists(zipPath))) throw new UpdaterError(`ZIP nicht gefunden: ${zipPath}`);
   const keep = keepConfigs ?? sword.update?.keepConfigs ?? false;
-  return runUpdate(sword, { zipPath, keepConfigs: keep, log: onLog });
+  // originalName (Audit-Fix 2026-10-31): der Upload liegt als upload-<uuid>.zip
+  // auf der Platte, der Originalname nur in den Metadaten. Ohne ihn kann der
+  // Dateiname-Parser keine Pack-Version finden (live belegt: atm11-Update,
+  // "Keine neue Version ermittelbar" bei 0.12.0-beta im Originalnamen).
+  return runUpdate(sword, { zipPath, keepConfigs: keep, log: onLog, originalName });
 }
 
 export async function updateFromCurseForge(sword, { modId, fileId, onLog = () => {}, keepConfigs } = {}) {

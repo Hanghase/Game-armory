@@ -648,9 +648,13 @@ installRouter.post('/swords/:id/update', requirePerm('sword.update'), async (req
       return res.status(e.status ?? 400).json({ error: e.message });
     }
     uploadedId = up.id;
+    // Audit-Fix 2026-10-31: Originalnamen mitgeben. Auf der Platte heisst die
+    // Datei upload-<uuid>.zip; der Parser braucht den Namen aus den Metadaten,
+    // sonst bleibt die Sword-Version nach dem Update stehen (live belegt).
+    const originalName = up.originalName ?? up.fileName ?? null;
     start = async () => {
       try {
-        return await updateFromZip(sword, up.path, { onLog, keepConfigs: body.keepConfigs });
+        return await updateFromZip(sword, up.path, { onLog, keepConfigs: body.keepConfigs, originalName });
       } finally {
         await deleteUpload(uploadedId); // Direkt-Upload ist einmalig
       }
