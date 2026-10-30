@@ -350,7 +350,18 @@ authRouter.put('/permissions', requirePerm('user.role'), (req, res) => {
   for (const ch of changes) {
     const role = ch?.role;
     const perm = ch?.perm;
-    const allowed = !!ch?.allowed;
+    // Audit-Fix 2026-10-30 (D129): vorher `!!ch?.allowed`. Damit wurden auch
+    // "false" und "0" (Strings) zu true - wer per API {"allowed":"false"}
+    // schickte, um ein Recht zu ENTZIEHEN, vergab es stattdessen.
+    // Jetzt: nur echte Booleans. Alles andere ist ein Fehler, kein stiller Wert.
+    const allowed = ch?.allowed;
+    if (typeof allowed !== 'boolean') {
+      errors.push({
+        role, perm,
+        error: `allowed muss ein Boolean sein (ist: ${JSON.stringify(allowed)})`,
+      });
+      continue;
+    }
     try {
       setPermission(role, perm, allowed);
       applied.push({ role, perm, allowed });

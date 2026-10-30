@@ -277,7 +277,7 @@ export function checkManual({ expected, installed }) {
 // --- Dispatcher -----------------------------------------------------------
 // Entscheidet anhand des Sword/Rack, welche Quelle gilt. Reihenfolge:
 //   1) update.source == 'steam'      -> Steam
-//   2) update.source == 'url'        -> GitHub
+//   2) update.source == 'github'     -> GitHub
 //   3) update.source == 'curseforge' -> CurseForge (oder manual, wenn kein Key)
 //   4) sonst                         -> manual
 //
@@ -296,7 +296,7 @@ export async function checkSwordVersion(sword, { rack = null, installDir = null 
     return { ...(await checkSteam({ appId, appmanifestPath: root })), checkedAt: Date.now() };
   }
 
-  if (type === 'url') {
+  if (type === 'github') {
     const repo = repoFromUrl(src.url ?? rack?.source?.url);
     return { ...(await checkGithub({ repo, installed })), checkedAt: Date.now() };
   }

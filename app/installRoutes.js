@@ -693,7 +693,7 @@ const INSTALL_TYPE_FOR_METHOD = {
   steamcmd: 'steam',
   zip: 'zip',
   upload: 'upload',
-  url: 'zip',
+  github: 'github',
 };
 
 installRouter.post('/installs', requirePerm('sword.create'), async (req, res) => {
@@ -796,7 +796,7 @@ installRouter.post('/installs', requirePerm('sword.create'), async (req, res) =>
           },
         },
       );
-    } else if (source.type === 'url') {
+    } else if (source.type === 'github') {
       // URL-Rack (z.B. TeamSpeak 6): laedt das Asset aus dem GitHub-Release
       // des Racks nach /tmp und installiert daraus. Die Aufloesung 'latest'
       // stellt sicher, dass ein Kunde die aktuelle Version bekommt.
@@ -811,7 +811,7 @@ installRouter.post('/installs', requirePerm('sword.create'), async (req, res) =>
       const workDir = `${rackRoot.replace(/\/+$/, '')}/${id}`;
       try {
         result = await installFromTarball(
-          { id, name, port, tarballPath: dl.path, workDir, configFile: rack?.configFile ?? 'tsserver.yaml', installedVersion: dl.tag ?? null, installedVersionSource: dl.tag ? 'github-release' : null },
+          { id, name, port, tarballPath: dl.path, workDir, configFile: rack?.configFile ?? 'tsserver.yaml', configTemplate: rack?.configTemplate ?? null, installedVersion: dl.tag ?? null, installedVersionSource: dl.tag ? 'github-release' : null },
           { log },
         );
       } finally {

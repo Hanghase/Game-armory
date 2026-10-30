@@ -31,8 +31,21 @@ export class SelfUpdateError extends Error {
 // der Helfer sein Ergebnis als key=value-Zeilen ausgibt.
 function runHelper(args, { timeoutMs = 20000, env = null } = {}) {
   return new Promise((resolvePromise) => {
+    // Audit-Fix 2026-10-30 (C213): detached:true legt eine eigene Prozessgruppe an.
+    // Vorher toetete child.kill('SIGKILL') nur den 'sudo'-Prozess; der Helfer und
+    // seine Kinder (git fetch, systemctl restart) liefen weiter. Bei Timeout
+    // meldete das Panel "Zeitlimit", waehrend der Helfer in aller Ruhe den Dienst
+    // tauschte.
+    //
+    // Was der Gruppen-Kill leistet (gemessen 2026-10-30, /tmp/c213-analyse.mjs):
+    //   - direkte Kinder des Helfers in der Gruppe: werden beendet (belegt)
+    //   - ein per '&' abgenabelter Enkel einer Shell: ueberlebt (belegt)
+    // Der echte Pfad (sudo -> Helfer -> git fetch / systemctl) ist der erste Fall:
+    // sudo startet seine Kinder direkt, ohne '&'. Fuer den zweiten Fall reicht
+    // das nicht - deshalb bleibt der Exit-Code das letzte Wort (siehe unten).
     const child = spawn('sudo', ['-n', SELF_UPDATE_HELPER, ...args], {
       env: env ? { ...process.env, ...env } : process.env,
+      detached: true, // eigene Prozessgruppe -> killbar als Ganzes
     });
     let stdout = '';
     let stderr = '';
@@ -40,7 +53,14 @@ function runHelper(args, { timeoutMs = 20000, env = null } = {}) {
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      try {
+        // Negativer PID = Prozessgruppe. Der Helfer laeuft als root unter sudo,
+        // deshalb trifft das Signal hier die ganze Kette.
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // Gruppe schon weg oder kein Zugriff -> wenigstens das Kind killen.
+        try { child.kill('SIGKILL'); } catch { /* schon beendet */ }
+      }
     }, timeoutMs);
 
     child.stdout.on('data', (c) => { stdout += c.toString(); });

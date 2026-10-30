@@ -2257,7 +2257,7 @@
     // Install-Methode eines Racks -> zugehoeriger Tab.
     // EINE Quelle: ein Rack kann nur seinen eigenen Weg installieren.
     const METHOD_TO_TAB = {
-      curseforge: 'cf', steamcmd: 'steam', zip: 'zip', upload: 'upload', url: 'zip',
+      curseforge: 'cf', steamcmd: 'steam', zip: 'zip', upload: 'upload', github: 'zip',
     };
 
     // Tab-Leiste an das gewaehlte Rack anpassen: nur der erlaubte Tab ist

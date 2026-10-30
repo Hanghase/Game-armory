@@ -350,6 +350,28 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   for (const name of sourceEntries) {
     if (isProtectedPath(name)) protPresent.push(join(sourceDir, name));
   }
+
+  // 2b) Audit-Fix 2026-10-30 (C113): Der Schutz gilt fuer den ZIELORDNER, nicht
+  //     nur fuer das Pack-Temp. Vorher wurde isProtectedPath ausschliesslich
+  //     gegen sourceEntries (Pack-Inhalt) geprueft - ein Pack, das eine Welt
+  //     unter anderem Namen mitbringt oder dessen Eintraege mit einer der
+  //     geschuetzten Dateien kollidieren, konnte den Ziel-Zustand ersetzen,
+  //     ohne dass irgendwo geprueft wurde, was im Ziel liegt.
+  //     Jetzt: liegt im Ziel ein geschuetzter Name, und will das Pack ihn
+  //     ersetzen, wird der Eintrag uebersprungen und im Report gefuehrt.
+  let targetEntries = [];
+  try {
+    targetEntries = await readdir(targetDir);
+  } catch (err) {
+    // Erstinstallation: Zielordner existiert noch nicht -> nichts zu schuetzen.
+    if (err.code !== 'ENOENT') {
+      throw new PackError(`Zielordner nicht lesbar (${targetDir}): ${err.message}`);
+    }
+  }
+  const protectedInTarget = new Set(targetEntries.filter((n) => isProtectedPath(n)));
+  if (protectedInTarget.size > 0) {
+    log(`[pack] Im Ziel geschuetzt: ${[...protectedInTarget].join(', ')}`);
+  }
   if (protPresent.length > 0) {
     const res = await runHelper('cleanup-path', protPresent, { log });
     if (!res.ok) throw new PackError(`Geschuetzte Pfade entfernen fehlgeschlagen: ${res.stderr || res.error}`);
@@ -367,6 +389,12 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   let replaced = 0;
   for (const name of sourceEntries) {
     if (isProtectedPath(name)) continue;
+    if (protectedInTarget.has(name)) {
+      // Liegt im Ziel (z.B. world) und das Pack will es ersetzen -> ablehnen.
+      report.removed.push(name);
+      log(`[pack] Nicht ersetzt (im Ziel geschuetzt): ${name}`);
+      continue;
+    }
     if (keepConfigs && CONFIG_LIKE.has(name)) {
       report.skipped.push(name);
       log(`[pack] Uebersprungen (Configs behalten): ${name}`);
@@ -385,8 +413,12 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   // Stiller Fehler ausschliessen: ein Pack mit keinem einzigen Treffer hat
   // nichts bewirkt - das darf nicht als Erfolg durchgehen.
   if (replaced === 0) {
+    const teile = [];
+    if (report.removed.length > 0) teile.push(`${report.removed.length} im Ziel geschuetzt`);
+    if (report.skipped.length > 0) teile.push(`${report.skipped.length} Configs behalten`);
     throw new PackError(
-      'Kein Pack-Inhalt ersetzt: alle Eintraege waren geschuetzt oder Configs.'
+      'Kein Pack-Inhalt ersetzt: nichts uebrig'
+      + (teile.length ? ` (${teile.join(', ')})` : '') + '.',
     );
   }
   log(`[pack] Fertig: ${replaced} Eintraege ersetzt, ${report.skipped.length} geschuetzt/behalten.`);

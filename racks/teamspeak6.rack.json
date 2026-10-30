@@ -8,10 +8,11 @@
   "loader": "native",
   "tier": "free",
   "licenseRequired": false,
-  "installMethod": "url",
+  "installMethod": "github",
   "singleton": true,
   "defaultRoot": "/opt",
   "configFile": "tsserver.yaml",
+  "configTemplate": "teamspeak6.tsserver.yaml",
   "startScript": null,
   "logFile": null,
   "ports": {
@@ -19,7 +20,7 @@
     "fileTransfer": 9988
   },
   "source": {
-    "type": "url",
+    "type": "github",
     "projectId": null,
     "url": "https://github.com/teamspeak/teamspeak6-server",
     "assetPattern": "teamspeak6-server-linux-amd64.tar.xz"

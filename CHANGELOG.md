@@ -3,6 +3,85 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.93] - 2026-10-31
+
+Die MITTEL- und NIEDRIG-Runde aus dem Audit. 57 MITTEL und 66 NIEDRIG/HINWEIS
+wurden gegen den echten Code nachgeprueft (nicht gegen die Zeilennummern aus
+dem Audit - die waren nach 1.1.92 um bis zu 90 Zeilen verschoben):
+
+    57 MITTEL        27 echt, 21 widerlegt, 6 abgefangen, 2 erledigt
+    66 NIEDRIG/HINWEIS  21 echt, 28 widerlegt, 13 abgefangen, 3 erledigt, 1 unklar
+
+Sieben der echten Befunde sind hier behoben. Zwei weitere kamen dazu, die gar
+nicht im Audit standen.
+
+### Behoben
+
+- **`source.url` wird ungeprueft als GitHub-Repo behandelt (Z23).** Die Methode
+  hiess `url` und nahm jeden http(s)-String an. Der Code loest ihn aber als
+  GitHub-Repo auf (`api.github.com/repos/<url>`) und laedt die
+  `browser_download_url` aus der Antwort - ein fremder Host wurde damit als
+  Quelle akzeptiert, und dessen Tarball per Helfer als root entpackt. Jetzt:
+  `installMethod: "github"` und `source.url` MUSS `https://github.com/<owner>/<repo>`
+  sein (oder `owner/repo`). Lookalike-Hosts wie `github.com.evil.example` fallen
+  durch. Kein Allowlist, keine Sonderfaelle - die Quelle IST github.com.
+
+- **Tarball-Install rendert zwingend das TeamSpeak-Template (B19).**
+  `renderConfigTemplate('teamspeak6.tsserver.yaml')` stand fest im Code. Da
+  `github` an kein Spiel gebunden ist, haette ein Rack fuer ein anderes Spiel
+  die TS6-Vorlage bekommen. Jetzt nennt das Rack sie (`configTemplate`), Pflicht
+  bei `installMethod: "github"`, Format geprueft. Die TS-Erkennung haengt jetzt
+  an der Vorlage statt am Dateinamen der Config.
+
+- **Neoforge-Versionen wurden lexikografisch verglichen (D320).**
+  `[...versions].sort().pop()` auf `['21.1.100','21.1.99','21.1.209']` ergibt
+  `21.1.99` - die AELTERE Version. Betroffen: `detectNeoforgeVersionFromPaths`
+  und `detectInstalledNeoforgeVersion`, beide im Update-Weg. Jetzt numerischer
+  Vergleich; auf atm10/atm11 live geprueft (21.1.259 bzw. 26.1.2.109).
+
+- **`allowed` wurde per Truthiness gelesen (D129).** `!!ch?.allowed` macht aus
+  dem String `"false"` ein `true` - wer per `PUT /api/auth/permissions`
+  `{"allowed":"false"}` schickte, um ein Recht zu ENTZIEHEN, vergab es. Jetzt
+  muss `allowed` ein echter Boolean sein, alles andere wird mit Fehler
+  abgewiesen.
+
+- **Weltschutz prueft den falschen Ordner (C113).** `replacePackContents`
+  prueft `isProtectedPath` nur gegen den Pack-Inhalt, nie gegen das Ziel;
+  `report.removed` blieb immer leer. Jetzt wird der Zielordner gelesen, und was
+  dort geschuetzt ist, wird nicht ersetzt (im Report gefuehrt).
+
+- **Keine Groessenpruefung beim GitHub-Download (B21).** `asset.size` wurde nur
+  fuer die Log-Zeile benutzt. Ein abgebrochener Download landete vollstaendig
+  auf der Platte und wurde danach als root entpackt. Jetzt: Groessenvergleich,
+  Abweichung -> Datei weg, kein Entpacken.
+
+- **Timeout beendet nur `sudo`, nicht den Helfer (C213).** `detached: true` plus
+  `process.kill(-pid)` beendet die Prozessgruppe. Gemessen: direkte Kinder des
+  Helfers (`git fetch`, `systemctl restart`) sterben, ein per `&` abgenabelter
+  Enkel einer Shell ueberlebt. Der echte Pfad ist der erste Fall.
+
+### Nicht geaendert (Befund war falsch)
+
+`A30`, `A31`, `A38`, `B23`, `B24`, `B26`, `C108`, `C115`-`C117`, `C130`-`C132`,
+`C210`, `C219`, `C220`, `D117`-`D119`, `D126`, `D127`, `D130`, `D132`, `D222`,
+`D229`, `D304`, `D314`, `D316`, `D317`, `D326`, `D328`, `D334` - nachgeprueft
+und widerlegt. `D313` und `D315` sind durch die Fixes oben bereits erledigt.
+
+Bemerkenswert: ein Pruefer meldete, `installFromSteam` benutze `startScript`
+ohne Deklaration (ReferenceError bei jedem Steam-Install). Nachgemessen: die
+Variable wird dort deklariert. Der Befund war falsch.
+
+### Offen (fuer 1.2)
+
+41 echte Befunde, davon 20 MITTEL und 21 NIEDRIG/HINWEIS. Zwei mit Wirkung, die
+vor 1.2 rein muessen:
+
+- **B27** - `installFromSteam` schreibt `installedVersion: null`, `swords.js:64`
+  lehnt `null` hart ab. Eine 7d2d-Instanz erscheint nach einem Panel-Neustart
+  NICHT mehr im Panel, obwohl systemd sie weiter betreibt.
+- **B22** - `start`/`stop`/`restart` laufen live in
+  "systemctl: Aktion nicht ueber Helfer abbildbar".
+
 ## [1.1.92] - 2026-10-30
 
 Die 15 verbliebenen HOCH-Befunde aus dem Audit wurden einzeln nachgeprueft.

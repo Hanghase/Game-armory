@@ -862,7 +862,8 @@ export async function downloadGithubAsset({ repo, assetPattern, log = () => {} }
     );
   }
   const dest = join('/tmp', `armory-${Date.now()}-${asset.name}`);
-  log(`[url] Release ${rel.tag_name}: lade ${asset.name} (${Math.round(asset.size / 1024 / 1024)} MB)`);
+  const erwartet = Number.isInteger(asset.size) && asset.size > 0 ? asset.size : null;
+  log(`[url] Release ${rel.tag_name}: lade ${asset.name} (${Math.round((erwartet ?? 0) / 1024 / 1024)} MB)`);
   const { createWriteStream } = await import('node:fs');
   const { pipeline } = await import('node:stream/promises');
   const { Readable } = await import('node:stream');
@@ -874,10 +875,26 @@ export async function downloadGithubAsset({ repo, assetPattern, log = () => {} }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
   } catch (err) {
+    await rm(dest, { force: true }).catch(() => {});
     throw new InstallerError(`Download fehlgeschlagen (${asset.name}): ${err.message}`);
   }
-  log(`[url] gespeichert: ${dest}`);
-  return { path: dest, url: asset.browser_download_url, tag: rel.tag_name, asset: asset.name };
+
+  // Audit-Fix 2026-10-30 (B21): Groesse pruefen. Vorher wurde asset.size nur fuer
+  // die Log-Zeile benutzt. Ein abgebrochener Download (fetch liefert res.ok mit
+  // Teil-Body) landete vollstaendig auf der Platte und wurde danach als root
+  // entpackt - das Ziel wurde ersetzt, ohne dass jemand die Vollstaendigkeit
+  // geprueft haette. Jetzt: Abweichung ist ein Fehler, und die Datei verschwindet.
+  const { stat } = await import('node:fs/promises');
+  const geschrieben = (await stat(dest)).size;
+  if (erwartet !== null && geschrieben !== erwartet) {
+    await rm(dest, { force: true }).catch(() => {});
+    throw new InstallerError(
+      `Download unvollstaendig (${asset.name}): ${geschrieben} von ${erwartet} Bytes. `
+      + 'Verbindung abgebrochen oder Release beschaedigt - nichts entpackt.',
+    );
+  }
+  log(`[url] gespeichert: ${dest} (${geschrieben} Bytes, geprueft)`);
+  return { path: dest, url: asset.browser_download_url, tag: rel.tag_name, asset: asset.name, size: geschrieben };
 }
 
 // --- Admin-Schluessel aus dem Log (TeamSpeak 3/6) ---------------------------
@@ -933,7 +950,7 @@ export async function renderConfigTemplate(templateName, vars) {
 // bereits, wird ABGEBROCHEN - es wird nie ueberschrieben. Damit ist eine von
 // Hand installierte Instanz im selben Pfad geschuetzt.
 export async function installFromTarball(
-  { id, name, port, tarballPath, workDir, configFile = 'tsserver.yaml', log = () => {}, installedVersion = null, installedVersionSource = null },
+  { id, name, port, tarballPath, workDir, configFile = 'tsserver.yaml', configTemplate = null, log = () => {}, installedVersion = null, installedVersionSource = null },
   { log: log2 = () => {} } = {},
 ) {
   const logFn = (m) => { log(m); log2(m); };
@@ -1003,15 +1020,32 @@ export async function installFromTarball(
 
     // 5) Konfiguration aus der RACK-VORLAGE rendern - nicht erfinden.
     //    Lehre vom 2026-09-27: selbst geratene Keys (acceptLicense, port) liessen
-    //    den Server nicht starten. Die Schluessel stammen jetzt aus dem echten
-    //    tsserver --write-config-file (templates/teamspeak6.tsserver.yaml).
+    //    den Server nicht starten. Die Schluessel stammen aus dem echten
+    //    tsserver --write-config-file.
+    //
+    //    Audit-Fix 2026-10-30 (B19): vorher stand 'teamspeak6.tsserver.yaml' FEST
+    //    im Code. Da installMethod 'github' an kein Spiel gebunden ist, haette ein
+    //    Rack fuer ein anderes Spiel die TeamSpeak-Vorlage bekommen - geschrieben
+    //    nach <workDir>/<configFile>, und die Unit haette sie erwartet.
+    //    Jetzt nennt das Rack die Vorlage (rack.configTemplate). Fehlt sie, wird
+    //    das ehrlich abgelehnt statt geraten.
     const configPath = join(workDir, configFile);
-    const configContent = await renderConfigTemplate('teamspeak6.tsserver.yaml', {
+    if (!configTemplate) {
+      throw new InstallerError(
+        `Rack fuer "${id}" nennt keine configTemplate - ohne Vorlage kann die `
+        + 'Konfiguration nicht geschrieben werden. Erwartet: '
+        + 'templates/<datei> als Feld "configTemplate" im Rack.',
+      );
+    }
+    const templateVars = {
       workDir,
       port: Number(port),
       fileTransferPort: Number(port) + 1,
       logDir: `/var/log/${v.id}`,
-    });
+    };
+    // Platzhalter, die die Vorlage nicht kennt, sind erlaubt; fehlende Werte
+    // wirft renderConfigTemplate selbst.
+    const configContent = await renderConfigTemplate(configTemplate, templateVars);
     {
       const res = await runCmdWithInput('sudo', ['-n', INSTALL_HELPER, 'write-file', serviceUser, configPath], configContent);
       if (!res.ok) throw new InstallerError(`Konfiguration konnte nicht geschrieben werden: ${res.stderr || res.error}`);
@@ -1052,7 +1086,7 @@ export async function installFromTarball(
       logs: { type: 'file', path: logFilePath },
       rcon: null,
       update: {
-        source: 'url',
+        source: 'github',
         url: null,                  // Release-URL liegt im Rack; Panel kann sie dort lesen
         enabled: true,
         keep: [configFile, 'files', 'sql'],
@@ -1095,7 +1129,10 @@ export async function installFromTarball(
     let adminKey = null;
     // Kriterium: die TS-Config (tsserver.yaml). Ein frueherer Zusatzcheck auf
     // v.game war wirkungslos - validateInstallInput() liefert kein game-Feld.
-    const isTeamspeak = configFile.endsWith('tsserver.yaml');
+    // Audit-Fix (B19): jetzt an der VORLAGE festgemacht. Vorher entschied der
+    // Dateiname der Config - ein Rack mit anderer Vorlage, aber 'tsserver.yaml'
+    // als configFile, waere faelschlich als TeamSpeak behandelt worden.
+    const isTeamspeak = String(configTemplate ?? '').endsWith('teamspeak6.tsserver.yaml');
     if (isTeamspeak) {
       // Start ueber den Service-Ctl-Helfer - der Install-Helfer kann nur
       // daemon-reload/enable (der Wrapper lehnt 'start' zu Recht ab).

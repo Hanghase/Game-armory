@@ -39,8 +39,8 @@ const REQUIRED_FIELDS = [
 const GAMES = ['minecraft', '7d2d', 'teamspeak3', 'teamspeak6'];
 const LOADERS = ['vanilla', 'neoforge', 'forge', 'fabric', 'quilt', 'paper', 'spigot', 'purpur', 'native'];
 const TIERS = ['free', 'premium'];
-const INSTALL_METHODS = ['curseforge', 'steamcmd', 'zip', 'upload', 'url'];
-const SOURCE_TYPES = ['curseforge', 'modrinth', 'ftb', 'steam', 'url', 'local'];
+const INSTALL_METHODS = ['curseforge', 'steamcmd', 'zip', 'upload', 'github'];
+const SOURCE_TYPES = ['curseforge', 'modrinth', 'ftb', 'steam', 'github', 'local'];
 
 const ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const ROOT_RE = /^\/[a-zA-Z0-9._/-]+$/;
@@ -144,12 +144,36 @@ function validateRack(rack, filename, warnings) {
   if (rack.installMethod === 'steamcmd' && (src.appId === undefined || src.appId === null)) {
     fail(filename, 'installMethod "steamcmd" verlangt source.appId');
   }
-  // Konsistenz: URL-Racks brauchen eine Download-URL.
-  if (rack.installMethod === 'url') {
-    if (typeof src.url !== 'string' || !/^https?:\/\//.test(src.url)) {
-      fail(filename, 'installMethod "url" verlangt source.url (http/https)');
+  // Konsistenz: GitHub-Racks brauchen ein Repo. Bewusst STRENG - frueher hiess
+  // die Methode "url" und nahm jeden http(s)-String an. Der Code loest sie aber
+  // als GitHub-Repo auf (api.github.com/repos/<url>) und laedt die
+  // browser_download_url aus der Antwort - ein fremder Host wurde damit als
+  // Quelle akzeptiert und sein Archiv per Helfer als root entpackt.
+  // Jetzt: nur github.com/<owner>/<repo>, nichts anderes.
+  if (rack.installMethod === 'github') {
+    const url = src.url;
+    const okUrl = typeof url === 'string'
+      && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(url.trim());
+    const okShort = typeof url === 'string'
+      && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(url.trim());
+    if (!okUrl && !okShort) {
+      fail(filename,
+        `installMethod "github" verlangt source.url als https://github.com/<owner>/<repo> `
+        + `(oder "owner/repo") - nicht ${JSON.stringify(url)}`);
     }
   }
+  // 8a) configTemplate: Dateiname einer Vorlage unter templates/. Optional, aber
+  //     fuer installMethod "github" Pflicht - ohne Vorlage laesst sich keine
+  //     Konfiguration schreiben, und raten ist genau der Fehler vom 2026-09-27.
+  if (rack.configTemplate !== undefined) {
+    if (typeof rack.configTemplate !== 'string' || !/^[A-Za-z0-9._-]+\.(yaml|yml|json|conf|properties|xml|cfg|ini)$/.test(rack.configTemplate)) {
+      fail(filename, `configTemplate muss ein Dateiname unter templates/ sein (ist: ${JSON.stringify(rack.configTemplate)})`);
+    }
+  }
+  if (rack.installMethod === 'github' && !rack.configTemplate) {
+    fail(filename, 'installMethod "github" verlangt configTemplate (Vorlage unter templates/)');
+  }
+
   // 8) javaRequired
   if (rack.javaRequired !== undefined && rack.javaRequired !== null && !Number.isInteger(rack.javaRequired)) {
     fail(filename, 'javaRequired muss eine Ganzzahl oder null sein');
@@ -178,7 +202,7 @@ function validateRack(rack, filename, warnings) {
   // Weiche Pruefung: unbekannte Felder sind ERLAUBT (Kundenracks duerfen eigene
   // Felder mitbringen), werden aber gemeldet. So faellt ein Rack nie stumm aus
   // dem Panel, und der Betreiber sieht trotzdem, wenn etwas ungewoehnlich ist.
-  const KNOWN = new Set([...REQUIRED_FIELDS, 'singleton', 'ports', 'eula', 'configFile', 'startScript', 'logFile', 'packMarkers']);
+  const KNOWN = new Set([...REQUIRED_FIELDS, 'singleton', 'ports', 'eula', 'configFile', 'startScript', 'logFile', 'packMarkers', 'configTemplate']);
   const unknown = Object.keys(rack).filter((k) => !k.startsWith('$') && !KNOWN.has(k));
   if (unknown.length > 0) {
     warnings.push(`unbekannte Felder: ${unknown.join(', ')} (werden ignoriert)`);

@@ -145,6 +145,44 @@ async function pruneBackups(backupDir, { id, keepGenerations, label, log }) {
 // Ermittelt die Neoforge-Version aus einem libraries/-Pfad:
 //   libraries/net/neoforged/neoforge/<version>/...
 // Rueckgabe: Version-String oder null.
+// Versionsvergleich NUMERISCH, nicht lexikografisch.
+// Audit-Fix 2026-10-30 (D320): [...versions].sort() verglich Ziffern als Text.
+// ['21.1.100','21.1.99','21.1.209'].sort() ergibt 21.1.100, 21.1.209, 21.1.99 -
+// .pop() nahm also 21.1.99 statt 21.1.209. Bei zwei Builds im selben Bereich
+// (99 und 259) wurde so die AELTERE Version als installiert erkannt und beim
+// Update die falsche Zielversion gesetzt.
+function cmpVersion(a, b) {
+  const pa = String(a).split(/[.\-_+]/);
+  const pb = String(b).split(/[.\-_+]/);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i += 1) {
+    const na = Number.parseInt(pa[i], 10);
+    const nb = Number.parseInt(pb[i], 10);
+    // Nicht-numerische Teile (z.B. 'beta', 'LTS') kommen nach den numerischen,
+    // damit eine Release-Version immer vor ihrem Vorab-Stand liegt.
+    const aNum = Number.isFinite(na);
+    const bNum = Number.isFinite(nb);
+    if (aNum && bNum) {
+      if (na !== nb) return na - nb;
+    } else if (aNum !== bNum) {
+      return aNum ? 1 : -1;
+    } else {
+      const sa = String(pa[i] ?? '');
+      const sb = String(pb[i] ?? '');
+      if (sa !== sb) return sa < sb ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+function newestVersion(versions) {
+  let best = null;
+  for (const v of versions) {
+    if (best === null || cmpVersion(v, best) > 0) best = v;
+  }
+  return best;
+}
+
 export function detectNeoforgeVersionFromPaths(paths) {
   const re = /libraries\/net\/neoforged\/neoforge\/([^/]+)\//;
   const versions = new Set();
@@ -153,7 +191,7 @@ export function detectNeoforgeVersionFromPaths(paths) {
     if (m) versions.add(m[1]);
   }
   if (versions.size === 0) return null;
-  return [...versions].sort().pop();
+  return newestVersion([...versions]);
 }
 
 export async function detectInstalledNeoforgeVersion(workingDir) {
@@ -162,7 +200,7 @@ export async function detectInstalledNeoforgeVersion(workingDir) {
     const entries = await readdir(base);
     const dirs = entries.filter((e) => /^\d/.test(e));
     if (dirs.length === 0) return null;
-    return dirs.sort().pop();
+    return newestVersion(dirs); // numerisch, nicht lexikografisch (D320)
   } catch {
     return null;
   }
