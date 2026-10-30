@@ -109,7 +109,7 @@ app.get('/api/swords/:id/status', requireAuth, async (req, res) => {
   // ausstehende Neustart erledigt/gegenstandslos (der naechste Start nimmt die
   // neuen Werte ohnehin mit) - auch wenn er extern, ohne Panel-Klick, gestoppt
   // wurde. So klebt der Hinweis nie. Laeuft er noch, wird das Flag mitgeliefert.
-  let pendingRestart = getPendingRestart(sword.id);
+  let pendingRestart = await getPendingRestart(sword.id);
   if (pendingRestart && status.running !== true) {
     await clearPendingRestart(sword.id);
     pendingRestart = null;

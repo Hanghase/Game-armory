@@ -190,6 +190,21 @@ export function loadPermissions() {
     return true;
   }
 
+  // Audit-Fix 2026-10-30 (D123): Eine NEUERE Datenbankversion darf nie
+  // zurueckgebaut werden. Vorher wurde nur auf Gleichheit geprueft - stand in der
+  // DB eine 7 und der Code kennt nur 5 (nach einem Downgrade), lief der Seed
+  // erneut und setzte die Matrix still auf den alten Stand. Betreiber-Aenderungen
+  // an Rechten gingen dabei verloren, ohne Warnung.
+  if (typeof dbVersion === 'number' && dbVersion > PERMISSIONS_SEED_VERSION) {
+    console.error(
+      `[permissions] Datenbank hat Seed-Version ${dbVersion}, der Code kennt nur `
+        + `${PERMISSIONS_SEED_VERSION}. Die Rechte-Matrix wird NICHT zurueckgebaut - `
+        + 'bitte die neuere Armory-Version verwenden.',
+    );
+    loaded = true;
+    return false;
+  }
+
   // "Frische DB" = die Matrix ist wirklich LEER. NICHT an der meta-Zeile
   // festmachen: eine Bestands-DB aus der Vorversion hat zwar (noch) keine
   // Seed-Version, aber 120 Zeilen. Wuerde man dbVersion===null als "frisch"

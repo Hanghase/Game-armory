@@ -3,6 +3,54 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.91] - 2026-10-30
+
+### Behoben
+
+- **Privilegien-Fehler beim `ExecStop` der Units.** Die Unit-Vorlage schrieb
+  `ExecStop=... $(cat /opt/game-armory/data/<id>-rcon.password)` - im
+  systemd-Kontext ist `$(...)` eine Leer-Expansion, das Passwort kam also nie an.
+  `rcon-stop.mjs` liest jetzt per `--password-file <pfad>`; der alte
+  Positionsparameter bleibt als Rueckfall, damit bestehende Units weiter laufen.
+
+- **`eula.txt` konnte bei der Erstinstallation nicht geschrieben werden.** Die
+  Datei entstand per direktem `writeFile` im Arbeitsverzeichnis, das dem
+  Service-User gehoert (`700`). Die Armory laeuft als `armory` und bekam EACCES -
+  und zwar erst NACH dem Schreibversuch, also mitten in der Installation. Der
+  Schreibvorgang laeuft jetzt ueber den Install-Helfer (`write-file`), wie es
+  `writeRconPassword` schon tat.
+
+- **Loeschpfad in `uploads.js` ungeprueft.** `deleteUpload` reichte `meta.path`
+  woertlich an `rm()`. Die Metadaten liegen im selben Verzeichnis wie die
+  Uploads; ein `../..` darin haette jede Datei geloescht, die `armory` loeschen
+  darf. Jetzt muss der Pfad innerhalb von `UPLOADS_DIR` liegen, sonst bleibt die
+  Datei liegen und nur die Metadaten werden entfernt (mit Log-Zeile).
+
+- **`requireRole` war fail-open bei unbekannter Rolle.** `ROLE_LEVEL[user.role]`
+  ergab fuer eine Rolle ausserhalb der Liste `undefined`; `undefined < 3` ist
+  `false`, die Anfrage ging also DURCH. Eine Rolle aus Altbestand nach einer
+  Umbenennung oder eine manipulierte DB-Zeile bekam damit jedes Recht. Jetzt gilt:
+  unbekannte Rolle oder unbekannte Mindestrolle -> `403` plus Log-Zeile.
+
+- **Rechte-Matrix wurde nach einem Downgrade still zurueckgebaut.** Stand in der
+  DB eine neuere Seed-Version als der Code kennt, lief der Seed erneut und setzte
+  die Matrix auf den alten Stand - Betreiber-Aenderungen gingen ohne Warnung
+  verloren. Eine neuere DB-Version wird jetzt nicht mehr angefasst; es gibt eine
+  Log-Zeile und einen Hinweis, die neuere Version zu verwenden.
+
+### Geaendert
+
+- **Abgebrochene Installationen nennen jetzt die zwei Handgriffe.** Scheitert eine
+  Installation, nachdem Service-User und Zielordner angelegt wurden, blieben beide
+  liegen und der naechste Versuch brach an "Zielordner existiert bereits" ab. Das
+  Panel loescht bewusst nicht selbst (`rm -rf` als root ueber das Panel ist mehr
+  Risiko als Nutzen) - es nennt stattdessen `userdel` und `rm -rf` mit den
+  konkreten Werten.
+
+- **Einheitliche Umlaute in der Oberflaeche.** `ue`/`ae`/`oe` sind in `app.html`
+  und `app.js` durch echte Umlaute ersetzt (Wortliste statt Suchen-und-Ersetzen,
+  damit IDs, CSS-Klassen und JS-Schluessel unberuehrt bleiben).
+
 ## [1.1.8] - 2026-10-26
 
 ### Behoben

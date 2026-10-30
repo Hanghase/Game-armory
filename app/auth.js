@@ -463,7 +463,22 @@ export function requireRole(minRole) {
   return (req, res, next) => {
     const user = getSessionUser(req.cookies?.armory_session);
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' });
-    if (ROLE_LEVEL[user.role] < minLevel) {
+
+    // Audit-Fix 2026-10-30 (D107): Fail-closed statt Fail-open.
+    // Vorher: ROLE_LEVEL[user.role] war fuer eine unbekannte Rolle `undefined`;
+    // `undefined < 3` ist false, also ging die Anfrage DURCH. Eine Rolle, die
+    // nicht in der Liste steht (Altbestand nach Umbenennung, Manipulation an der
+    // DB), bekam damit jedes Recht. Jetzt gilt: unbekannte Rolle oder unbekannte
+    // Mindestrolle = kein Zugriff.
+    const userLevel = ROLE_LEVEL[user.role];
+    if (typeof userLevel !== 'number' || typeof minLevel !== 'number') {
+      console.error(
+        `[auth] Unbekannte Rolle abgewiesen: user.role=${String(user.role)}, `
+          + `minRole=${String(minRole)}`,
+      );
+      return res.status(403).json({ error: 'Keine Berechtigung' });
+    }
+    if (userLevel < minLevel) {
       return res.status(403).json({ error: 'Keine Berechtigung' });
     }
     req.user = user;

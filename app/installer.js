@@ -335,7 +335,11 @@ WorkingDirectory=${workingDir}
 ExecStart=/bin/bash ${join(workingDir, startScript)}
 
 # Sauberer Stop via RCON (Welt speichern), danach SIGTERM als Fallback.
-ExecStop=/usr/bin/node ${ARMORY_SCRIPT} $(cat /opt/game-armory/data/${id}-rcon.password)
+# Audit-Fix 2026-10-30 (B05): systemd fuehrt KEINE Shell-Substitution aus. Das
+# frueher hier stehende $(cat ...) kam woertlich an, der RCON-Stop schlug fehl
+# und der Server wurde nur per SIGTERM beendet (Welt nicht gespeichert).
+# Jetzt wird der DATEIPFAD uebergeben; tools/rcon-stop.mjs liest ihn selbst.
+ExecStop=/usr/bin/node ${ARMORY_SCRIPT} --password-file /opt/game-armory/data/${id}-rcon.password
 
 Restart=on-abnormal
 RestartSec=10
@@ -608,13 +612,22 @@ async function installFromSource({ id, name, port, sourceDir, workDir, log, acce
   if (acceptEula === true) {
     const stamp = new Date().toISOString();
     const agreedBy = acceptedBy ? ` (${acceptedBy})` : '';
-    await writeFile(
-      eulaPath,
+    // Audit-Fix 2026-10-30 (B07): ueber den Helfer schreiben, nicht direkt.
+    // workDir gehoert dem Service-User (700); die Armory laeuft als 'armory'
+    // und bekommt dort EACCES. Vorher fiel das erst NACH dem Schreibversuch
+    // auf - die Erstinstallation brach ab.
+    const eulaContent =
       `# Minecraft EULA akzeptiert via Game-Armory am ${stamp}${agreedBy}\n`
-        + `# Quelle: https://aka.ms/MinecraftEULA\n`
-        + `eula=true\n`,
-      'utf8',
+      + `# Quelle: https://aka.ms/MinecraftEULA\n`
+      + `eula=true\n`;
+    const eulaRes = await runCmdWithInput(
+      'sudo', ['-n', INSTALL_HELPER, 'write-file', serviceUser, eulaPath], eulaContent,
     );
+    if (!eulaRes.ok) {
+      throw new InstallerError(
+        `eula.txt konnte nicht geschrieben werden: ${eulaRes.stderr || eulaRes.error}`,
+      );
+    }
     eulaAccepted = true;
     log('[install] eula.txt auf eula=true gesetzt (Betreiber-Zustimmung liegt vor)');
   } else {
@@ -1054,6 +1067,30 @@ export async function installFromTarball(
           'Config liegt als ' + configFile + ' vor - im Panel editierbar.',
         ],
     };
+  } catch (err) {
+    // Audit-Fix 2026-10-30 (B09): Wenn es NACH dem Anlegen von Service-User und
+    // Zielordner scheitert, bleibt beides liegen - der naechste Versuch scheitert
+    // dann an "Zielordner existiert bereits". Bewusst KEIN automatisches Loeschen:
+    // ein rm -rf als root ueber das Panel ist mehr Risiko als Nutzen. Stattdessen
+    // eine Meldung, mit der der Betreiber in zwei Zeilen weiterkommt.
+    const hinweis = [
+      '',
+      'Die Installation wurde abgebrochen. Angelegt wurden bereits:',
+      `  - Service-User  ${serviceUser}`,
+      `  - Verzeichnis   ${workDir}`,
+      '',
+      'Vor einem neuen Versuch von Hand entfernen (als root):',
+      `  userdel ${serviceUser}`,
+      `  rm -rf ${workDir}`,
+      '',
+      'Das Panel hat nichts geloescht - bewusst, weil ein Loeschvorgang als root',
+      'ueber das Panel mehr Risiko traegt als der Nutzen.',
+    ].join('\n');
+    logFn(hinweis);
+    if (err instanceof InstallerError) {
+      throw new InstallerError(`${err.message}${hinweis}`);
+    }
+    throw err;
   } finally {
     // Temp IMMER wegraeumen, auch bei Fehler - kein Artefakt bleibt liegen.
     await rm(tmpRoot, { recursive: true, force: true });

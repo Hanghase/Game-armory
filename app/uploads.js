@@ -11,7 +11,7 @@ import multer from 'multer';
 import { createReadStream } from 'node:fs';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 import { validatePackArchive, PackError } from './pack.js';
 import { extractCurseForgeVersion } from './installer.js';
@@ -113,11 +113,33 @@ export async function readUpload(id) {
   return meta;
 }
 
+// Ein Loeschpfad darf NUR innerhalb von UPLOADS_DIR liegen (Audit-Fix 2026-10-30,
+// Befund C204). Vorher ging meta.path woertlich an rm() - die Metadaten stammen
+// aus einer JSON-Datei im selben Verzeichnis, also aus einem Bereich, den ein
+// Angreifer mit Schreibrecht beeinflussen koennte. Ein "../.." darin haette
+// jede beliebige Datei geloescht, die der armory-User loeschen darf.
+function isInsideUploads(candidate) {
+  if (typeof candidate !== 'string' || candidate === '') return false;
+  const base = resolve(UPLOADS_DIR);
+  const full = resolve(candidate);
+  return full === base || full.startsWith(base + sep);
+}
+
 export async function deleteUpload(id) {
   let meta;
   try {
     meta = await readUpload(id);
   } catch {
+    return false;
+  }
+  if (!isInsideUploads(meta.path)) {
+    // Metadaten sagen etwas anderes als der Upload-Ordner: nicht loeschen,
+    // sondern die Metadaten selbst wegraeumen und den Fall protokollieren.
+    console.error(
+      `[uploads] Loeschpfad ausserhalb von ${UPLOADS_DIR} (${String(meta.path)}) - `
+        + 'Datei bleibt liegen, nur die Metadaten werden entfernt.',
+    );
+    await rm(metaPath(id), { force: true });
     return false;
   }
   await rm(meta.path, { force: true });
