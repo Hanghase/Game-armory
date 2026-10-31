@@ -26,8 +26,11 @@
 // pfadbasierte Weg {zipPath} bestehen (Datei liegt schon auf dem Server).
 
 import { Router } from 'express';
+import { wrapRouter } from './routeWrap.js';
 import { randomUUID } from 'node:crypto';
-import { stat, rm } from 'node:fs/promises';
+import { stat, rm, realpath } from 'node:fs/promises';
+// Fuer resolveAllowedZipPath (M6, 2026-10-31): Pfadgrenze pruefen.
+import { relative, isAbsolute } from 'node:path';
 
 import { getSettingsStatus, setSetting, getSetting, SETTING_KEYS, SECRET_KEYS, getSidebarRacks, setSidebarRacks } from './settings.js';
 import { verifyMail, sendTestMail } from './mailer.js';
@@ -37,15 +40,16 @@ import { getSword, getSwords, loadSwords, getSwordDiagnostics, setInstalledVersi
 import { checkSwordVersion } from './versionCheck.js';
 import { serviceStatus } from './control.js';
 import { loadRacks, getRacks, getRack, getRackDiagnostics, createRack, updateRack, deleteRack, RackError } from './racks.js';
-import { readConfig, writeConfig, getEditorFields, SUPPORTED_GAMES, ConfigEditorError } from './configEditor.js';
+import { readConfig, writeConfig, SUPPORTED_GAMES } from './configEditor.js';
 import { installFromZip, installFromCurseForge, installFromSteam, downloadGithubAsset, installFromTarball, acceptEulaForRack, InstallerError } from './installer.js';
-import { updateFromZip, updateFromCurseForge, getUpdateState, UpdaterError } from './updater.js';
+import { updateFromZip, updateFromCurseForge, updateFromSteam, getUpdateState, UpdaterError } from './updater.js';
 import { removeSword, SwordDeleteError } from './swordDelete.js';
-import { loadPendingRestarts, getPendingRestart, setPendingRestart, clearPendingRestart } from './pendingRestart.js';
+import { setPendingRestart, clearPendingRestart } from './pendingRestart.js';
 import { getVersion } from './version.js';
+import { getRecentErrors, getErrorById, countErrors } from './errorLog.js';
 import { getRightsStatus, recheckRights } from './systemRights.js';
 import { getSelfUpdateState, runSelfUpdateCheck } from './selfUpdateCheck.js';
-import { getSelfUpdateStatus, listSelfUpdateTags, dryRunSelfUpdate, applySelfUpdate, SelfUpdateError, getLastSelfUpdateResult } from './selfUpdate.js';
+import { getSelfUpdateStatus, listSelfUpdateTags, dryRunSelfUpdate, applySelfUpdate, getLastSelfUpdateResult } from './selfUpdate.js';
 import {
   uploadMiddleware, registerUpload, readUpload, deleteUpload, listUploads,
   cleanupOldUploads, UploadError, UPLOADS_DIR,
@@ -68,6 +72,33 @@ function setJob(id, patch) {
 
 async function fileExists(p) {
   try { const s = await stat(p); return s.isFile(); } catch { return false; }
+}
+
+// Audit-Fix 2026-10-31 (M6): Begrenzt einen vom Client gelieferten zipPath auf
+// das Upload-Verzeichnis. Gibt den aufgeloesten Pfad zurueck oder wirft.
+// Bewusst kein Vergleich auf Zeichenketten-Praefix: "/opt/.../uploads" und
+// "/opt/.../uploads-evil" teilen sich den Anfang. Deshalb ueber relative().
+async function resolveAllowedZipPath(rawPath) {
+  if (typeof rawPath !== 'string' || !rawPath.trim()) {
+    throw new Error('zipPath ist leer');
+  }
+  if (rawPath.includes('\0')) throw new Error('zipPath enthaelt ungueltige Zeichen');
+  if (rawPath.length > 4096) throw new Error('zipPath ist zu lang');
+
+  let real;
+  try {
+    real = await realpath(rawPath);
+  } catch {
+    throw new Error('zipPath nicht gefunden (muss im Upload-Verzeichnis liegen)');
+  }
+  const uploadRoot = await realpath(UPLOADS_DIR);
+  const rel = relative(uploadRoot, real);
+  // rel === '' waere das Verzeichnis selbst; beginnt es mit "..", liegt der
+  // Pfad ausserhalb (auch bei absolutem rel auf anderem Laufwerk).
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error('zipPath muss im Upload-Verzeichnis liegen');
+  }
+  return real;
 }
 
 function sendError(res, err) {
@@ -333,6 +364,87 @@ installRouter.get('/diagnostics', requirePerm('system.diagnostics'), async (_req
       racks: { count: racks.racks.length, errors: rd.errors, warnings: rd.warnings },
       swords: { count: swords.swords.length, errors: sd.errors, warnings: sd.warnings },
       checkedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Fehlerprotokoll (2026-10-31) -------------------------------------------
+// Liest die Fehlertabelle (app/errorLog.js). Die Tabelle fuellt der zentrale
+// Error-Handler und der Prozess-Schutz. Zugriff nur mit system.diagnostics
+// NUR superuser (2026-10-31, vorher system.diagnostics) - die Meldungen und
+// Log-Zeilen enthalten Pfade, Nutzernamen, IPs und Stapel. Wer die Rechtematrix
+// bearbeiten darf, soll sich das nicht selbst freischalten koennen. Der Client
+// bekommt deshalb in der Liste KEINEN Stapel, nur im Detail.
+installRouter.get('/system/errors', requireRole('superuser'), async (req, res) => {
+  try {
+    // limit aus der Abfrage, aber getRecentErrors deckelt selbst auf 1..500.
+    const rows = getRecentErrors({ limit: req.query?.limit });
+    res.json({ errors: rows, total: countErrors() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Einzelner Eintrag MIT Stapel - nur hier, nicht in der Liste.
+installRouter.get('/system/errors/:id', requireRole('superuser'), async (req, res) => {
+  try {
+    const row = getErrorById(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Kein Eintrag mit dieser Kennung' });
+    res.json(row);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Panel-Log (2026-10-31) -------------------------------------------------
+// Zeigt die letzten Zeilen aus logs/armory.log bzw. armory.err.
+// Bewusst NUR diese zwei Dateien und NUR ueber feste Namen - kein Pfad aus
+// dem Request. Wer ein Panel-Log lesen darf, darf damit nicht ploetzlich
+// /etc/shadow lesen.
+// warum zwei Dateien: console.log geht nach .log, console.error nach .err.
+// Bei der Fehlersuche braucht man meist beide; deshalb waehlbar, nicht gemischt
+// (vermischt ist die zeitliche Reihenfolge nicht mehr erkennbar).
+const PANEL_LOG_FILES = {
+  out: '/opt/game-armory/logs/armory.log',
+  err: '/opt/game-armory/logs/armory.err',
+};
+
+installRouter.get('/system/panellog', requireRole('superuser'), async (req, res) => {
+  try {
+    const which = String(req.query?.file ?? 'out');
+    const path = PANEL_LOG_FILES[which];
+    if (!path) return res.status(400).json({ error: 'file muss "out" oder "err" sein' });
+    // Zeilen aus der Abfrage, hart begrenzt (nicht mehr als 2000).
+    const want = Math.max(1, Math.min(2000, Number.parseInt(String(req.query?.lines ?? '300'), 10) || 300));
+
+    // Nur das ENDE der Datei lesen: bei einer gewachsenen Log-Datei waere
+    // ein komplettes Einlesen bei jedem Oeffnen unnoetig teuer.
+    const { open } = await import('node:fs/promises');
+    const fh = await open(path, 'r');
+    let text;
+    try {
+      const { size } = await fh.stat();
+      const MAX_BYTES = 512 * 1024;
+      const start = Math.max(0, size - MAX_BYTES);
+      const buf = Buffer.alloc(size - start);
+      await fh.read(buf, 0, buf.length, start);
+      text = buf.toString('utf8');
+      // Beim Abschneiden in der Mitte einer Zeile die erste (halbe) verwerfen.
+      if (start > 0) text = text.slice(text.indexOf('\n') + 1 || 0);
+    } finally {
+      await fh.close();
+    }
+    const all = text.split('\n');
+    const lines = all.slice(-want);
+    res.json({
+      file: which,
+      path,
+      requested: want,
+      returned: lines.length,
+      truncated: all.length > want || text.length >= 512 * 1024,
+      lines,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -660,14 +772,35 @@ installRouter.post('/swords/:id/update', requirePerm('sword.update'), async (req
       }
     };
   } else if (body.zipPath) {
-    if (!(await fileExists(body.zipPath))) {
-      return res.status(400).json({ error: `zipPath nicht gefunden (muss auf dem Server liegen): ${body.zipPath}` });
+    // Audit-Fix 2026-10-31 (M6): zipPath war ein FREIER Serverpfad. Die Route
+    // haengt an requirePerm('sword.update'), und das hat moderator - also die
+    // Rolle fuer Mitspieler, nicht nur Admin. Damit konnte ein Mitspieler
+    //   - jede beliebige Datei als "ZIP" einreichen (/etc/shadow, /root/...),
+    //   - per Existenz-Fehlermeldung das Dateisystem ausspaehen,
+    //   - und die Datei ins Temp entpacken lassen.
+    // Jetzt ist nur noch das Upload-Verzeichnis bzw. der Pfad einer echten
+    // Upload-ID erlaubt. realpath loest ".." und Symlinks auf, bevor verglichen
+    // wird - ein Symlink im Upload-Ordner zeigt also nicht nach draussen.
+    let zipPath;
+    try {
+      zipPath = await resolveAllowedZipPath(body.zipPath);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
     }
-    start = () => updateFromZip(sword, body.zipPath, { onLog, keepConfigs: body.keepConfigs });
+    if (!(await fileExists(zipPath))) {
+      return res.status(400).json({ error: 'zipPath nicht gefunden (muss im Upload-Verzeichnis liegen)' });
+    }
+    start = () => updateFromZip(sword, zipPath, { onLog, keepConfigs: body.keepConfigs });
+  } else if (body.type === 'steam' || body.appId) {
+    // Steam-Update (2026-10-31). Das Panel schickte diesen Zweig schon immer
+    // ({type:'steam', rackId, appId, branch}), die Route kannte ihn nicht -
+    // jeder Steam-Klick endete in "Quelle fehlt". App-ID und Branch kommen aus
+    // dem RACK; body.appId dient nur als Vorabpruefung fuer eine klare Meldung.
+    start = () => updateFromSteam(sword, { onLog, keepConfigs: body.keepConfigs });
   } else if (body.modId || sword.update?.projectId) {
     start = () => updateFromCurseForge(sword, { modId: body.modId, fileId: body.fileId, onLog, keepConfigs: body.keepConfigs });
   } else {
-    return res.status(400).json({ error: 'Quelle fehlt: {uploadId}, {zipPath} oder {modId, fileId}' });
+    return res.status(400).json({ error: 'Quelle fehlt: {uploadId}, {zipPath}, {type:steam} oder {modId, fileId}' });
   }
 
   // 202 sofort, Job im Hintergrund.
@@ -949,6 +1082,14 @@ installRouter.post('/system/self-update/apply', requireRole('superuser'), async 
     res.status(err.status ?? 502).json({ error: err.message });
   }
 });
+
+// PRE-RELEASE-AUDIT 2026-10-31: Alle Routen des Routers absichern.
+// Express 4.22.3 faengt abgelehnte Promises NICHT ab - eine async-Route, die
+// wirft, beendet den ganzen Prozess (isoliert belegt). wrapRouter haengt jeden
+// Handler in try/catch + next(err), damit der zentrale Error-Handler greift.
+// Bewusst HIER am Ende: so ist auch jede spaeter hinzugefuegte Route geschuetzt,
+// ohne dass jemand daran denken muss.
+wrapRouter(installRouter);
 
 // Hilfs-Export fuer spaetere Job-ID-Generierung / Tests.
 export { installJobs, randomUUID };

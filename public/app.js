@@ -153,17 +153,44 @@
       swordsRefreshTimer = setTimeout(() => { reloadSwords().catch(() => {}); }, delay);
     }
 
+    // Bugfix 2026-10-31: Der Server liefert jetzt `data.state` als
+    // running | starting | stopping | stopped | failed (aus systemd).
+    // Frueher wurde nur "active"/"inactive" unterschieden - ein startender
+    // Server sah aus wie ein gestoppter. `data.state` ist die Grundlage, die
+    // rohen ActiveState-Werte bleiben als Rueckfall fuer aeltere Antworten.
     function dotClass(state) {
-      if (state === 'active') return 'dot running';
-      if (state === 'inactive' || state === 'failed') return 'dot stopped';
-      return 'dot unknown';
+      switch (state) {
+        case 'running': return 'dot running';
+        case 'starting': return 'dot starting';
+        case 'stopping': return 'dot stopping';
+        case 'failed': return 'dot failed';
+        case 'stopped': return 'dot stopped';
+        // Rueckfall fuer rohe systemd-Werte (falls eine Stelle noch so liefert)
+        case 'active': return 'dot running';
+        case 'activating': return 'dot starting';
+        case 'deactivating': return 'dot stopping';
+        case 'inactive': return 'dot stopped';
+        default: return 'dot unknown';
+      }
+    }
+
+    // Beschriftung passend zum Zustand - nicht mehr nur zwei Woerter.
+    function stateLabel(data) {
+      switch (data.state) {
+        case 'running': return 'Läuft';
+        case 'starting': return 'Startet';
+        case 'stopping': return 'Wird gestoppt';
+        case 'failed': return 'Abgestürzt';
+        case 'stopped': return 'Gestoppt';
+        default: return data.running ? 'Läuft' : 'Gestoppt';
+      }
     }
 
     async function refreshStatus(id, el) {
       const { status, data } = await api(`/api/swords/${id}/status`);
       if (status !== 200) { el.querySelector('.label').textContent = data.error ?? 'Fehler'; return; }
       el.querySelector('.dot').className = dotClass(data.state);
-      el.querySelector('.label').textContent = data.running ? 'Läuft' : 'Gestoppt';
+      el.querySelector('.label').textContent = stateLabel(data);
       const meta = el.querySelector('.meta');
       if (meta && data.since) meta.textContent = 'seit ' + fmtSince(data.since);
 
@@ -1567,15 +1594,22 @@
           ? { uploadId: upUpload.uploadId }
           : { type: 'upload', uploadId: upUpload.uploadId };
       }
+      // Beim Update steht das Rack im Sword (das Panel kennt es laengst); der
+      // Rack-Picker ist dort ausgeblendet und selectedRack bewusst null. Vorher
+      // warf dieser Zweig dann "Bitte zuerst ein Rack auswaehlen" - eine Frage,
+      // deren Antwort feststand (live 2026-10-31 an 7d2d).
+      const rack = (upMode === 'update' && upSword)
+        ? (racksCache.find((r) => r.id === upSword.rack) ?? selectedRack)
+        : selectedRack;
       if (tab === 'steam') {
-        if (!selectedRack) throw new Error('Bitte zuerst ein Rack auswählen.');
-        const appId = selectedRack.source?.appId;
+        if (!rack) throw new Error('Bitte zuerst ein Rack auswählen.');
+        const appId = rack.source?.appId;
         if (!appId) throw new Error('Das gewählte Rack hat keine Steam-App-ID.');
-        return { type: 'steam', rackId: selectedRack.id, appId, branch: selectedRack.source?.branch ?? 'public' };
+        return { type: 'steam', rackId: rack.id, appId, branch: rack.source?.branch ?? 'public' };
       }
       if (!cfState.mod || !cfState.file) throw new Error('Bitte Modpack und Version auswählen.');
       const src = { type: 'curseforge', modId: cfState.mod.id, fileId: cfState.file.id };
-      if (selectedRack) src.rackId = selectedRack.id;
+      if (rack) src.rackId = rack.id;
       return src;
     }
 
@@ -1735,7 +1769,13 @@
           rows.push(`<div class="meta">Enthalten: ${esc(result.backupIncluded.join(', '))}</div>`);
         }
       } else {
-        rows.push('<div class="meta">Backup: <b>keines erstellt</b> (keine der Pfade vorhanden).</div>');
+        // Bugfix 2026-10-31: Vorher stand hier fest "keine der Pfade vorhanden" -
+        // auch wenn das Backup an Rechten scheiterte ("tar: serversettings.xml:
+        // Cannot open: Permission denied"). Das Panel behauptete damit einen
+        // Grund, den es nicht kannte. Jetzt nur die belegte Aussage, plus der
+        // Grund, wenn der Server ihn mitgeliefert hat.
+        const why = result.backupError ? ` (${String(result.backupError).split('\n')[0]})` : '';
+        rows.push(`<div class="meta">Backup: <b>keines erstellt</b>${esc(why)}</div>`);
       }
       if (result.pack) {
         const rep = Array.isArray(result.pack.replaced) ? result.pack.replaced.length : null;
@@ -1802,7 +1842,12 @@
         warn.style.display = 'none';
         warn.textContent = '';
       }
-      upTab('cf');
+      // Kein hartes 'cf' mehr (2026-10-31): diese Zeile stand NACH
+      // applyRackTabs() und ueberschrieb die dort gesetzte Tab-Wahl wieder auf
+      // CurseForge. Ein 7d2d (Steam-Rack) oeffnete deshalb mit dem falschen Tab,
+      // obwohl applyRackTabs ihn korrekt aktiviert hatte - live gemeldet.
+      // Jetzt denselben Tab nehmen, den das Rack erlaubt.
+      upTab(tabsForRack(swordRack)[0]);
       renderPreflight(sword, stateInfo);
       document.getElementById('updateModal').classList.add('open');
     }
@@ -2198,6 +2243,16 @@
       if (can('rack.reload')) {
         document.getElementById('reloadSwordsBtn').style.display = 'inline-block';
       }
+      // Logs (2026-10-31): NUR fuer superuser sichtbar.
+      // Bewusst eine Rollenpruefung und kein Recht: die Eintraege enthalten
+      // Pfade, Nutzernamen, IPs und Stapel - wer die Rechtematrix bearbeiten
+      // darf, soll sich das nicht selbst freischalten koennen.
+      // Der Server prueft zusaetzlich (requireRole), das hier ist nur die
+      // Anzeige.
+      if (me.role === 'superuser') {
+        const errBtn = document.getElementById('menuErrors');
+        if (errBtn) errBtn.style.display = 'inline-block';
+      }
       // Profil-Modal mit den aktuellen Daten befuellen; Admin-Tabs freischalten.
       initProfile();
       loadTheme();     // Darstellung aus dem Konto nachziehen (Server ist die Wahrheit)
@@ -2217,6 +2272,158 @@
       await api('/api/auth/logout', { method: 'POST' });
       location.href = '/login';
     });
+
+    // --- Fehlerprotokoll (2026-10-31) -----------------------------------------
+    // Menuepunkt im Kontomenue, Modal mit Liste. Zeile anklickbar -> Detail
+    // mit Stapel. Der Stapel steht bewusst NUR im Detail: in der Liste waere
+    // er unlesbar und wuerde bei jedem Oeffnen die halbe Seite fuellen.
+    let errorRows = [];
+
+    function fmtErrorTime(ms) {
+      if (!ms) return '–';
+      const d = new Date(ms);
+      return d.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'medium' });
+    }
+
+    async function loadErrors() {
+      const box = document.getElementById('errorsList');
+      if (!box) return;
+      box.innerHTML = '<div class="item"><span class="meta">Wird geladen…</span></div>';
+      try {
+        const { status, data } = await api('/api/system/errors?limit=100');
+        if (status !== 200) {
+          box.innerHTML = `<div class="item"><span class="meta">Fehler ${status}: ${esc(data.error ?? '')}</span></div>`;
+          return;
+        }
+        errorRows = Array.isArray(data.errors) ? data.errors : [];
+        const totalEl = document.getElementById('errorsCount');
+        if (totalEl) {
+          totalEl.textContent = errorRows.length === data.total
+            ? `${data.total} Eintrag/Einträge`
+            : `${errorRows.length} von ${data.total} Einträgen`;
+        }
+        if (errorRows.length === 0) {
+          box.innerHTML = '<div class="item"><span class="meta">Keine Fehler protokolliert.</span></div>';
+          return;
+        }
+        box.innerHTML = errorRows.map((e) => `<div class="item" data-eid="${esc(e.id)}">
+          <div class="grow">
+            <div>${esc(String(e.method ?? '') + ' ' + String(e.path ?? ''))}</div>
+            <div class="meta">${esc(fmtErrorTime(e.at))} · ${esc(String(e.message ?? '').slice(0, 120))}</div>
+          </div>
+          <div class="meta">${esc(String(e.status ?? ''))}</div>
+        </div>`).join('');
+        box.querySelectorAll('.item').forEach((it) => {
+          it.addEventListener('click', () => openErrorDetail(it.dataset.eid));
+        });
+      } catch (err) {
+        box.innerHTML = `<div class="item"><span class="meta">Netzwerkfehler: ${esc(err.message)}</span></div>`;
+      }
+    }
+
+    async function openErrorDetail(id) {
+      const box = document.getElementById('errorsDetailBody');
+      const wrap = document.getElementById('errorsDetail');
+      const title = document.getElementById('errorsDetailTitle');
+      if (!box || !wrap) return;
+      wrap.style.display = '';
+      document.getElementById('errorsList').style.display = 'none';
+      document.getElementById('errorsDetailTitle').textContent = `Eintrag ${id}`;
+      box.textContent = 'Wird geladen…';
+      try {
+        const { status, data } = await api(`/api/system/errors/${encodeURIComponent(id)}`);
+        if (status !== 200) { box.textContent = data.error ?? `Fehler ${status}`; return; }
+        // textContent, nicht innerHTML: der Stapel ist Fremdtext.
+        const lines = [
+          `Zeit:     ${fmtErrorTime(data.at)}`,
+          `Kennung:  ${data.id}`,
+          `Anfrage:  ${data.method ?? '?'} ${data.path ?? '?'}`,
+          `Status:   ${data.status ?? '?'}`,
+          `Nutzer:   ${data.username ?? '(nicht angemeldet)'}${data.user_id != null ? ' (#' + data.user_id + ')' : ''}`,
+          `IP:       ${data.ip ?? '?'}`,
+          '',
+          'Meldung:',
+          String(data.message ?? ''),
+          '',
+          'Stapel:',
+          String(data.stack ?? '(kein Stapel gespeichert)'),
+        ];
+        box.textContent = lines.join('\n');
+        if (title) title.textContent = `Eintrag ${id}`;
+      } catch (err) {
+        box.textContent = `Netzwerkfehler: ${err.message}`;
+      }
+    }
+
+    // --- Panel-Log im selben Fenster (2026-10-31) -----------------------------
+    // Liest /api/system/panellog. Kein Auto-Refresh: ein Log, das sich unter
+    // dem Lesen aendert, laesst niemanden mitlesen. "Neu laden" ist Absicht.
+    let logFile = 'out';
+
+    async function loadPanelLog() {
+      const body = document.getElementById('logBody');
+      const info = document.getElementById('logInfo');
+      if (!body) return;
+      body.textContent = 'Wird geladen…';
+      try {
+        const { status, data } = await api(`/api/system/panellog?file=${logFile}&lines=400`);
+        if (status !== 200) { body.textContent = data.error ?? `Fehler ${status}`; return; }
+        const lines = Array.isArray(data.lines) ? data.lines : [];
+        // textContent, nicht innerHTML: Log-Zeilen sind Fremdtext.
+        body.textContent = lines.length ? lines.join('\n') : '(Log ist leer)';
+        if (info) {
+          info.textContent = `${data.returned} Zeilen aus ${data.path}`
+            + (data.truncated ? ' (gekürzt)' : '');
+        }
+        // Nach unten springen wie in der Live-Konsole - neueste Zeile zuletzt.
+        body.scrollTop = body.scrollHeight;
+      } catch (err) {
+        body.textContent = `Netzwerkfehler: ${err.message}`;
+      }
+    }
+
+    function setLogTab(tab) {
+      document.querySelectorAll('#logTabs button').forEach((b) => {
+        b.classList.toggle('active', b.dataset.ltab === tab);
+      });
+      document.getElementById('lTabErrors').classList.toggle('active', tab === 'errors');
+      document.getElementById('lTabLog').classList.toggle('active', tab === 'log');
+      if (tab === 'log') loadPanelLog();
+      if (tab === 'errors') loadErrors();
+    }
+
+    function showErrorList() {
+      const wrap = document.getElementById('errorsDetail');
+      const list = document.getElementById('errorsList');
+      if (wrap) wrap.style.display = 'none';
+      if (list) list.style.display = '';
+    }
+
+    (function initErrorsModal() {
+      const modal = document.getElementById('errorsModal');
+      const menuBtn = document.getElementById('menuErrors');
+      if (!modal) return;
+      const open = () => {
+        closeWhoMenu();
+        showErrorList();
+        modal.classList.add('open');
+        setLogTab('errors');
+      };
+      if (menuBtn) menuBtn.addEventListener('click', open);
+      document.getElementById('errorsClose')?.addEventListener('click', () => modal.classList.remove('open'));
+      document.getElementById('errorsReload')?.addEventListener('click', () => { showErrorList(); loadErrors(); });
+      document.getElementById('errorsBack')?.addEventListener('click', showErrorList);
+      // Reiter
+      document.querySelectorAll('#logTabs button').forEach((b) => {
+        b.addEventListener('click', () => setLogTab(b.dataset.ltab));
+      });
+      // Log-Datei umschalten + neu laden
+      document.getElementById('logFileOut')?.addEventListener('click', () => { logFile = 'out'; loadPanelLog(); });
+      document.getElementById('logFileErr')?.addEventListener('click', () => { logFile = 'err'; loadPanelLog(); });
+      document.getElementById('logReload')?.addEventListener('click', loadPanelLog);
+      // Klick auf den dunklen Rand schliesst (wie bei den anderen Modals).
+      modal.addEventListener('click', (ev) => { if (ev.target === modal) modal.classList.remove('open'); });
+    })();
 
     // --- Rack-Auswahl (Setup) --------------------------------------------------
     // Laedt die Rack-Schablonen und laesst den Nutzer EINES waehlen. Die Wahl
@@ -2291,6 +2498,11 @@
       });
       // Eine Leiste mit einem einzigen Knopf ist Ballast - dann ganz ausblenden.
       if (tabsEl) tabsEl.style.display = allowed.length <= 1 ? 'none' : '';
+      // Sichtbar machen reicht nicht: der aktive Tab blieb der erste aus der
+      // HTML-Reihenfolge. Ein 7d2d (Steam-Rack) oeffnete deshalb mit
+      // CurseForge vorausgewaehlt - live gemeldet am 2026-10-31.
+      // Hier wird zusaetzlich der passende Tab AKTIV geschaltet.
+      upTab(allowed[0]);
     }
 
     // Wie viele Swords laufen von diesem Rack? Fuer Einmal-Racks (singleton)

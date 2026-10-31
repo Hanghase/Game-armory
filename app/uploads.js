@@ -62,20 +62,52 @@ const ARCHIVE_EXTENSIONS = [
   { ext: '.zip', re: /\.zip$/i },
 ];
 
+// Audit-Fix 2026-10-31 (N8): Vorher galt `!knownExt && !okMime` - also
+// genuegte EINE der beiden Bedingungen. Gemessen kam damit durch:
+//   boese.html   application/zip           (nur MIME)
+//   schaden.sh   application/octet-stream  (nur MIME)
+//   boese.zip    text/html                 (nur Endung)
+// Bewusst KEIN hartes UND: .tar.gz kommt im Browser oft als
+// application/octet-stream, und .zip hat je nach System mehrere MIME-Typen.
+// Ein UND haette funktionierende Uploads zerstört.
+//
+// Statt dessen: die Endung entscheidet, WELCHE MIME-Typen zulaessig sind.
+// Passt der MIME nicht zu einer bekannten Endung, wird abgewiesen.
+// Fehlt die Endung ganz, muss der MIME zu einem Archivformat gehoeren.
+// Die eigentliche Pruefung bleibt der INHALT (detectArchiveKind in pack.js) -
+// dieser Filter ist nur die erste Huerde, keine Sicherheitsgrenze.
+const MIME_BY_EXT = {
+  '.zip':     ['application/zip', 'application/x-zip-compressed', 'multipart/x-zip', 'application/octet-stream'],
+  '.tar.gz':  ['application/gzip', 'application/x-gzip', 'application/x-tar', 'application/x-compressed-tar', 'application/octet-stream'],
+  '.tgz':     ['application/gzip', 'application/x-gzip', 'application/x-tar', 'application/x-compressed-tar', 'application/octet-stream'],
+  '.tar.xz':  ['application/x-xz', 'application/x-tar', 'application/octet-stream'],
+  '.txz':     ['application/x-xz', 'application/x-tar', 'application/octet-stream'],
+  '.tar.bz2': ['application/x-bzip2', 'application/x-tar', 'application/octet-stream'],
+};
+
 function archiveFilter(req, file, cb) {
   const name = String(file.originalname ?? '').toLowerCase();
-  const knownExt = ARCHIVE_EXTENSIONS.some((e) => e.re.test(name));
-  // MIME ist bei .tar.gz oft 'application/octet-stream' oder 'application/gzip'.
-  const okMime = [
-    'application/zip', 'application/x-zip-compressed', 'multipart/x-zip',
-    'application/gzip', 'application/x-gzip', 'application/x-tar', 'application/x-compressed-tar',
-    'application/x-xz', 'application/x-bzip2',
-    'application/octet-stream',
-  ];
-  if (!knownExt && !okMime.includes(file.mimetype)) {
-    return cb(new UploadError('Nur .zip, .tar.gz, .tar.xz, .tar.bz2, .tgz oder .txz werden akzeptiert.', 415));
+  const mime = String(file.mimetype ?? '').toLowerCase();
+  const hit = ARCHIVE_EXTENSIONS.find((e) => e.re.test(name));
+
+  if (hit) {
+    const erlaubt = MIME_BY_EXT[hit.ext] ?? [];
+    if (erlaubt.length && !erlaubt.includes(mime)) {
+      // Endung passt, MIME nicht: z.B. "boese.zip" mit text/html.
+      return cb(new UploadError(
+        `Dateityp passt nicht zur Endung ${hit.ext} (gemeldet: ${mime || 'unbekannt'}).`, 415));
+    }
+    return cb(null, true);
   }
-  cb(null, true);
+
+  // Keine bekannte Endung: dann muss der MIME zu irgendeinem Archivformat
+  // gehoeren. application/octet-stream allein reicht NICHT mehr - das war der
+  // Freischein fuer "schaden.sh".
+  const alleMime = new Set(Object.values(MIME_BY_EXT).flat());
+  alleMime.delete('application/octet-stream');
+  if (alleMime.has(mime)) return cb(null, true);
+
+  return cb(new UploadError('Nur .zip, .tar.gz, .tar.xz, .tar.bz2, .tgz oder .txz werden akzeptiert.', 415));
 }
 
 export const uploadMiddleware = multer({

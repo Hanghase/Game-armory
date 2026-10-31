@@ -323,10 +323,30 @@ export async function setUserPassword(userId, newPassword) {
   return true;
 }
 
-export function verifyLogin(username, password) {
+// Dummy-Hash fuer die Zeitangleichung (M5, Audit 2026-10-22).
+// bcrypt-Kosten 12, exakt die Kosten echter Hashes - sonst misst man den
+// Unterschied wieder. Der Wert stammt aus einem einmaligen hashSync() und
+// passt zu keinem Passwort (das Klartext-Praefix ist zufaellig).
+const DUMMY_HASH = '$2b$12$plt1T3ztLXh/XJta2KhwkOmd0tkaMwg/2SwLKp.n55nE4BNVLKmNO';
+
+// Audit-Fix 2026-10-31 (M5 + H3):
+// (M5) Vorher stand hier `if (!user) return null;` VOR dem bcrypt-Vergleich.
+// Damit antwortete die Route bei unbekanntem Namen sofort (~1 ms) und bei
+// bekanntem Namen nach ~250 ms - das Timing verriet, welche Benutzernamen
+// existieren. Jetzt laeuft auch ohne Treffer ein echter bcrypt-Vergleich
+// gegen DUMMY_HASH, damit beide Faelle gleich lange brauchen.
+// (H3) `compareSync` blockierte den einzigen Node-Prozess 247 ms pro Versuch
+// (gemessen 2026-10-31) - das ganze Panel stand still. Jetzt async: der
+// Prozess bleibt waehrend des Vergleichs bedienbar.
+export async function verifyLogin(username, password) {
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-  if (!user) return null;
-  if (!bcrypt.compareSync(password, user.password_hash)) return null;
+  if (!user) {
+    // Gleiche Rechenzeit ohne Treffer. Ergebnis bewusst verworfen.
+    await bcrypt.compare(String(password ?? ''), DUMMY_HASH);
+    return null;
+  }
+  const ok = await bcrypt.compare(String(password ?? ''), user.password_hash);
+  if (!ok) return null;
   return { id: user.id, username: user.username, role: user.role, email: user.email ?? null };
 }
 

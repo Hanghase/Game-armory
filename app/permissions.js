@@ -54,6 +54,11 @@ export const PERMISSIONS = [
   { perm: 'settings.write',         label: 'Einstellungen schreiben',   group: 'Einstellungen & System' },
   { perm: 'settings.test_mail',     label: 'Test-Mail senden',          group: 'Einstellungen & System' },
   { perm: 'system.diagnostics',     label: 'Diagnose abrufen',          group: 'Einstellungen & System' },
+  // Logs & Fehlerprotokoll (2026-10-31): Panel-Log und Fehlertabelle.
+  // Startbelegung: nur superuser (steht deshalb NICHT in ADMIN_PERMS).
+  // Die Routen pruefen zusaetzlich requireRole('superuser') - das Recht regelt
+  // die Anzeige und macht sichtbar, wer es haette.
+  { perm: 'system.logs',            label: 'Logs & Fehlerprotokoll',    group: 'Einstellungen & System' },
   // Nutzer
   { perm: 'user.read',              label: 'Nutzer lesen',              group: 'Nutzer' },
   { perm: 'user.create',            label: 'Nutzer anlegen',            group: 'Nutzer' },
@@ -122,7 +127,12 @@ export const DEFAULT_MATRIX = {
 // Seed-Version: erhoehen, wenn sich DEFAULT_MATRIX/Katalog aendert. Beim Start
 // wird eine aeltere DB-Version deterministisch auf diese Soll-Belegung
 // nachgezogen - aber NUR fuer Seed-Zeilen (Betreiber-Aenderungen bleiben).
-export const PERMISSIONS_SEED_VERSION = 5;
+// 6 (2026-10-31): Recht system.logs aufgenommen (Logs & Fehlerprotokoll).
+// Ohne Erhoehung bliebe die Seed-Belegung in bestehenden DBs auf dem alten
+// Stand: superuser bekommt neue Rechte zwar immer (FIXED_ROLES -> PERM_NAMES),
+// aber die Matrix-Anzeige und die 'seed'-Zeilen anderer Rollen wuerden den
+// neuen Katalogeintrag nicht kennen.
+export const PERMISSIONS_SEED_VERSION = 6;
 
 // --- Migration / Init (deterministisch, selbstheilend, idempotent) ---------
 // Mechanismus (Begruendung):

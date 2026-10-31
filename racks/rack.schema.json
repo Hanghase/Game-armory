@@ -187,6 +187,16 @@
       ],
       "description": "Ob ein EULA/Nutzungsbedingungs-Schritt noetig ist (required) oder nicht (none)."
     },
+    "readyMarkers": {
+      "type": "array",
+      "description": "Log-Zeilen, an denen ein LAUFENDER Server als spielbereit gilt - pro Spiel UND pro Spiel-Version verschieden (7d2d 24994542: \"Done (\", 7d2d 26237934: \"StartGame done\"). Diese Marker entscheiden NICHT ueber den Zustand (das macht systemd), sondern verfeinern \"laeuft\" zu \"startet\". Fehlt der Marker oder aendert das Spiel ihn, greift nach READY_FALLBACK_MS der Rueckfall auf \"laeuft\" - die Anzeige behauptet dann nie faelschlich \"gestoppt\". Aendert ein Spiel sein Log-Format, gehoert die neue Zeile hierher, nicht in den Code.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
     "packMarkers": {
       "type": "array",
       "description": "Woran ein gueltiges Server-Archiv fuer DIESES Spiel erkannt wird (Namen auf Top-Level-Ebene). Die Inhalts-Pruefung ist spielabhaengig: ein Modpack hat mods/ und startserver.sh, ein TeamSpeak-Release hat tsserver und tsserver.yaml. Fehlt das Feld, gilt der Minecraft-Standardsatz. Die Sicherheitspruefung (Pfad-Ausbrueche, Links) ist davon unberuehrt und bleibt fuer alle gleich.",

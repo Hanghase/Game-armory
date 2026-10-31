@@ -13,7 +13,7 @@
 // Update-Status liegt als Modul-State (getUpdateState) fuer die UI bereit.
 // KEIN systemctl-Aufruf ausserhalb von control.js (serviceAction/serviceStatus).
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, readdir, readFile, stat, writeFile, access, open } from 'node:fs/promises';
 import { join, basename } from 'node:path';
@@ -23,6 +23,9 @@ import { SWORDS_DIR } from './installer.js';
 import { detectRequiredNeoforgeVersion, extractCurseForgeVersion } from './installer.js';
 import { serviceAction, serviceStatus } from './control.js';
 import { getMod, getFiles, getDownloadUrl, downloadFile } from './curseforge.js';
+import { getRack } from './racks.js';
+import { readSteamBuildId } from './versionCheck.js';
+import { STEAM_HELPER } from './installer.js';
 
 // Privilegierter Install-Helfer (per sudo, eng gefasste Rechte in /etc/sudoers.d/armory).
 // Notwendig, weil die Armory als 'armory' laeuft, die Instanz-Daten aber dem
@@ -298,7 +301,19 @@ export async function waitForDone(sword, { timeoutMs = 180_000, pollMs = 3000, l
           await fh.close();
         }
         startOffset = to;
-        if (fresh.includes('Done (')) return { ok: true, matched: 'Done (' };
+        // Bugfix 2026-10-31: Der neue 7d2d-Build (26237934) schreibt "Done ("
+        // NICHT mehr. Live erlebt: Server lief vollstaendig (StartGame done,
+        // EOS registered, GameServer.LogOn successful), das Panel meldete aber
+        // "kein Done ( innerhalb von 3 Min." und damit einen Fehlschlag.
+        // Deshalb mehrere Zeichen akzeptieren - in dieser Reihenfolge, weil
+        // "StartGame done" der belastbarste Marker ist (Welt geladen).
+        const DONE_MARKERS = [
+          'StartGame done',                 // ab Build ~26237934
+          'Done (',                         // aeltere Builds (Minecraft/Valheim/7d2d alt)
+          'GameServer.LogOn successful',    // Steam-Anmeldung erfolgt
+        ];
+        const hit = DONE_MARKERS.find((m) => fresh.includes(m));
+        if (hit) return { ok: true, matched: hit };
       }
     } catch { /* Logdatei evtl. noch nicht da */ }
   }
@@ -387,7 +402,7 @@ async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, 
     if (!start.ok) log(`[update] Start-Warnung: ${start.error}`);
 
     // 7) Done-Warten
-    setState(swordId, { phase: 'waiting', progress: 90, message: 'Warte auf Serverstart ("Done (")' });
+    setState(swordId, { phase: 'waiting', progress: 90, message: 'Warte auf Serverstart (Log-Marker)' });
     const done = await waitForDone(sword, { timeoutMs: 180_000, log });
     result.doneSeen = done.ok;
 
@@ -415,7 +430,7 @@ async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, 
     } else if (done.ok) {
       setState(swordId, { phase: 'done', progress: 100, message: 'Update erfolgreich abgeschlossen', finishedAt: Date.now(), error: null, result: summary });
     } else {
-      setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber "Done (" nicht bestaetigt (Timeout 180s).', finishedAt: Date.now(), error: null, result: summary });
+      setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber kein Start-Marker im Log bestaetigt (Timeout 180s).', finishedAt: Date.now(), error: null, result: summary });
     }
 
     // 8) Version im Sword fortschreiben (Spec 2026-10-10): nach einem Update
@@ -502,6 +517,197 @@ async function listSourcePaths(sourceDir, sub) {
   }
   await walk(base, sub);
   return out;
+}
+
+// --- Steam (steamcmd) ------------------------------------------------------
+// Aktualisiert eine Steam-Instanz ueber `app_update <appid> validate`.
+//
+// Warum validate und kein eigener Vergleich: SteamCMD prueft damit die
+// Pruefsummen gegen das Manifest. Stimmt alles, ist der Lauf ein No-Op
+// ("Success! App fully installed"). Weicht etwas ab, laedt SteamCMD genau die
+// betroffenen Dateien neu. Die Konfigurations- und Speicherdateien des Spiels
+// stehen NICHT im Manifest und werden deshalb nie angefasst.
+//
+// Generisch: appid und branch kommen aus dem RACK (source.appId/source.branch),
+// nicht aus einer Konstante. Ein neues Steam-Rack (Valheim, Palworld, ...)
+// laeuft ohne Code-Aenderung. Der Anwendungsfall "jemand laedt ein altes
+// Server-ZIP hoch" bleibt der ZIP-Weg - der braucht kein Rack-Wissen.
+// Ruft den Steam-Helfer auf und schickt zwei Zeilen auf STDIN.
+//
+// WARUM (live erlebt 2026-10-31): armory-steam-helper liest bei `steam-install`
+// ZWEI Zeilen von stdin (cred_user, cred_pass), sobald stdin kein TTY ist -
+// "leer = anonym". Wird stdin nicht geschlossen, blockiert der Helfer endlos
+// in `read`, ohne je steamcmd zu starten. Der Dienst stand dann still, waehrend
+// der Aufrufer auf eine Antwort wartete. Leere Zeilen = anonymer Login.
+function runSteamHelper(args, { log = () => {} } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn('sudo', ['-n', STEAM_HELPER, ...args]);
+    let stdout = '';
+    let stderr = '';
+    let tail = '';
+    const emit = (line) => {
+      if (line.trim()) log(`[steam] ${line}`);
+    };
+    child.stdout.on('data', (c) => {
+      const text = c.toString();
+      stdout += text;
+      tail += text;
+      let nl;
+      while ((nl = tail.indexOf('\n')) >= 0) {
+        emit(tail.slice(0, nl));
+        tail = tail.slice(nl + 1);
+      }
+    });
+    child.stderr.on('data', (c) => {
+      const text = c.toString();
+      stderr += text;
+      for (const line of text.split('\n')) emit(line);
+    });
+    child.on('error', (err) => resolve({ ok: false, stdout, stderr, error: err.message }));
+    child.on('close', (code) => {
+      if (tail.trim()) emit(tail);
+      resolve({ ok: code === 0, stdout, stderr, error: code === 0 ? undefined : `exit ${code}` });
+    });
+    // Zwei leere Zeilen: anonymer Login. Danach STDIN schliessen - sonst haengt der Helfer.
+    child.stdin.write('\n\n');
+    child.stdin.end();
+  });
+}
+
+export async function updateFromSteam(sword, { onLog = () => {}, keepConfigs } = {}) {
+  const log = onLog;
+  const swordId = sword.id;
+  const service = sword.control?.service;
+  const workingDir = sword.control?.workingDir;
+  if (!service || !workingDir) throw new UpdaterError('Sword hat keinen Service/workingDir definiert.');
+
+  const rack = getRack(sword.rack);
+  if (!rack) throw new UpdaterError(`Rack '${sword.rack}' nicht gefunden - Steam-Update braucht die Rack-Schablone.`);
+  const appId = rack.source?.appId ?? sword.update?.appId;
+  if (!appId) throw new UpdaterError('Rack hat keine Steam-App-ID (source.appId).');
+  const branch = rack.source?.branch ?? sword.update?.branch ?? 'public';
+
+  const gen = sword.update?.keepGenerations ?? 2;
+  const keepPaths = Array.isArray(sword.update?.keep) && sword.update.keep.length > 0
+    ? sword.update.keep
+    : BACKUP_PATHS;
+
+  const startedAt = Date.now();
+  setState(swordId, { phase: 'starting', progress: 0, message: 'Steam-Update gestartet', startedAt, finishedAt: null, error: null });
+  const result = { swordId, backup: null, appId, branch, buildBefore: null, buildAfter: null, changed: false, started: false, doneSeen: false };
+  let stopped = false;
+
+  const appmanifest = join(workingDir, 'steamapps', `appmanifest_${Number(appId)}.acf`);
+  const readBuild = async () => {
+    try { return await readSteamBuildId(appmanifest); } catch { return null; }
+  };
+
+  try {
+    result.buildBefore = await readBuild();
+    log(`[steam] App ${appId} (${branch}), lokaler Build: ${result.buildBefore ?? 'unbekannt'}`);
+
+    // 1) Stop. SteamCMD kann eine laufende .x86_64 nicht ersetzen (ETXTBSY).
+    setState(swordId, { phase: 'stopping', progress: 5, message: 'Server wird gestoppt' });
+    const stop = await serviceAction(service, 'stop');
+    if (!stop.ok) throw new UpdaterError(`Server konnte nicht gestoppt werden: ${stop.error || 'unbekannter Fehler'}`);
+    const inactive = await waitForInactive(service, { log });
+    if (!inactive) throw new UpdaterError('Server wurde nicht rechtzeitig inaktiv.');
+    stopped = true;
+
+    // 2) Netz-Backup. validate fasst die Speicherdateien nicht an - das Backup ist
+    //    die Rueckversicherung fuer den Fall, dass ein Steam-Lauf doch mehr tut als
+    //    erwartet. Schlaegt es fehl, laeuft das Update trotzdem weiter (anders als
+    //    beim ZIP-Weg, wo neue Dateien alles ueberschreiben koennen).
+    setState(swordId, { phase: 'backup', progress: 15, message: 'Backup wird erstellt' });
+    try {
+      result.backup = await createBackup(workingDir, { id: swordId, paths: keepPaths, log, keepGenerations: gen, label: 'steam-update' });
+    } catch (err) {
+      // Den Grund mitgeben, damit das Panel ihn nennen kann statt zu raten.
+      result.backupError = err.message;
+      log(`[steam] Warnung: Backup fehlgeschlagen (${err.message}) - Update laeuft weiter, validate aendert keine Spieldaten.`);
+    }
+
+    // 3) SteamCMD app_update validate - derselbe Helfer-Step wie beim Erstinstall.
+    setState(swordId, { phase: 'applying', progress: 45, message: 'Steam prueft und aktualisiert' });
+    // WICHTIG (Bugfix 2026-10-31): Der Helfer gibt VOR dem Steam-Lauf den
+    // GANZEN Install-Ordner dem steam-User (chown -R). Bleibt das zurueck, kann
+    // der Instanz-User seine eigenen Configs nicht mehr lesen - live erlebt:
+    // serversettings.xml lag als steam:steam 600 da, das naechste Backup
+    // scheiterte mit "tar: serversettings.xml: Cannot open: Permission denied".
+    // Deshalb wird der Rechte-Ruecksetz IMMER ausgefuehrt, auch wenn der
+    // Steam-Lauf scheitert. Frueher stand hier ein throw VOR dem chown-tree.
+    const dl = await runSteamHelper(['steam-install', swordId, String(appId), branch, rack.defaultRoot ?? '/opt'], { log });
+
+    // 4) Rechte zurueck auf den Instanz-User (SteamCMD hat als steam-User geschrieben).
+    const own = await runHelper('chown-tree', [swordId, workingDir], { log });
+    if (!own.ok) {
+      log(`[steam] WARNUNG: Rechte auf ${workingDir} konnten nicht zurueckgesetzt werden: ${own.stderr || own.error}`);
+    }
+
+    // Erst NACH dem Rechte-Ruecksetz bewerten, ob der Steam-Lauf erfolgreich war.
+    if (!dl.ok) throw new UpdaterError(`SteamCMD-Lauf fehlgeschlagen: ${dl.stderr || dl.error}`);
+    for (const l of String(dl.stdout).split('\n').filter(Boolean).slice(-12)) log(`[steam] ${l}`);
+
+    // 5) Start + warten.
+    setState(swordId, { phase: 'starting', progress: 80, message: 'Server wird gestartet' });
+    const start = await serviceAction(service, 'start');
+    result.started = start.ok;
+    if (!start.ok) log(`[steam] Start-Warnung: ${start.error}`);
+
+    setState(swordId, { phase: 'waiting', progress: 90, message: 'Warte auf Serverstart' });
+    const done = await waitForDone(sword, { timeoutMs: 180_000, log });
+    result.doneSeen = done.ok;
+
+    // 6) Build-ID nachher lesen und Version fortschreiben.
+    result.buildAfter = await readBuild();
+    result.changed = Boolean(result.buildBefore && result.buildAfter && result.buildBefore !== result.buildAfter);
+    if (result.buildBefore && result.buildAfter && result.buildBefore === result.buildAfter) {
+      log(`[steam] Build unveraendert (${result.buildAfter}) - App war bereits aktuell.`);
+    } else if (result.buildAfter) {
+      log(`[steam] Build ${result.buildBefore ?? '?'} -> ${result.buildAfter}`);
+    }
+    if (result.buildAfter) {
+      try {
+        const swordPath = join(SWORDS_DIR, `${swordId}.sword.json`);
+        const current = JSON.parse(await readFile(swordPath, 'utf8'));
+        current.installedVersion = `steam build ${result.buildAfter}`;
+        current.installedVersionSource = 'steam-buildid';
+        current.installedVersionAt = Date.now();
+        await writeFile(swordPath, JSON.stringify(current, null, 2) + '\n');
+      } catch (err) {
+        log(`[steam] Warnung: Sword-Version nicht fortgeschrieben: ${err.message}`);
+      }
+    }
+
+    setState(swordId, {
+      phase: 'done', progress: 100, message: result.changed ? 'Steam-Update abgeschlossen' : 'Bereits aktuell (validate ohne Aenderung)',
+      finishedAt: Date.now(), error: null,
+      result: {
+        appId, branch,
+        backup: result.backup?.file ?? null,
+        backupIncluded: result.backup?.included ?? [],
+        // Bugfix 2026-10-31: Grund fuer ein gescheitertes Backup mitgeben -
+        // sonst raet das Panel ("keine der Pfade vorhanden") auch bei Rechtefehlern.
+        backupError: result.backupError ?? null,
+        buildBefore: result.buildBefore, buildAfter: result.buildAfter, changed: result.changed,
+        started: result.started, doneSeen: result.doneSeen,
+      },
+    });
+    return { ok: true, ...result };
+  } catch (err) {
+    if (stopped && !result.started) {
+      log('[steam] Fehler - Server wird wieder gestartet (Wiederherstellung).');
+      const rec = await serviceAction(service, 'start');
+      if (!rec.ok) log(`[steam] WARNUNG: Wiederstart fehlgeschlagen: ${rec.error}`);
+      else result.started = true;
+    }
+    setState(swordId, { phase: 'error', progress: 100, message: `Steam-Update fehlgeschlagen: ${err.message}`, finishedAt: Date.now(), error: err.message, result: {
+      appId, branch, backup: result.backup?.file ?? null, backupIncluded: result.backup?.included ?? [],
+      buildBefore: result.buildBefore, buildAfter: result.buildAfter, changed: result.changed,
+      started: result.started, doneSeen: result.doneSeen,
+    } });
+    throw err;
+  }
 }
 
 // --- Oeffentliche API --------------------------------------------------------

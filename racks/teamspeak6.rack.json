@@ -30,5 +30,8 @@
   "packMarkers": [
     "tsserver",
     "tsserver.yaml"
+  ],
+  "readyMarkers": [
+    "listening on"
   ]
 }

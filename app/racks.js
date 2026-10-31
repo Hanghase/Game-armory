@@ -202,7 +202,22 @@ function validateRack(rack, filename, warnings) {
   // Weiche Pruefung: unbekannte Felder sind ERLAUBT (Kundenracks duerfen eigene
   // Felder mitbringen), werden aber gemeldet. So faellt ein Rack nie stumm aus
   // dem Panel, und der Betreiber sieht trotzdem, wenn etwas ungewoehnlich ist.
-  const KNOWN = new Set([...REQUIRED_FIELDS, 'singleton', 'ports', 'eula', 'configFile', 'startScript', 'logFile', 'packMarkers', 'configTemplate']);
+  // 8d) readyMarkers: Log-Zeilen, an denen ein LAUFENDER Server spielbereit
+  //     ist (2026-10-31). Bewusst KEINE Namenspruefung wie bei packMarkers -
+  //     das sind freie Log-Texte ("StartGame done", "Done (", "listening on").
+  //     Nur die Form wird geprueft: nicht-leere Strings.
+  if (rack.readyMarkers !== undefined) {
+    if (!Array.isArray(rack.readyMarkers) || rack.readyMarkers.length === 0) {
+      fail(filename, 'readyMarkers muss eine nicht-leere Liste sein');
+    }
+    for (const m of rack.readyMarkers) {
+      if (typeof m !== 'string' || m.trim().length === 0) {
+        fail(filename, `readyMarkers enthaelt einen ungueltigen Eintrag: ${JSON.stringify(m)}`);
+      }
+    }
+  }
+
+  const KNOWN = new Set([...REQUIRED_FIELDS, 'singleton', 'ports', 'eula', 'configFile', 'startScript', 'logFile', 'packMarkers', 'readyMarkers', 'configTemplate']);
   const unknown = Object.keys(rack).filter((k) => !k.startsWith('$') && !KNOWN.has(k));
   if (unknown.length > 0) {
     warnings.push(`unbekannte Felder: ${unknown.join(', ')} (werden ignoriert)`);
@@ -294,6 +309,11 @@ export class RackError extends Error {
     super(message);
     this.name = 'RackError';
     this.status = status;
+    // Marker fuer den zentralen Error-Handler (M2, 2026-10-31): nur mit
+    // userMessage=true geht message nach aussen. Diese Klasse traegt eine fuer
+    // Menschen geschriebene Meldung, keine Bibliotheks-Interna.
+    // (Bewusst NICHT `expose`: das setzt body-parser selbst bei Parser-Fehlern.)
+    this.userMessage = true;
   }
 }
 

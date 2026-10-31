@@ -26,5 +26,8 @@
     "mods",
     "libraries",
     "startserver.sh"
+  ],
+  "readyMarkers": [
+    "Done ("
   ]
 }

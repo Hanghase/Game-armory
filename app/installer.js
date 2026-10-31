@@ -56,6 +56,11 @@ export class InstallerError extends Error {
     super(message);
     this.name = 'InstallerError';
     this.status = status;
+    // Marker fuer den zentralen Error-Handler (M2, 2026-10-31): nur mit
+    // userMessage=true geht message nach aussen. Diese Klasse traegt eine fuer
+    // Menschen geschriebene Meldung, keine Bibliotheks-Interna.
+    // (Bewusst NICHT `expose`: das setzt body-parser selbst bei Parser-Fehlern.)
+    this.userMessage = true;
   }
 }
 
@@ -853,6 +858,20 @@ export async function installFromZip({ id, name, port, zipPath, acceptEula = fal
 // Pfad, den der Install-Helfer fuer Tarballs akzeptiert). Die Aufloesung
 // "latest" ist wichtig: ein Kunde soll nie eine fest eingetragene Altversion
 // bekommen. Fehlt ein Asset mit dem Muster, bricht es mit klarer Meldung ab.
+// Audit-Fix 2026-10-31 (M7): Macht aus einem fremden Asset-Namen einen
+// harmlosen Dateinamen. Bewusst mit einer Erlaubnisliste fuer Zeichen statt
+// einer Verbotsliste - sonst vergisst man beim naechsten Mal ein Zeichen.
+// Beispiele:
+//   'pack.zip'                 -> 'pack.zip'
+//   'a/../../etc/cron.d/evil'  -> '.._.._etc_cron.d_evil'
+//   '/etc/passwd'              -> 'etc_passwd'
+function sanitizeAssetName(name) {
+  const base = String(name ?? '').split(/[\\/]/).pop() || 'asset';
+  const cleaned = base.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '_');
+  if (!cleaned || cleaned === '.' || cleaned === '..') return 'asset';
+  return cleaned.slice(0, 120);
+}
+
 export async function downloadGithubAsset({ repo, assetPattern, log = () => {} }) {
   if (!repo || !assetPattern) throw new InstallerError('repo und assetPattern erforderlich');
   const api = `https://api.github.com/repos/${repo}/releases/latest`;
@@ -876,9 +895,19 @@ export async function downloadGithubAsset({ repo, assetPattern, log = () => {} }
       + `Vorhanden: ${(rel.assets ?? []).map((a) => a.name).join(', ')}`,
     );
   }
-  const dest = join('/tmp', `armory-${Date.now()}-${asset.name}`);
+  // Audit-Fix 2026-10-31 (M7): asset.name kommt von der GitHub-API, also von
+  // aussen - und wurde ungefiltert in einen Pfad gesetzt. Belegt:
+  //   'a/../../etc/cron.d/evil'  ->  join('/tmp', 'armory-<ts>-' + name)
+  //                              ->  '/etc/cron.d/evil'
+  // Der Download laeuft als root; ein Release-Asset mit einem solchen Namen
+  // haette also ausserhalb von /tmp geschrieben. Erreichbar ist der Zweig nur
+  // ueber POST /api/installs mit sword.create (admin/superuser), und der Name
+  // kommt von GitHub - aber ein Name gehoert nie ungeprueft in einen Pfad.
+  // Deshalb: nur der reine Dateiname, Sonderzeichen ersetzt.
+  const safeName = sanitizeAssetName(asset.name);
+  const dest = join('/tmp', `armory-${Date.now()}-${safeName}`);
   const erwartet = Number.isInteger(asset.size) && asset.size > 0 ? asset.size : null;
-  log(`[url] Release ${rel.tag_name}: lade ${asset.name} (${Math.round((erwartet ?? 0) / 1024 / 1024)} MB)`);
+  log(`[url] Release ${rel.tag_name}: lade ${safeName} (${Math.round((erwartet ?? 0) / 1024 / 1024)} MB)`);
   const { createWriteStream } = await import('node:fs');
   const { pipeline } = await import('node:stream/promises');
   const { Readable } = await import('node:stream');
@@ -1398,7 +1427,10 @@ export async function installFromSteam(
     const { readSteamBuildId } = await import('./versionCheck.js');
     const manifest = join(workDir, 'steamapps', `appmanifest_${Number(appId)}.acf`);
     const build = await readSteamBuildId(manifest);
-    if (build) steamVersion = `steam ${build}`;
+    // Schreibweise wie versionCheck.js:114 ("steam build <id>"). Vorher stand
+    // hier `steam ${build}` - compareVersions verglich das gegen
+    // "steam build <id>" und meldete immer 'differ' ("veraltet").
+    if (build) steamVersion = `steam build ${build}`;
   } catch (err) {
     log(`[install] Steam-Build-ID nicht lesbar (${err.message}) - Version bleibt offen.`);
   }

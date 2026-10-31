@@ -144,6 +144,16 @@
     .dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); }
     .dot.stopped { background: var(--red); }
     .dot.unknown { background: var(--yellow); }
+    /* Bugfix 2026-10-31: eigene Zustaende fuer "startet" und "wird gestoppt".
+       Vorher gab es nur running/stopped/unknown, deshalb sah ein Server, der
+       gerade hochfaehrt (~60 s bei 7d2d), genauso aus wie einer, der steht. */
+    .dot.starting { background: var(--yellow); animation: dotpulse 1.2s ease-in-out infinite; }
+    .dot.stopping { background: var(--yellow); animation: dotpulse 0.9s ease-in-out infinite; }
+    .dot.failed   { background: var(--red); box-shadow: 0 0 8px var(--red); }
+    @keyframes dotpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+    @media (prefers-reduced-motion: reduce) {
+      .dot.starting, .dot.stopping { animation: none; }
+    }
     .state .meta { color: var(--muted); font-size: 12px; margin-left: auto; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     /* Dropdown fuer sekundaere Aktionen in der Sword-Karte */
@@ -195,6 +205,13 @@
     pre#console { background: var(--sunken); border: 1px solid var(--border); border-radius: 10px;
       padding: 14px; height: 340px; overflow: auto; font-size: 12.5px; line-height: 1.5;
       white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; }
+    /* Log und Fehlerstapel im Modal (2026-10-31). Dieselbe Optik wie die
+       Live-Konsole, aber etwas niedriger, damit Kopf, Reiter und Fuss im
+       Fenster bleiben und nur dieser Block scrollt. */
+    pre.logbox { background: var(--sunken); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px; margin: 8px 0 0; height: 300px; max-height: 46vh; overflow: auto;
+      font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+      font-family: ui-monospace, monospace; color: var(--text); }
     select { background: var(--ctl); color: var(--text); border: 1px solid var(--border);
       padding: 8px; border-radius: 8px; }
     label.chk { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
@@ -344,6 +361,10 @@
       <div class="menu-list" role="menu">
         <button type="button" id="menuAccount" role="menuitem">Konto &amp; Verwaltung</button>
         <button type="button" id="reloadSwordsBtn" role="menuitem" style="display:none;">↻ Swords neu laden</button>
+        <!-- Fehlerprotokoll (2026-10-31): zeigt die Fehlertabelle. Nur mit
+             system.diagnostics sichtbar - die Eintraege koennen Pfade und
+             Interna enthalten. -->
+        <button type="button" id="menuErrors" role="menuitem" style="display:none;">📜 Logs</button>
         <div class="menu-sep"></div>
         <button type="button" class="danger" id="logoutBtn" role="menuitem">Logout</button>
       </div>
@@ -881,6 +902,67 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
 
       <div class="modal-foot">
         <button class="ghost" id="profileClose">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log & Fehler (2026-10-31): ein Fenster, zwei Reiter.
+       Reiter 1 "Fehler": Fehlertabelle, Zeile anklickbar -> Detail mit Stapel.
+       Reiter 2 "Log": die letzten Zeilen aus dem Panel-Log (armory.log/err).
+       Beides zusammen, weil man bei der Fehlersuche fast immer beides braucht:
+       hier der Eintrag, dort was unmittelbar davor passiert ist. -->
+  <div class="modal" id="errorsModal">
+    <div class="box wide tabbed">
+      <h3>Log &amp; Fehler</h3>
+
+      <div class="tabs" id="logTabs">
+        <button class="ghost active" data-ltab="errors">Fehler</button>
+        <button class="ghost" data-ltab="log">Log</button>
+      </div>
+
+      <div class="tabbody">
+
+        <!-- Reiter: Fehlertabelle -->
+        <div class="tabpane active" id="lTabErrors">
+          <p class="hint">Die letzten Fehler des Panels. Jeder Eintrag hat eine
+            <b>Kennung</b> — steht sie in einer Meldung, findest du hier den
+            vollständigen Text und den Stapel.</p>
+
+          <div class="modal-foot">
+            <button class="primary" id="errorsReload">Neu laden</button>
+            <span class="meta" id="errorsCount"></span>
+          </div>
+
+          <div id="errorsList" class="list">Wird geladen…</div>
+
+          <div id="errorsDetail" style="display:none;">
+            <h4>Eintrag</h4>
+            <pre id="errorsDetailBody" class="logbox"></pre>
+            <div class="modal-foot">
+              <button class="ghost" id="errorsBack">Zurück zur Liste</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reiter: Panel-Log -->
+        <div class="tabpane" id="lTabLog">
+          <p class="hint">Die letzten Zeilen des Panels. <b>aus</b> = armory.log
+            (normaler Ablauf), <b>err</b> = armory.err (Fehler und Warnungen).</p>
+
+          <div class="modal-foot">
+            <button class="ghost" id="logFileOut">aus</button>
+            <button class="ghost" id="logFileErr">err</button>
+            <button class="ghost" id="logReload">Neu laden</button>
+            <span class="meta" id="logInfo"></span>
+          </div>
+
+          <pre id="logBody" class="logbox">Wird geladen…</pre>
+        </div>
+
+      </div><!-- /.tabbody -->
+
+      <div class="modal-foot">
+        <button class="ghost" id="errorsClose">Schließen</button>
       </div>
     </div>
   </div>

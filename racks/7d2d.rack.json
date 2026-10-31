@@ -32,5 +32,9 @@
     "7DaysToDieServer.x86_64",
     "serverconfig.xml",
     "Mods"
+  ],
+  "readyMarkers": [
+    "StartGame done",
+    "Done ("
   ]
 }

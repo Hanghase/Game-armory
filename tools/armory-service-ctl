@@ -6,7 +6,7 @@
 # Kein Shell-Durchreichen, keine freien Argumente.
 set -euo pipefail
 
-ALLOWED_ACTIONS="start stop restart is-active logs"
+ALLOWED_ACTIONS="start stop restart is-active state logs"
 SWORDS_DIR="/opt/game-armory/swords"
 
 action="${1:-}"
@@ -28,7 +28,21 @@ if ! grep -lq "\"service\"[[:space:]]*:[[:space:]]*\"$service\"" "$SWORDS_DIR"/*
   echo "Service nicht als Sword registriert: $service" >&2; exit 3
 fi
 
-# 4) Logs: fest definierte, unschaedliche Argumente (kein Durchreichen von aussen)
+# 4a) Zustand als KEY=VALUE (Bugfix 2026-10-31):
+# serviceStatus() in app/control.js fragt seit dem Umbau auf activeState/
+# subState/changedAt die Aktion "state" ab. Fehlte hier in ALLOWED_ACTIONS,
+# verweigerte der Helfer ("Unerlaubte Aktion: state"), serviceStatus fing den
+# Fehler still ab und meldete JEDEN Server als inactive/running=false - das
+# Panel zeigte alle Server als "Gestoppt", obwohl sie liefen.
+# Ausgabe bewusst als KEY=VALUE statt "systemctl status"-Text: die Anzeige
+# haengt dann nicht an der systemd-Formatierung.
+# --timestamp=unix liefert "@1793454969" (siehe Parser in control.js).
+if [[ "$action" == "state" ]]; then
+  exec /usr/bin/systemctl show "$service" \
+    --property=ActiveState,SubState,StateChangeTimestamp --timestamp=unix
+fi
+
+# 4b) Logs: fest definierte, unschaedliche Argumente (kein Durchreichen von aussen)
 if [[ "$action" == "logs" ]]; then
   exec /usr/bin/journalctl -u "$service" -n 100 --no-pager -o cat
 fi

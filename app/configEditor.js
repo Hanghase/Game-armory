@@ -62,6 +62,11 @@ export class ConfigEditorError extends Error {
     super(message);
     this.name = 'ConfigEditorError';
     this.status = status;
+    // Marker fuer den zentralen Error-Handler (M2, 2026-10-31): nur mit
+    // userMessage=true geht message nach aussen. Diese Klasse traegt eine fuer
+    // Menschen geschriebene Meldung, keine Bibliotheks-Interna.
+    // (Bewusst NICHT `expose`: das setzt body-parser selbst bei Parser-Fehlern.)
+    this.userMessage = true;
   }
 }
 

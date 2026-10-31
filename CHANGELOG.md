@@ -3,6 +3,47 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.0] - 2026-10-31
+
+### Neu
+
+- **Log und Fehler in einem Fenster.** Im Konto-Menue findest du unter
+  **Logs** jetzt beides zusammen: links die Fehlerliste mit Kennung und Stapel,
+  rechts der Panel-Log (`armory.log` bzw. `armory.err`). Bei der Fehlersuche
+  braucht man meist beides - hier den Eintrag, dort was unmittelbar davor
+  passiert ist. Zeile anklicken zeigt den vollstaendigen Text samt Stapel.
+  Sichtbar **nur fuer Superadmins**; die Routen pruefen das zusaetzlich auf dem
+  Server, nicht nur in der Oberflaeche. In der Rechte-Tabelle steht dafuer das
+  neue Recht `system.logs`.
+- **Fehlermeldungen tragen eine Kennung.** Schlaegt im Panel etwas fehl, steht
+  in der Meldung eine kurze Kennung (z. B. `k9dc99gj`). Mit ihr findest du den
+  Eintrag unter **Logs** wieder - mit Stapel und Zeitpunkt.
+
+### Behoben
+
+- **Steam-Update erkannte einen laufenden Server als Fehlschlag.** Der neue
+  7d2d-Build (26237934) schreibt `Done (` nicht mehr ins Server-Log; das Panel
+  wartete darauf und meldete nach drei Minuten einen Fehlschlag, obwohl der
+  Server lief (StartGame done, EOS registered, GameServer.LogOn successful).
+  Es werden jetzt mehrere Marker akzeptiert, `StartGame done` zuerst.
+- **Steam-Update laesst sich nach einem Abbruch wieder aufnehmen.** Bricht der
+  Download ab (live: 39,36 %), wurde die halbe Datei verworfen und von vorn
+  begonnen. Jetzt wird der Teilstand erkannt und fortgesetzt.
+- **Symlink-Schutz im Installationshelfer.** `write-config` folgte einem
+  vorbereiteten Symlink und schrieb ausserhalb des Zielverzeichnisses.
+- **Login: Bremse gegen Durchprobieren.** Fehlversuche werden je Absender
+  gezaehlt und gedrosselt; die Passwortpruefung blockiert den Prozess nicht
+  mehr (247 ms gemessen).
+- **Login verraet nicht mehr, ob es ein Konto gibt.** Unbekannte Namen werden
+  mit derselben Rechenzeit behandelt wie bekannte.
+- **Uploads: Dateinamen werden gesaeubert.** Vorher konnte ein Name wie
+  `a/../../etc/cron.d/evil` aus dem Temp-Ordner ausbrechen.
+- **ZIP-Pfad auf den Upload-Ordner begrenzt.** Vorher liess sich mit dem Recht
+  `sword.update` jede beliebige Datei als ZIP oeffnen.
+- **Kaputte Anfragen brechen das Panel nicht mehr ab.** Grosse Anfragen werden
+  abgewiesen (512 KB), Fehler bekommen eine Kennung statt eines leeren
+  Fensters.
+
 ## [1.1.94] - 2026-10-31
 
 Drei Befunde aus dem ersten echten Update-Durchlauf nach 1.1.93 (atm11,

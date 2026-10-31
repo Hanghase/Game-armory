@@ -14,8 +14,8 @@ import { loadSwords, getSwords, getSword, setVersionCheck } from './swords.js';
 import { checkSwordVersion } from './versionCheck.js';
 import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
-import { loadRacks } from './racks.js';
-import { serviceAction, serviceStatus, streamLogs } from './control.js';
+import { loadRacks, getRack } from './racks.js';
+import { serviceAction, serviceStatus, streamLogs, withReadiness } from './control.js';
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
 import { getSessionUser, requireAuth, cleanupExpiredSessions,  cleanupLoginAttempts,
@@ -26,6 +26,7 @@ import { detectRights } from './systemRights.js';
 import { runSelfUpdateCheck, selfUpdateCheckMinutes } from './selfUpdateCheck.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { recordError } from './errorLog.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -71,7 +72,17 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false, // Video/Canvas im Panel braucht das nicht
 }));
 
-app.use(express.json());
+// Audit-Fix 2026-10-31 (N5): Limit bewusst setzen statt auf den
+// body-parser-Standard (100kb) zu vertrauen. Gemessen:
+//   typischer Config-Speichervorgang    147 Bytes
+//   30 Felder x 4000 Zeichen (Extrem)  118 KB
+// Der Standard reicht also meist, liegt aber im Extremfall knapp darunter -
+// eine gekappte Anfrage waere ein 413 mitten im Speichern, ohne dass jemand
+// versteht warum. 512kb deckt jeden realistischen Config-Body ab und ist weit
+// unter allem, was als Speicher-Druck schadet.
+// parameterLimit: max. Anzahl Felder pro Body - schuetzt vor Bodies mit
+// zehntausenden winzigen Eintraegen (jedes Feld kostet Parse-Zeit).
+app.use(express.json({ limit: '512kb', parameterLimit: 2000 }));
 app.use(cookieParser());
 
 // --- Auth ----------------------------------------------------------------
@@ -103,7 +114,14 @@ app.get('/api/swords/:id/status', requireAuth, async (req, res) => {
   const service = sword.control?.service;
   if (!service) return res.status(400).json({ error: 'Kein Service im Sword definiert' });
 
-  const status = await serviceStatus(service);
+  // Spielbereitschaft: systemd sagt "laeuft", sobald der Prozess da ist -
+  // spielbar ist ein 7d2d aber erst ~60 s spaeter. withReadiness verfeinert
+  // das zu "starting", solange kein Marker aus rack.readyMarkers im Log steht
+  // (Zeitfenster READY_FALLBACK_MS, danach Rueckfall auf "running").
+  // Marker fehlt im Rack -> unveraendert durchreichen.
+  const rack = getRack(sword.rack);
+  const baseStatus = await serviceStatus(service);
+  const status = await withReadiness(sword, baseStatus, rack?.readyMarkers ?? []);
 
   // Merker "Neustart ausstehend": Wenn der Server gestoppt ist, ist der
   // ausstehende Neustart erledigt/gegenstandslos (der naechste Start nimmt die
@@ -241,6 +259,114 @@ app.use(express.static(join(__dirname, '..', 'public'), {
       }
     },
 }));
+
+// --- Zentrale Fehlerbehandlung (M2, Audit 2026-10-22) ----------------------
+// Warum das noetig ist, mit einem Beleg von heute (2026-10-31): serviceStatus
+// fragte die Helfer-Aktion "state" ab, die es nicht gab. Der Fehler landete in
+// einem lokalen catch und wurde zu "inactive/running=false" - das Panel zeigte
+// alle Server als gestoppt, obwohl sie liefen. Niemand hat es gesehen, weil es
+// keinen Ort gab, an dem ein Fehler sichtbar wird.
+//
+// Diese vier Stuecke sind die letzte Instanz im Middleware-Stapel. Reihenfolge
+// ist wichtig: Express erkennt einen Error-Handler NUR an der Signatur
+// (err, req, res, next) mit VIER Parametern. Ein Handler mit drei Parametern
+// gilt als normale Middleware und wird nie aufgerufen.
+//
+// 1) API-404: ein unbekannter /api/-Pfad liefert JSON, nicht die HTML-App.
+//    Ohne das faellt eine vertippte Route in den static-Handler und liefert
+//    die index.html mit Status 200 - ein Client wartet dann auf JSON, das nie
+//    kommt, statt einen klaren 404 zu bekommen.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Unbekannter API-Pfad' });
+});
+
+// 2) Fehler aus async-Routen. Express 5 faengt abgelehnte Promises selbst und
+//    ruft diesen Handler; in Express 4 waere es ein unbehandelter Reject.
+//    Beide Faelle landen hier.
+//    Nach aussen NIE err.message zeigen (kann Pfade, SQL oder Interna
+//    enthalten). Volle Information ins Log.
+app.use((err, req, res, next) => {
+  // Bereits gesendete Antwort: Express verlangt, dass man dann an next()
+  // uebergibt, sonst bleiben Sockets haengen.
+  if (res.headersSent) return next(err);
+
+  const id = Math.random().toString(36).slice(2, 10);
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 600
+    ? err.status
+    : 500;
+
+  // Persistieren (Fehlertabelle, M2). recordError gibt IMMER eine Kennung
+  // zurueck - auch wenn das Speichern selbst scheitert (dann landet der
+  // Speicherfehler auf stderr und der Client bekommt trotzdem seine Kennung,
+  // statt einen zweiten Fehler zu sehen).
+  const persistedId = recordError(err, req, { status, id });
+  console.error(`[armory] Fehler ${persistedId}: ${req.method} ${req.originalUrl} -> ${status}: ${err.message}`);
+  if (status >= 500 && err.stack) console.error(err.stack);
+
+  // Nur Meldungen, die unser eigener Code bewusst gesetzt hat, gehen nach
+  // aussen.
+  //
+  // Hier stand zuerst `err.expose === true` - das war FALSCH und im Test
+  // aufgefallen (2026-10-31): body-parser setzt `expose: true` selbst, weil
+  // Express die Meldung im Standard-Handler genau deshalb durchreicht. Bei
+  // kaputtem JSON kam deshalb
+  //   "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+  // beim Client an - Parser-Interna statt einer lesbaren Meldung.
+  // `expose` bedeutet in Fremdbibliotheken "darf nach HTTP-Spec gezeigt
+  // werden", nicht "ist ein Satz fuer Menschen". Beides ist nicht dasselbe.
+  //
+  // Deshalb ein EIGENER Marker `userMessage`, ausschliesslich von unseren
+  // Fehlerklassen gesetzt (ConfigEditorError, CurseForgeError, InstallerError,
+  // PackError, RackError, SelfUpdateError).
+  const exposed = err.userMessage === true && typeof err.message === 'string' && err.message;
+  const message = exposed
+    ? err.message
+    : (status < 500
+        ? 'Die Anfrage konnte nicht verarbeitet werden.'
+        : `Interner Fehler (Kennung ${id})`);
+
+  res.status(status).json({ error: message, id: persistedId });
+});
+
+// --- Prozess-Schutz (PRE-RELEASE-AUDIT 2026-10-31) --------------------------
+// Letzte Absicherung, NICHT die eigentliche Loesung. Die eigentliche Loesung
+// ist wrapRouter() in app/routeWrap.js - damit kommt jeder Fehler im
+// Error-Handler an und der Client bekommt seine Kennung.
+//
+// Diese beiden Handler decken nur ab, was durch die Maschen faellt:
+//   - ein Reject ausserhalb von Routen (Timer, Streams, Hintergrund-Jobs)
+//   - ein synchroner Wurf in einem Callback, der nicht in einem try steht
+// Belegt ist: express 4.22.3 faengt abgelehnte Promises nicht ab; ohne diese
+// Handler beendet der erste solche Fall den ganzen Prozess.
+//
+// Bewusst KEIN Beenden: ein Panel, das eine kaputte Anfrage ueberlebt und
+// weiterlaeuft, ist besser als eines, das fuer alle Nutzer verschwindet.
+// Dauerhaft kaputte Zustaende (z.B. voller Speicher) beenden sich ohnehin
+// selbst - dann greift systemd mit Restart.
+process.on('unhandledRejection', (reason, promise) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : '';
+  console.error(`[armory] UNBEHANDELTE ABLEHNUNG (Prozess laeuft weiter): ${msg}`);
+  if (stack) console.error(stack);
+  // In die Fehlertabelle, damit es nach dem Neustart nicht verschwunden ist.
+  try {
+    recordError(reason instanceof Error ? reason : new Error(msg), null, {
+      status: 500,
+      id: null,
+    });
+  } catch { /* Fehlertabelle darf hier nicht selbst zum Problem werden */ }
+});
+
+process.on('uncaughtException', (err) => {
+  // Ein synchroner Wurf ohne catch: schwerwiegender, aber ein Panel, das
+  // deswegen alle Nutzer aussperrt, hilft niemandem. Protokollieren und
+  // weiterlaufen; der betroffene Request ist ohnehin verloren.
+  console.error(`[armory] UNBEHANDELTE AUSNAHME (Prozess laeuft weiter): ${err?.message ?? err}`);
+  if (err?.stack) console.error(err.stack);
+  try {
+    recordError(err instanceof Error ? err : new Error(String(err)), null, { status: 500, id: null });
+  } catch { /* s.o. */ }
+});
 
 // --- Start -----------------------------------------------------------------
 

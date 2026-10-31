@@ -44,6 +44,30 @@ valid_pack_name() {
 step="${1:-}"
 shift || true
 
+# --- N7 (Audit 2026-10-22) ------------------------------------------------
+# write-file/write-config schrieben mit `printf > "$path"`. Damit folgte der
+# ROOT-Helfer einem Symlink: zeigt <instanz>/config.conf auf /etc/passwd oder
+# /opt/game-armory/app/auth.js, landet der Inhalt dort.
+# Kette: boswilliges Modpack legt den Link an (extract-pack nutzt unzip, das
+# Links anlegt; assertSafeZip prueft nur Namen, nicht Typen) -> Config-Save
+# ueber das Panel -> root schreibt an beliebige Stelle.
+# LIVE BELEGT am 2026-10-31: Symlink -> /tmp/n7-victim.txt, write-config
+# ueberschrieb die Zieldatei ("BEWEIS-N7-UEBERSCHRIEBEN").
+# Fix: JEDES Element des Pfads auf Symlink pruefen, nicht nur die Datei -
+# ein Symlink im ELTERNVERZEICHNIS leitet genauso um.
+reject_symlink_path() {
+  local p="$1" cur=""
+  local part
+  for part in $(printf '%s' "$p" | tr '/' '\n'); do
+    [[ -z "$part" ]] && continue
+    cur="$cur/$part"
+    if [[ -L "$cur" ]]; then
+      echo "Pfad enthaelt einen Symlink: $cur" >&2
+      exit 5
+    fi
+  done
+}
+
 case "$step" in
   # NEU: Verzeichnisbaum unter /opt/minecraft anlegen und dem Service-User geben.
   # Der unprivilegierte armory-Prozess darf dort nicht mkdir (Owner ist der Service-User).
@@ -67,9 +91,18 @@ case "$step" in
       /opt/game-armory/*|/var/log/*|/opt/minecraft/*|/opt/7d2d/*|/opt/teamspeak6/*) ;;
       *) echo "Pfad nicht erlaubt: $path" >&2; exit 3 ;;
     esac
+    reject_symlink_path "$path"
     content="$(cat)"
     umask 077
-    printf '%s' "$content" > "$path"
+    # noclobber als zweite Sicherung: falls doch ein Link durchkommt,
+    # ueberschreibt die Shell die Zieldatei nicht, sondern bricht ab.
+    set -o noclobber
+    printf '%s' "$content" > "$path" 2>/dev/null || {
+      set +o noclobber
+      echo "Schreiben abgebrochen (Symlink/Zieldatei geschuetzt): $path" >&2
+      exit 5
+    }
+    set +o noclobber
     chmod 600 "$path"
     chown "$id:$id" "$path"
     echo "write-file ok $path -> $id"
@@ -99,6 +132,8 @@ case "$step" in
       /opt/game-armory/*|/var/log/*|/opt/minecraft/*|/opt/7d2d/*|/opt/teamspeak6/*) ;;
       *) echo "Pfad nicht erlaubt: $path" >&2; exit 3 ;;
     esac
+    reject_symlink_path "$path"
+    # -f folgt Symlinks, deshalb ist -L oben schon ausschlaggebend.
     [[ -f "$path" ]] || { echo "Keine regulaere Datei: $path" >&2; exit 4; }
     content="$(cat)"
     printf '%s' "$content" > "$path"
