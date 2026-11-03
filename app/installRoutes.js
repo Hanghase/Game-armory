@@ -451,6 +451,155 @@ installRouter.get('/system/panellog', requireRole('superuser'), async (req, res)
   }
 });
 
+// Legt eine .sav in den Savegame-Ordner der Instanz (2026-11-02).
+//
+// Warum ueber den Helfer und nicht direkt: der Ordner liegt im HOME des
+// Service-Users, die Armory laeuft als anderer User. Der Helfer macht es als
+// der richtige Eigentuemer - sonst gehoert die Welt am Ende 'armory', und der
+// Server kann sie zwar lesen, aber nicht mehr ueberschreiben.
+//
+// Warum saveDir relativ zum HOME: live belegt bei Satisfactory, dass der Server
+// nach ~/.config/Epic/FactoryGame/Saved/SaveGames schreibt - NICHT in den
+// Game-Root. Ein saveDir relativ zum Game-Root haette die Welt dorthin gelegt,
+// wo der Server nie nachschaut.
+async function installWorldFile({ swordId, saveDir, savPath, stageDir }) {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { join, dirname } = await import('node:path');
+  const run = promisify(execFile);
+
+  const sword = getSwords().find((sw) => sw.id === swordId);
+  const home = sword?.rootDir ?? sword?.control?.workingDir;
+  if (!home) throw Object.assign(new Error(`Arbeitsverzeichnis fuer ${swordId} unbekannt`), { status: 400 });
+
+  const dir = join(home, saveDir);
+  const file = String(savPath).split('/').pop();
+
+  // tmpRoot selbst ist die Quelle: extract-pack legt die Datei dort ab und
+  // gibt den Ordner dem Instanz-User. Ein eigener Staging-Unterordner waere
+  // ein Schreibzugriff der Armory in ein fremdes Verzeichnis - genau das
+  // verweigert der Helfer (o+x ist Durchqueren, nicht Schreiben).
+  const stage = stageDir ?? dirname(savPath);
+
+  // Ordner anlegen (rekursiv, unter erlaubtem Root) - der Helfer setzt Rechte.
+  await run('sudo', ['-n', '/usr/local/bin/armory-install-helper', 'mkdir-tree', swordId, dir]);
+
+  // Kopieren als Instanz-User: Datei gehoert danach dem Server, nicht der Armory.
+  const cp = await run('sudo', ['-n', '/usr/local/bin/armory-install-helper', 'replace-tree', swordId, dir, stage]);
+  if (cp.stderr && /fehlgeschlagen|ausserhalb|nicht gefunden/i.test(String(cp.stderr))) {
+    throw Object.assign(new Error(`Welt konnte nicht abgelegt werden: ${cp.stderr}`), { status: 500 });
+  }
+
+  // KEIN Aufraeumen hier: 'stage' liegt im Entpack-Temp des Instanz-Users.
+  // Die Armory darf dort nicht loeschen (EACCES) - und genau dieser Fehler
+  // hat eine fertige Installation als HTTP 400 gemeldet (2026-11-02).
+  return { dir, file };
+}
+
+// --- Welt-Upload (2026-11-02) -----------------------------------------------
+// Laedt eine bestehende Spielwelt hoch: ZIP mit genau einer .sav darin.
+// Warum ZIP und nicht die .sav direkt: eine Welt kann Begleitdateien haben,
+// und ein ZIP ist das, was Nutzer ohnehin verschicken.
+//
+// Regeln (bewusst streng):
+//   - nur EINE .sav je ZIP. Bei mehreren waere unklar, welche Welt der Server
+//     laden soll - ein Rateversuch waere schlimmer als eine Fehlermeldung.
+//   - nur bei GESTOPPTEM Server. Ein laufender Server schreibt beim Autosave
+//     darueber, und niemand wuerde verstehen, warum die Welt "weg" ist.
+//   - Zielordner kommt aus dem Rack (saveDir), relativ zum HOME des
+//     Service-Users. Bei Satisfactory liegt die Welt NICHT im Game-Root -
+//     live belegt: ~/.config/Epic/FactoryGame/Saved/SaveGames.
+installRouter.post('/swords/:id/world', requirePerm('sword.config.write'), (req, res) => {
+  uploadMiddleware(req, res, async (err) => {
+    if (err) {
+      const status = err instanceof UploadError ? err.status : (err.code === 'LIMIT_FILE_SIZE' ? 413 : 400);
+      return res.status(status).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Datei zu gross' : err.message });
+    }
+    let uploadId = null;
+    try {
+      const swordId = String(req.params.id ?? '');
+      if (!/^[a-z0-9][a-z0-9_-]{1,31}$/.test(swordId)) {
+        return res.status(400).json({ error: 'Ungueltige Sword-ID' });
+      }
+      const swords = getSwords();
+      const sword = swords.find((sw) => sw.id === swordId);
+      if (!sword) return res.status(404).json({ error: `Unbekannte Instanz: ${swordId}` });
+
+      // Laufender Server: ablehnen, nicht "probieren".
+      // Gleicher Weg wie control.js: armory-service-ctl state <service>.
+      // Bei unklarem Zustand NICHT abbrechen - sonst blockiert ein
+      // Helfer-Aussetzer den Upload ohne echten Grund.
+      try {
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const run = promisify(execFile);
+        const { stdout } = await run('sudo', ['-n', '/usr/local/bin/armory-service-ctl', 'state', `${swordId}.service`]);
+        const active = /^ActiveState=(\S+)$/m.exec(String(stdout))?.[1] ?? null;
+        if (active === 'active' || active === 'activating' || active === 'reloading') {
+          return res.status(409).json({
+            error: `Instanz ${swordId} laeuft (${active}). Welt-Upload nur bei gestopptem Server - `
+              + 'sonst ueberschreibt der Autosave die Datei.',
+          });
+        }
+      } catch (e) {
+        console.warn(`[world] Dienststatus ${swordId} nicht lesbar: ${e.message}`);
+      }
+
+      const rackId = String(req.body?.rackId ?? sword.rack ?? '').trim();
+      const rack = rackId ? getRack(rackId) : null;
+      const saveDir = rack?.saveDir ?? null;
+      if (!saveDir) {
+        return res.status(400).json({
+          error: `Rack "${rackId}" hat kein saveDir - Welt-Upload wird dafuer nicht unterstuetzt.`,
+        });
+      }
+
+      if (!req.file) return res.status(400).json({ error: 'Keine Datei empfangen (Formularfeld "file")' });
+
+      // 1) ZIP sicher pruefen und nach /tmp entpacken (ZIP-Slip-Schutz aus pack.js).
+      const { extractToTemp } = await import('./pack.js');
+      const { tmpRoot } = await extractToTemp(req.file.path, { id: swordId });
+
+      // 2) Genau eine .sav suchen.
+      const { readdir } = await import('node:fs/promises');
+      const found = [];
+      const walk = async (dir, depth = 0) => {
+        if (depth > 4) return;
+        for (const e of await readdir(dir, { withFileTypes: true })) {
+          const full = `${dir}/${e.name}`;
+          if (e.isDirectory()) await walk(full, depth + 1);
+          else if (/\.sav$/i.test(e.name)) found.push(full);
+        }
+      };
+      await walk(tmpRoot);
+      if (found.length === 0) {
+        return res.status(400).json({ error: 'Keine .sav-Datei im ZIP gefunden.' });
+      }
+      if (found.length > 1) {
+        return res.status(400).json({
+          error: `Das ZIP enthaelt ${found.length} .sav-Dateien (${found.map((f) => f.split('/').pop()).join(', ')}). `
+            + 'Bitte genau eine Welt je Upload.',
+        });
+      }
+
+      // 3) Zielordner anlegen und Welt hineinkopieren.
+      const target = await installWorldFile({ swordId, saveDir, savPath: found[0] });
+      res.status(201).json({ ok: true, sword: swordId, savedDir: target.dir, file: target.file });
+    } catch (e) {
+      const status = e?.status ?? 400;
+      res.status(status).json({ error: e.message });
+    } finally {
+      // Nur das eigene Upload-Temp loeschen: das liegt in data/uploads und
+      // gehoert der Armory. Das ENTPACK-Temp (/tmp/armory-pack-*) gehoert dem
+      // Instanz-User - dort ein unlink zu versuchen liefert EACCES und hat
+      // am 2026-11-02 eine fertige Installation als HTTP 400 gemeldet.
+      if (req.file?.path) {
+        try { await (await import('node:fs/promises')).unlink(req.file.path); } catch { /* egal */ }
+      }
+    }
+  });
+});
+
 // --- Racks (Schablonen) -----------------------------------------------------
 // Liste aller Rack-Schablonen fuer die Rack-Auswahl im Setup.
 installRouter.get('/racks', requirePerm('rack.read'), async (req, res) => {

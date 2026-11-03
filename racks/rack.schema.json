@@ -103,6 +103,23 @@
       ],
       "description": "Relativer Pfad zum Startskript in der Instanz."
     },
+    "startArgs": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "description": "Startargumente als Liste. Platzhalter {ports.<name>} werden beim Start durch den Wert aus ports ersetzt. Ein unbekannter Platzhalter fuehrt zum Abbruch, damit kein woertliches '{ports.x}' an den Server geht.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "saveDir": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Relativer Pfad unterhalb defaultRoot, in den ein hochgeladenes Welt-Archiv entpackt wird (z.B. FactoryGame/Saved/SaveGames/server)."
+    },
     "logFile": {
       "type": [
         "string",

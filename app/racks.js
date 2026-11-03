@@ -36,7 +36,7 @@ const REQUIRED_FIELDS = [
 ];
 // Erlaubte Spielwerte. teamspeak3 und teamspeak6 getrennt, weil es zwei
 // eigenstaendige Produkte sind (eigene Racks, eigene Releases).
-const GAMES = ['minecraft', '7d2d', 'teamspeak3', 'teamspeak6'];
+const GAMES = ['minecraft', '7d2d', 'teamspeak3', 'teamspeak6', 'satisfactory'];
 const LOADERS = ['vanilla', 'neoforge', 'forge', 'fabric', 'quilt', 'paper', 'spigot', 'purpur', 'native'];
 const TIERS = ['free', 'premium'];
 const INSTALL_METHODS = ['curseforge', 'steamcmd', 'zip', 'upload', 'github'];
@@ -217,7 +217,7 @@ function validateRack(rack, filename, warnings) {
     }
   }
 
-  const KNOWN = new Set([...REQUIRED_FIELDS, 'singleton', 'ports', 'eula', 'configFile', 'startScript', 'logFile', 'packMarkers', 'readyMarkers', 'configTemplate']);
+  const KNOWN = new Set([...REQUIRED_FIELDS, 'singleton', 'ports', 'eula', 'configFile', 'startScript', 'startArgs', 'saveDir', 'logFile', 'packMarkers', 'readyMarkers', 'configTemplate']);
   const unknown = Object.keys(rack).filter((k) => !k.startsWith('$') && !KNOWN.has(k));
   if (unknown.length > 0) {
     warnings.push(`unbekannte Felder: ${unknown.join(', ')} (werden ignoriert)`);

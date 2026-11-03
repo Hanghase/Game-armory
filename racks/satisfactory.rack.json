@@ -1,0 +1,43 @@
+{
+  "$schema": "./rack.schema.json",
+  "id": "satisfactory",
+  "name": "Satisfactory",
+  "description": "Satisfactory Dedicated Server (native, ohne Modloader). Installiert 'Satisfactory Dedicated Server' (App-ID 1690800) ueber steamcmd. Die Serververwaltung laeuft im Spiel bzw. ueber die HTTPS-API auf Port 7777 - es gibt keine klassische Config-Datei zum Bearbeiten.",
+  "icon": "satisfactory",
+  "game": "satisfactory",
+  "loader": "native",
+  "tier": "free",
+  "licenseRequired": false,
+  "installMethod": "steamcmd",
+  "defaultRoot": "/opt/satisfactory",
+  "configFile": null,
+  "startScript": "FactoryServer.sh",
+  "startArgs": [
+    "-log",
+    "-unattended",
+    "-Port={ports.game}",
+    "-ReliablePort={ports.reliable}"
+  ],
+  "saveDir": ".config/Epic/FactoryGame/Saved/SaveGames",
+  "logFile": "/var/log/{id}/{id}.log",
+  "ports": {
+    "game": 7777,
+    "reliable": 8888
+  },
+  "source": {
+    "type": "steam",
+    "projectId": null,
+    "appId": 1690800,
+    "branch": "public"
+  },
+  "javaRequired": null,
+  "eula": "none",
+  "packMarkers": [
+    "FactoryServer.sh",
+    "FactoryGame"
+  ],
+  "readyMarkers": [
+    "LogSatisfactoryServerAdmin",
+    "Session creation"
+  ]
+}

@@ -19,6 +19,11 @@ HELPERS=(
   armory-install-helper
   armory-service-ctl
   armory-self-update
+  # 2026-11-02: armory-steam-helper war bisher NUR als Laufzeitdatei in
+  # /usr/local/bin vorhanden - ohne Quelle im Repo und damit ohne Verteilung.
+  # Beim Neuaufsetzen waere er stillschweigend verschwunden, und jede
+  # steamcmd-Installation haette mit "Root nicht erlaubt" abgebrochen.
+  armory-steam-helper
 )
 
 if [[ "$(id -u)" -ne 0 ]]; then

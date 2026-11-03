@@ -1,0 +1,230 @@
+#!/bin/bash
+# Game-Armory - SteamCMD-Helfer (privilegierter Helfer)
+# Wird per sudo vom armory-User aufgerufen. Feste, definierte Schritte:
+#   steam-setup                      - SteamCMD installieren/aktualisieren (idempotent)
+#   steam-install <id> <appid> [branch] [login-mode] - App installieren
+#   steam-status                     - Zustand von SteamCMD melden
+#
+# SICHERHEIT: Steam-Zugangsdaten kommen NIEMALS als Argument (ps-Leak!).
+# Sie werden ausschliesslich per STDIN uebergeben und sofort in eine
+# temporaere runscript-Datei (0600) geschrieben, die nach dem Lauf vernichtet wird.
+set -euo pipefail
+
+STEAM_DIR="/opt/steamcmd"
+STEAM_SH="$STEAM_DIR/steamcmd.sh"
+STEAM_USER="steam"
+LOCK_DIR="/run/lock"
+CRED_DIR="/etc/game-armory/steam"
+
+usage() {
+  echo "Usage: armory-steam-helper <step> [args...]" >&2
+  echo "Steps: steam-status | steam-setup | steam-install <id> <appid> [branch]" >&2
+  exit 2
+}
+
+valid_id() { [[ "${1:-}" =~ ^[a-z0-9][a-z0-9_-]{1,31}$ ]]; }
+valid_appid() { [[ "${1:-}" =~ ^[0-9]{3,10}$ ]]; }
+valid_branch() { [[ "${1:-}" =~ ^[a-zA-Z0-9._-]{1,32}$ ]]; }
+
+step="${1:-}"
+shift || true
+
+case "$step" in
+  steam-status)
+    if [[ -x "$STEAM_SH" ]]; then
+      echo "steamcmd: present"
+      echo "steamcmd_path: $STEAM_SH"
+    else
+      echo "steamcmd: missing"
+    fi
+    if [[ -f /usr/lib/i386-linux-gnu/libstdc++.so.6 || -f /usr/lib32/libstdc++.so.6 ]]; then
+      echo "lib32: present"
+    else
+      echo "lib32: unknown"
+    fi
+    ;;
+
+  steam-setup)
+    # Idempotent: ist SteamCMD schon lauffaehig, nur kurz pruefen und fertig.
+    if [[ -x "$STEAM_SH" ]]; then
+      if "$STEAM_SH" +quit >/dev/null 2>&1; then
+        echo "steamcmd: already installed and working"
+        exit 0
+      fi
+    fi
+
+    echo "steamcmd: installing..."
+
+    # 1) i386-Architektur (idempotent).
+    if ! dpkg --print-foreign-architectures | grep -qx i386; then
+      dpkg --add-architecture i386
+      echo "  i386 architecture enabled"
+    fi
+
+    # 2) 32-bit-Laufzeitbibliotheken.
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq lib32gcc-s1 lib32stdc++6 ca-certificates curl tar \
+      || { echo "FEHLER: lib32-Pakete konnten nicht installiert werden" >&2; exit 4; }
+
+    # 3) SteamCMD-Tarball von Valve.
+    mkdir -p "$STEAM_DIR"
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
+      -o "$tmp/steamcmd.tar.gz" \
+      || { echo "FEHLER: SteamCMD-Download fehlgeschlagen" >&2; exit 4; }
+    tar -xzf "$tmp/steamcmd.tar.gz" -C "$STEAM_DIR"
+    chown -R root:root "$STEAM_DIR"
+    chmod 755 "$STEAM_DIR"
+
+    # 4) Selbsttest (erster Lauf laedt selbst nach).
+    echo "steamcmd: self-test..."
+    if ! "$STEAM_SH" +quit >/dev/null 2>&1; then
+      echo "FEHLER: SteamCMD-Selbsttest fehlgeschlagen" >&2; exit 4
+    fi
+
+    # 5) Steam-User (fuer Downloads mit eigenem HOME) anlegen, falls nicht da.
+    if ! id "$STEAM_USER" >/dev/null 2>&1; then
+      /usr/sbin/useradd --system --home-dir "$STEAM_DIR/home" --shell /usr/sbin/nologin "$STEAM_USER"
+      mkdir -p "$STEAM_DIR/home"
+      chown "$STEAM_USER:$STEAM_USER" "$STEAM_DIR/home"
+    fi
+
+    echo "steamcmd: installed successfully"
+    ;;
+
+  steam-install)
+    id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
+    appid="${2:-}"; valid_appid "$appid" || { echo "Ungueltige AppID" >&2; exit 2; }
+    branch="${3:-public}"; valid_branch "$branch" || { echo "Ungueltiger Branch" >&2; exit 2; }
+    [[ -x "$STEAM_SH" ]] || { echo "SteamCMD nicht installiert" >&2; exit 4; }
+
+    # Root als 4. Argument (kommt vom Installer aus dem Rack); Default /opt.
+    # NUR diese Roots sind erlaubt - so kann kein beliebiger Pfad entstehen.
+    root_arg="${4:-/opt}"
+    # 2026-11-02: teamspeak6 fehlte hier seit jeher (er bezog sich per GitHub,
+    # nicht per steamcmd - deshalb fiel es nie auf). satisfactory kam neu dazu.
+    # Diese Liste MUSS mit ALLOWED_ROOTS in armory-install-helper und mit
+    # GAME_ROOTS in app/installer.js uebereinstimmen - sonst scheitert die
+    # Installation erst hier, nachdem SteamCMD schon gestartet wurde.
+    case "$root_arg" in
+      /opt/minecraft|/opt/7d2d|/opt/teamspeak6|/opt/satisfactory) ;;
+      *) echo "Root nicht erlaubt: $root_arg" >&2; exit 3 ;;
+    esac
+    install_dir="$root_arg/$id"
+
+    # Zugangsdaten per STDIN: erste Zeile = user, zweite = pass (leer = anonym).
+    cred_user=""; cred_pass=""
+    if [[ ! -t 0 ]]; then
+      IFS= read -r cred_user || true
+      IFS= read -r cred_pass || true
+    fi
+
+    # Locking: pro Ziel-ID nur ein SteamCMD-Lauf gleichzeitig.
+    mkdir -p "$LOCK_DIR"
+    lockfile="$LOCK_DIR/steamcmd-$id.lock"
+    exec 9>"$lockfile"
+    flock -n 9 || { echo "Ein SteamCMD-Lauf fuer $id laeuft bereits" >&2; exit 5; }
+
+    # HOME fuer SteamCMD bereitstellen (Sonst "needs to be installed"-Fehler).
+    home_dir="$STEAM_DIR/home/$id"
+    mkdir -p "$home_dir"
+    chown "$STEAM_USER:$STEAM_USER" "$home_dir" 2>/dev/null || true
+
+    mkdir -p "$install_dir"
+    # WICHTIG: force_install_dir greift nur, wenn der steam-User dort schreiben darf.
+    # Sonst weicht SteamCMD still auf sein eigenes HOME aus und der Zielordner
+    # bleibt leer ("Success", aber Dateien liegen unter ~/Steam/steamapps/common).
+    # Daher: Ziel waehrend des Downloads dem steam-User geben; der Aufrufer
+    # (Installer) setzt die Rechte danach auf den Service-User zurueck.
+    chown "$STEAM_USER:$STEAM_USER" "$install_dir"
+
+    # Audit-Fix 2026-10-31 (A) + (B): steamapps/ gehoert beim UPDATE dem
+    # Instanz-User (chown-tree nach dem Erstinstall). SteamCMD laeuft als
+    # steam-User und kann deshalb weder appmanifest_<appid>.acf schreiben noch
+    # temp/ anlegen:
+    #   "Failed to write app state file ... appmanifest_294420.acf"
+    #   "update prefetch canceled : Temp folder not writable"
+    # (A) gab deshalb steamapps/ dem steam-User. Live am 31.10. nachgestellt:
+    # der Download lief dann bis 100 %, scheiterte aber beim EINSPIELEN:
+    #   "File commit failed: failed to move out file (Missing file permissions)
+    #    .../7DaysToDieServer_Data/boot.config"
+    #   "scheduler finished : result Missing file permissions, state 0x606"
+    # Steam spielt die fertigen Dateien also in den SPIEL-Baum ein, nicht nur
+    # nach steamapps/. Deshalb hier den GANZEN Install-Ordner dem steam-User
+    # geben. Das kostet ein chown -R ueber die Installationsgroesse (7d2d: 17 GB,
+    # wenige Sekunden auf der Platte), erspart aber genau diesen Fehlschlag am
+    # Ende - der Download war umsonst.
+    # Der Aufrufer (Installer/Updater) setzt die Rechte per chown-tree zurueck.
+    chown -R "$STEAM_USER:$STEAM_USER" "$install_dir"
+
+    # runscript bauen (0600, mit trap-Vernichtung).
+    # WICHTIG: SteamCMD laeuft als steam-User, root-eigene 0600-Dateien kann es
+    # nicht lesen ("Failed to load script file"). Daher chown auf steam:steam,
+    # Rechte bleiben aber 600 (nur steam, niemand sonst).
+    runscript="$(mktemp)"
+    chmod 600 "$runscript"
+    trap 'shred -u "$runscript" 2>/dev/null || rm -f "$runscript"' EXIT
+
+    # REIHENFOLGE: force_install_dir MUSS vor login stehen, sonst:
+    # "Please use force_install_dir before logon!" -> Install schlaegt fehl.
+    printf 'force_install_dir %s\n' "$install_dir" > "$runscript"
+    if [[ -n "$cred_user" ]]; then
+      printf 'login %s %s\n' "$cred_user" "$cred_pass" >> "$runscript"
+    else
+      printf 'login anonymous\n' >> "$runscript"
+    fi
+    if [[ "$branch" == "public" ]]; then
+      printf 'app_update %s validate\n' "$appid" >> "$runscript"
+    else
+      printf 'app_update %s -beta %s validate\n' "$appid" "$branch" >> "$runscript"
+    fi
+    printf 'quit\n' >> "$runscript"
+    chown "$STEAM_USER:$STEAM_USER" "$runscript"
+    chmod 600 "$runscript"
+
+    steam_log="$(mktemp)"
+    chmod 600 "$steam_log"
+    echo "steamcmd: installiere app $appid ($branch) -> $install_dir"
+    # Als steam-User mit eigenem HOME. runscript per +runscript (Passwort nie als Argument).
+    set +e
+    HOME="$home_dir" sudo -u "$STEAM_USER" "$STEAM_SH" +runscript "$runscript" 2>&1 | tee "$steam_log"
+    rc=${PIPESTATUS[0]}
+    set -e
+
+    rm -f "$runscript" 2>/dev/null || true
+    trap - EXIT
+
+    if [[ $rc -ne 0 ]]; then
+      echo "FEHLER: SteamCMD-Lauf fuer $appid fehlgeschlagen (exit $rc)" >&2
+      exit 6
+    fi
+    # SteamCMD beendet sich trotz Fehlern mit 0 -> Ausgabe pruefen.
+    # Audit-Fix 2026-10-31 (C), zweite Fassung. Die erste war zu streng:
+    # "Missing file permissions" steht auch als harmlose Einzelzeile im Log,
+    # und "Error! App '...' state is 0x606" taucht bei einem spaeteren
+    # erfolgreichen Lauf noch als alter Eintrag auf. Live: Lauf 14:20 war
+    # erfolgreich ("Success! App ... fully installed"), der Helfer meldete
+    # trotzdem exit 6 und das Panel "SteamCMD-Lauf fehlgeschlagen".
+    #
+    # Regel jetzt: "Success! App <id>' fully installed." ist der Maßstab.
+    # Fehler zaehlen nur, wenn dieser Satz FEHLT.
+    if grep -q "Success! App '$appid' fully installed" "$steam_log"; then
+      echo "steamcmd: app $appid installiert (von Steam bestaetigt)"
+    else
+      echo "FEHLER: SteamCMD meldete keinen Abschluss ('Success! App $appid fully installed' fehlt)" >&2
+      # Den Grund aus dem Log zeigen, ohne breite Muster zu raten.
+      steam_err="$(grep -E "Error! App '[0-9]+'|scheduler finished : removed from schedule|ERROR!|Invalid Password|not logged in|Missing configuration" "$steam_log" | tail -3)"
+      if [[ -n "$steam_err" ]]; then
+        printf '%s\n' "$steam_err" | sed 's/^/  /' >&2
+      else
+        tail -3 "$steam_log" | sed 's/^/  /' >&2
+      fi
+      exit 6
+    fi
+    echo "steamcmd: app $appid installiert"
+    ;;
+
+  *) usage ;;
+esac

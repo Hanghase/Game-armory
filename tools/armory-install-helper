@@ -7,7 +7,7 @@ set -euo pipefail
 SWORDS_DIR="/opt/game-armory/swords"
 # Erlaubte Game-Roots (Multi-Game). Neue Spiele hier ergaenzen.
 MINECRAFT_ROOT="/opt/minecraft"
-ALLOWED_ROOTS="/opt/minecraft /opt/7d2d /opt/teamspeak6"
+ALLOWED_ROOTS="/opt/minecraft /opt/7d2d /opt/teamspeak6 /opt/satisfactory"
 
 # Prueft, ob ein Pfad unter einem der erlaubten Roots liegt.
 path_in_allowed_root() {
@@ -88,7 +88,7 @@ case "$step" in
     id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
     path="${2:-}"; valid_path "$path" || { echo "Ungueltiger Pfad" >&2; exit 2; }
     case "$path" in
-      /opt/game-armory/*|/var/log/*|/opt/minecraft/*|/opt/7d2d/*|/opt/teamspeak6/*) ;;
+      /opt/game-armory/*|/var/log/*|/opt/minecraft/*|/opt/7d2d/*|/opt/teamspeak6/*|/opt/satisfactory/*) ;;
       *) echo "Pfad nicht erlaubt: $path" >&2; exit 3 ;;
     esac
     reject_symlink_path "$path"

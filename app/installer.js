@@ -44,7 +44,7 @@ export const SERVICE_HELPER = '/usr/local/bin/armory-service-ctl';
 // Zugangsdaten gehen ausschliesslich per STDIN (nie als Argument -> kein ps-Leak).
 export const STEAM_HELPER = '/usr/local/bin/armory-steam-helper';
 export const SERVICE_CTL = '/usr/local/bin/armory-service-ctl';
-const GAME_ROOTS = { minecraft: '/opt/minecraft', '7d2d': '/opt/7d2d', teamspeak6: '/opt/teamspeak6' };
+const GAME_ROOTS = { minecraft: '/opt/minecraft', '7d2d': '/opt/7d2d', teamspeak6: '/opt/teamspeak6', satisfactory: '/opt/satisfactory' };
 const ARMORY_SCRIPT = join(ARMORY_ROOT, 'tools', 'rcon-stop.mjs');
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,30}$/;
@@ -347,7 +347,40 @@ export async function ensureRconProperties(propertiesPath, { port, password, ser
 // Lesen eines BESTEHENDEN Racks beruecksichtigt (siehe detectRequiredJavaVersion
 // bzw. resolveInstalledJavaVersion), damit auch Server mit eigener JVM korrekt
 // geprueft werden.
-function buildUnit({ id, name, user, workingDir, startScript }) {
+// Setzt {ports.<name>} in Startargumenten ein (2026-11-02).
+// Warum ein harter Fehler bei unbekanntem Platzhalter: ein woertliches
+// "-Port={ports.game}" wuerde den Server mit falschem Port starten - oder
+// gar nicht. Ein Abbruch beim Bauen der Unit ist billiger als ein Server,
+// der scheinbar laeuft und auf einem Port horcht, den niemand erwartet.
+function resolveStartArgs(args, ports) {
+  const map = ports && typeof ports === 'object' ? ports : {};
+  return args.map((a) => String(a).replace(/\{ports\.([A-Za-z0-9_-]+)\}/g, (_m, key) => {
+    const v = map[key];
+    if (!Number.isInteger(v)) {
+      throw new InstallerError(`Startargument "${a}": Port "${key}" ist im Rack nicht definiert`);
+    }
+    return String(v);
+  }).replace(/\{ports\.[^}]*\}/g, (m) => {
+    throw new InstallerError(`Startargument "${a}": unbekannter Platzhalter ${m}`);
+  }));
+}
+
+// Einfaches Quoting fuer die Unit-Zeile: Worte ohne Sonderzeichen bleiben nackt,
+// alles andere wird in Anfuehrungszeichen gesetzt (systemd zerlegt ExecStart an
+// Leerzeichen, fuehrt aber KEINE Shell-Expansion aus).
+function shellQuote(a) {
+  const str = String(a);
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(str) ? str : `"${str.replace(/"/g, '\\"')}"`;
+}
+
+function buildUnit({ id, name, user, workingDir, startScript, startArgs = null, ports = null }) {
+  // Argumente aus dem Rack (2026-11-02). Warum das noetig wurde: die Unit stand
+  // fest auf 'startserver.sh -configfile=...'. Satisfactory heisst aber
+  // 'FactoryServer.sh' und braucht -Port=/-ReliablePort= statt -configfile.
+  // Ohne Rack-Angabe bleibt es beim alten Verhalten (Rueckwaertsvertraeglich).
+  const argLine = Array.isArray(startArgs) && startArgs.length > 0
+    ? ' ' + resolveStartArgs(startArgs, ports).map(shellQuote).join(' ')
+    : '';
   return `# Game-Armory: automatisch erzeugte Unit fuer ${name}
 [Unit]
 Description=${name} Minecraft Server (Game-Armory)
@@ -357,7 +390,7 @@ After=network.target
 Type=simple
 User=${user}
 WorkingDirectory=${workingDir}
-ExecStart=/bin/bash ${join(workingDir, startScript)}
+ExecStart=/bin/bash ${join(workingDir, startScript)}${argLine}
 
 # Sauberer Stop via RCON (Welt speichern), danach SIGTERM als Fallback.
 # Audit-Fix 2026-10-30 (B05): systemd fuehrt KEINE Shell-Substitution aus. Das
@@ -1359,7 +1392,19 @@ export async function installFromSteam(
   }
 
   // 4) Startskript ausfuehrbar machen (haeufigster 7d2d-Startfehler) + Config-Kopie.
-  let startScript = 'startserver.sh';
+  // 2026-11-02: Startskript kommt aus dem Rack. Vorher stand hier fest
+  // 'startserver.sh' - Satisfactory heisst 'FactoryServer.sh', und die Unit
+  // zeigte auf eine Datei, die es nicht gibt. Ohne Rack-Angabe bleibt der
+  // alte Name (7d2d/Minecraft unveraendert).
+  // 2026-11-02: das Rack wird jetzt auch fuer Startskript und Startargumente
+  // gebraucht, deshalb hier einmal auf Funktions-Ebene laden (vorher blocklokal).
+  let rackDef = null;
+  try { rackDef = getRack(v.rackId ?? v.id) ?? null; } catch { /* Racks evtl. nicht geladen */ }
+
+  const rackStartScript = (rackDef && typeof rackDef.startScript === 'string' && rackDef.startScript.trim())
+    ? rackDef.startScript.trim()
+    : null;
+  let startScript = rackStartScript ?? 'startserver.sh';
   const configFile = 'serverconfig.xml';
   const startPath = join(workDir, startScript);
   try { await chmod(startPath, 0o755); } catch { /* evtl. anders benannt */ }
@@ -1369,8 +1414,7 @@ export async function installFromSteam(
   // kann. Dann zeigt die Unit auf die Armory-Kopie des Startskripts.
   let logFilePath = null;
   {
-    let rack = null;
-    try { rack = getRack(v.rackId ?? v.id) ?? null; } catch { /* Racks evtl. nicht geladen */ }
+    const rack = rackDef;
     const template = rack?.logFile ?? null;
     if (typeof template === 'string' && template.trim()) {
       logFilePath = template.replaceAll('{id}', v.id);
@@ -1487,7 +1531,11 @@ export async function installFromSteam(
   log(`[install] Sword-Instanz geschrieben: ${v.id}.sword.json`);
 
   // 7) systemd-Unit (7d2d-spezifisch: kein RCON-Stop).
-  const unit = buildSteamUnit({ id: v.id, name, user: v.id, workingDir: workDir, startScript, port });
+  const unit = buildSteamUnit({
+    id: v.id, name, user: v.id, workingDir: workDir, startScript, port,
+    startArgs: rackDef?.startArgs ?? null,
+    ports: rackDef?.ports ?? null,
+  });
   const unitPath = await systemWriteService(service, unit);
   log(`[install] systemd-Unit geschrieben: ${unitPath}`);
 
@@ -1560,7 +1608,14 @@ async function writeArmoryStartScript({ id, workDir, startScript, logFile, log =
 // startScript zeigt bei 7d2d auf die Armory-KOPIE (startserver.armory.sh), die
 // den Server-Log auf einen festen Pfad zwingt - sonst schreibt das Spiel in
 // output_log__<zeitstempel>.txt und die Live-Konsole bleibt leer.
-function buildSteamUnit({ id, name, user, workingDir, startScript, port }) {
+function buildSteamUnit({ id, name, user, workingDir, startScript, port, startArgs = null, ports = null }) {
+  // 2026-11-02: Vorher stand hier fest "-configfile=serversettings.xml" - das
+  // ist ein 7d2d-Argument. Satisfactory heisst 'FactoryServer.sh' und braucht
+  // -Port=/-ReliablePort=. Ohne Rack-Angabe bleibt das alte Verhalten, damit
+  // bestehende 7d2d-Installationen identisch starten.
+  const argLine = Array.isArray(startArgs) && startArgs.length > 0
+    ? ' ' + resolveStartArgs(startArgs, ports).map(shellQuote).join(' ')
+    : ' -configfile=serversettings.xml';
   return `# Game-Armory: automatisch erzeugte Unit fuer ${name}
 [Unit]
 Description=${name} Dedicated Server (Game-Armory)
@@ -1570,7 +1625,7 @@ After=network.target
 Type=simple
 User=${user}
 WorkingDirectory=${workingDir}
-ExecStart=/bin/bash ${join(workingDir, startScript)} -configfile=serversettings.xml
+ExecStart=/bin/bash ${join(workingDir, startScript)}${argLine}
 
 Restart=on-abnormal
 RestartSec=15
