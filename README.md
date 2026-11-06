@@ -41,9 +41,34 @@ auf `127.0.0.1`.
 app/          Server: Routen, Auth, Installer, Versionen, Selbst-Update
 public/       Panel und Login-Seiten
 racks/        Rack-Vorlagen als JSON
+tests/        Tests (node:test, keine Abhaengigkeiten)
 tools/        Install-Skript, Helfer, Selbst-Update, Push-Scanner
 templates/    Vorlagen: systemd-Unit, einzelne Spiele
 ```
+
+## Tests
+
+```sh
+npm test              # alle Tests
+npm run test:watch    # bei jeder Aenderung neu
+```
+
+Kein Framework, kein `npm install` dafuer: [node:test](https://nodejs.org/api/test.html)
+ist in Node eingebaut. Das Projekt hat bewusst keine devDependencies.
+
+Aufbau:
+
+| Datei | Prueft |
+|---|---|
+| `tests/racks.test.mjs` | Rack-Validierung, inkl. der Pfad-Sicherheitsregel fuer `defaultRoot` |
+| `tests/schema.test.mjs` | dass `racks/rack.schema.json` und `app/racks.js` dieselben Felder kennen |
+
+**Grundsatz:** jeder Test muss scheitern *koennen*. Wenn ein Test nach einer
+absichtlichen Verschlechterung im Code noch gruen ist, prueft er nichts und
+wird entfernt.
+
+Der Scanner (siehe unten) laeuft die Tests mit. Mit `ARMORY_SKIP_TESTS=1`
+ueberspringt man sie - sinnvoll nur bei einem reinen Doku-Commit.
 
 ## Vor dem Push prüfen
 
@@ -51,7 +76,8 @@ templates/    Vorlagen: systemd-Unit, einzelne Spiele
 tools/pre-push-scan.sh
 ```
 
-Prüft den Stand auf Zugangsdaten und bricht ab, wenn etwas hineingerutscht ist.
+Prüft den Stand auf Zugangsdaten und laesst die Tests laufen. Bricht ab, wenn
+etwas hineingerutscht ist oder ein Test rot ist.
 Automatisch bei jedem Push:
 
 ```sh

@@ -224,6 +224,11 @@
       },
       "minItems": 1,
       "uniqueItems": true
+    },
+    "configTemplate": {
+      "type": "string",
+      "description": "Dateiname einer Vorlage unter templates/ (Pflicht bei installMethod github)",
+      "pattern": "^[A-Za-z0-9._-]+\\.(yaml|yml|json|conf|properties|xml|cfg|ini)$"
     }
   }
 }

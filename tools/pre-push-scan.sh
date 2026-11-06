@@ -118,12 +118,46 @@ if [ -n "$badmail" ]; then
     FAIL=1
 fi
 
+# --- Tests ------------------------------------------------------------------
+# Seit 2026-11-06: der Scanner prueft nicht nur Daten, sondern auch, ob der
+# Stand ueberhaupt funktioniert. Warum hier und nicht als Git-Hook: ein Hook
+# wirkt nur auf einer Maschine und ist nach einem frischen Clone weg; der
+# Scanner wird laut README vor jedem Push von Hand aufgerufen.
+# Ueberspringbar mit ARMORY_SKIP_TESTS=1 (z.B. bei einem reinen Doku-Commit).
+echo ""
+echo "=== Tests ==="
+if [ "${ARMORY_SKIP_TESTS:-0}" = "1" ]; then
+    echo "${YEL}uebersprungen${OFF} (ARMORY_SKIP_TESTS=1)"
+elif ! command -v node >/dev/null 2>&1; then
+    echo "${RED}ABBRUCH${OFF} [node nicht gefunden - Tests nicht pruefbar]"
+    FAIL=1
+else
+    # Ausgabe nur bei Fehler zeigen; sonst reicht die Zusammenfassung.
+    if TMPOUT=$(npm test 2>&1); then
+        echo "$TMPOUT" | grep -E "^# (pass|fail)" | sed 's/^/    /'
+        echo "    Tests gruen."
+    else
+        echo "${RED}ABBRUCH${OFF} [Tests rot]"
+        echo "$TMPOUT" | grep -E "^(not ok|✖)" | head -15 | sed 's/^/    /'
+        FAIL=10
+    fi
+fi
+
 # --- Ergebnis ---------------------------------------------------------------
 echo ""
 if [ "$FAIL" -ne 0 ]; then
-    echo "${RED}Push abgebrochen.${OFF} Die Treffer oben muessen weg, bevor dieser"
-    echo "Stand das Haus verlaesst. Historie bereinigen:"
-    echo "    git checkout --orphan fresh && git add -A && git commit"
+    echo "${RED}Push abgebrochen.${OFF}"
+    # Zwei verschiedene Ursachen, zwei verschiedene Wege raus - eine Meldung,
+    # die bei roten Tests "Historie bereinigen" empfiehlt, schickt jemanden
+    # auf die falsche Baustelle.
+    if [ "$FAIL" -ge 10 ]; then
+        echo "Die Tests sind rot. Erst reparieren, dann pushen:"
+        echo "    npm test"
+    else
+        echo "Die Treffer oben muessen weg, bevor dieser Stand das Haus"
+        echo "verlaesst. Historie bereinigen:"
+        echo "    git checkout --orphan fresh && git add -A && git commit"
+    fi
     exit 1
 fi
 echo "Scan sauber - Push darf raus."

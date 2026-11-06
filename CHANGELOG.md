@@ -3,6 +3,39 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.1] - 2026-11-06
+
+### Neu
+
+- **Tests.** Es gab bis jetzt keine. `tests/` enthaelt 52 Tests mit dem in Node
+  eingebauten Testlaeufer (`npm test`) - keine devDependencies, kein `npm
+  install` noetig. Abgedeckt ist die Rack-Validierung: Pflichtfelder, Enums,
+  Typen, Ports, relative Pfade und die Regel, dass `defaultRoot` unter `/opt`
+  liegen muss.
+- **Der Push-Scanner laesst keine roten Tests durch.** `tools/pre-push-scan.sh`
+  faehrt die Tests mit und bricht ab, wenn einer rot ist. Fuer reine
+  Doku-Commits gibt es `ARMORY_SKIP_TESTS=1`.
+- **`tests/schema.test.mjs` haelt Schema und Code zusammen.** Siehe Behoben.
+
+### Behoben
+
+- **Schema und Code waren auseinandergelaufen.** `racks/rack.schema.json`
+  kannte `configTemplate` nicht, obwohl `app/racks.js` das Feld verlangt (bei
+  `installMethod "github"` ist es Pflicht). Wer ein Rack gegen das Schema
+  prueft, bekam also Fehler, die das Panel nie wirft - und umgekehrt. Feld
+  ergaenzt, plus ein Test, der die Abweichung kuenftig meldet.
+- **Falsche Abbruchmeldung im Push-Scanner.** Bei roten Tests empfahl das
+  Skript "Historie bereinigen" - richtig bei Betreiberdaten, voellig
+  daneben bei einem fehlgeschlagenen Test. Jetzt zwei getrennte Meldungen.
+
+### Warum gerade jetzt
+
+Der Grundsatz aus dem Audit vom 2026-10-31: zu jedem Punkt zuerst einen Test,
+der **scheitern muss**. Ohne Testgeruest ist das eine Absichtserklaerung. Zum
+Gegenbeweis wurden zwei absichtliche Verschlechterungen eingebaut (Sicherheits-
+regel fuer `defaultRoot` deaktiviert, `configTemplate` aus dem Schema entfernt) -
+jeweils genau ein Test wurde rot, die uebrigen blieben gruen.
+
 ## [1.3.0] - 2026-11-06
 
 ### Neu
