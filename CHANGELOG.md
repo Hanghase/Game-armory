@@ -3,6 +3,46 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.0] - 2026-11-06
+
+### Neu
+
+- **Erstinstallation mit einem Befehl.** `sudo tools/armory-install.sh` richtet
+  die Armory auf einem frischen Debian/Ubuntu ein: Service-User, Verzeichnisse,
+  npm-Abhaengigkeiten, Helfer, sudoers-Regel, systemd-Unit und Start - in dieser
+  Reihenfolge, jeder Schritt idempotent. `--check-only` prueft nur und aendert
+  nichts. Am Ende steht eine Selbstpruefung mit OK/FEHLER statt eines
+  pauschalen "erfolgreich".
+- **systemd-Unit kommt aus einer Vorlage im Repo.** Bisher war sie von Hand in
+  `/etc/systemd` gepflegt; damit war sie beim Neuaufsetzen verloren. Jetzt liegt
+  sie als `templates/systemd/game-armory.service.tmpl` im Git (Platzhalter fuer
+  Installationspfad, Service-User, Node-Binary und Game-Roots) und wird daraus
+  erzeugt. Eine bestehende Unit wird vorher gesichert.
+- **Abschluss nennt den Zugriffsweg.** Das Panel lauscht nur auf
+  `127.0.0.1:3000`; das Skript sagt jetzt ausdruecklich, dass von aussen nichts
+  erreichbar ist und wie man drankommt (SSH-Tunnel oder Reverse-Proxy).
+
+### Behoben
+
+Die folgenden Punkte fielen erst beim Test auf einer frischen Debian-VM auf -
+auf dem Entwicklungsserver waren sie unsichtbar, weil dort alles schon
+vorbereitet war:
+
+- **`npm install` brach auf frischem System ab** (`gyp ERR! not found: make`).
+  `better-sqlite3` ist ein natives Modul und wird aus Quellcode gebaut; das
+  Skript installiert jetzt `build-essential` und `python3`, falls sie fehlen.
+- **Dienst startete nicht** (`status=226/NAMESPACE`). Die Unit nennt Game-Roots
+  in `ReadWritePaths`; fehlt eines davon, startet systemd den Dienst gar nicht.
+  Das Skript legt fehlende Roots jetzt an, bevor es die Unit schreibt.
+- **Selbstpruefung meldete falschen Fehler.** Sie fragte `/` ab und erwartete
+  200 - die Wurzel leitet ohne Sitzung aber per 302 auf `/login` um. Geprueft
+  wird jetzt `/login`, und zwar mit Wartezeit statt Einzelmessung direkt nach
+  dem Start.
+- **Node-Hinweis ohne Weg.** Statt "bitte installieren" nennt das Skript jetzt
+  den konkreten Befehl und bricht ab, bevor es irgendetwas aendert.
+- **Veraltete `node_modules` blieben stehen.** Entscheidend ist jetzt der
+  Zeitstempel von `package-lock.json`, nicht ob der Ordner existiert.
+
 ## [1.2.0] - 2026-10-31
 
 ### Neu

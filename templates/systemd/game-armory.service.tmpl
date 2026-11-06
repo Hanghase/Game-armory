@@ -1,0 +1,47 @@
+[Unit]
+Description=Armory Panel (Node.js, Dienst-Steuerung via systemd)
+Documentation=file:{{INSTALL_DIR}}/README.md
+After=network.target
+
+[Service]
+Type=simple
+# Unprivilegierter Betrieb: root-pflichtige Aktionen laufen ueber
+# /usr/local/bin/armory-service-ctl + armory-install-helper (sudoers.d/armory).
+User={{SERVICE_USER}}
+Group={{SERVICE_USER}}
+WorkingDirectory={{INSTALL_DIR}}
+ExecStart={{NODE_BIN}} app/server.js
+
+# Bei Absturz neu starten; bei sauberem Stop nicht.
+Restart=on-failure
+RestartSec=5
+
+# Logs in die Datei (die Armory schreibt sonst nach stdout).
+StandardOutput=append:{{INSTALL_DIR}}/logs/armory.log
+StandardError=append:{{INSTALL_DIR}}/logs/armory.err
+
+# --- Haertung: die Armory darf nur, was sie braucht ---
+# HINWEIS: NoNewPrivileges waere hier FALSCH - es wuerde sudo/setuid blockieren,
+# und die Armory MUSS sudo fuer die privilegierten Helfer nutzen koennen.
+PrivateTmp=true
+ProtectSystem=strict
+# Ausnahmen: eigene Daten, Logs (Install laeuft ueber die Helfer, nicht direkt).
+ReadWritePaths={{INSTALL_DIR}} {{GAME_ROOTS}} /run/lock /var/log
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=false
+RestrictNamespaces=true
+LockPersonality=true
+# Netzwerk: sie muss lauschen und ausgehend zu CurseForge -> erlaubt.
+# AF_UNIX fuer journalctl/systemd-Kommunikation notwendig.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# HINWEIS: SystemCallArchitectures=native war hier FALSCH - SteamCMD ist eine
+# 32-Bit-Binary (linux32/steamcmd). 'native' blockiert deren int-0x80-Syscalls
+# auf x86-64 -> 'Bad system call', SteamCMD-Exit 159. Daher bewusst entfernt.
+MemoryHigh=12G
+MemoryMax=20G
+
+[Install]
+WantedBy=multi-user.target

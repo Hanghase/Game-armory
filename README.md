@@ -5,15 +5,35 @@ als JSON-Vorlage, ein **Sword** ist eine daraus erzeugte Instanz.
 
 Mitgeliefert: `7d2d`, `atm10`, `atm11`, `teamspeak6`.
 
-## Start
+## Erstinstallation
+
+Auf einem frischen Debian/Ubuntu mit installiertem Node (>= 20):
+
+```sh
+sudo tools/armory-install.sh
+```
+
+Das Skript richtet alles ein: Service-User, Verzeichnisse, Abhaengigkeiten,
+Helfer, sudoers, systemd-Unit und Start. Zweiter Aufruf ist gefahrlos
+(idempotent). Nur pruefen, ohne zu aendern:
+
+```sh
+sudo tools/armory-install.sh --check-only
+```
+
+Am Ende steht eine Selbstpruefung mit OK/FEHLER. Das Panel lauscht nur auf
+`127.0.0.1:3000` - von aussen erreicht man es per SSH-Tunnel
+(`ssh -L 3000:127.0.0.1:3000 user@server`) oder ueber einen Reverse-Proxy.
+
+## Manueller Start (Entwicklung)
 
 ```sh
 npm install
 node app/server.js
 ```
 
-<!-- TODO: Node-Mindestversion. Steht aktuell nicht in package.json/engines. -->
-<!-- TODO: Standard-Port, Pfad zur Konfiguration, wie der Dienst eingerichtet wird. -->
+Mindestversion Node 20. Standard-Port 3000 (ueber `PORT` aenderbar), Bind nur
+auf `127.0.0.1`.
 
 ## Aufbau
 
@@ -21,8 +41,8 @@ node app/server.js
 app/          Server: Routen, Auth, Installer, Versionen, Selbst-Update
 public/       Panel und Login-Seiten
 racks/        Rack-Vorlagen als JSON
-tools/        Install-Helfer, Selbst-Update, Push-Scanner
-templates/    Vorlagen für einzelne Spiele
+tools/        Install-Skript, Helfer, Selbst-Update, Push-Scanner
+templates/    Vorlagen: systemd-Unit, einzelne Spiele
 ```
 
 ## Vor dem Push prüfen
