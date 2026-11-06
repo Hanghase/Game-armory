@@ -44,6 +44,7 @@ racks/        Rack-Vorlagen als JSON
 tests/        Tests (node:test, keine Abhaengigkeiten)
 tools/        Install-Skript, Helfer, Selbst-Update, Push-Scanner
 templates/    Vorlagen: systemd-Unit, einzelne Spiele
+docs/         Entwuerfe und Konzepte (z.B. Rack-Schema fuer Dienste)
 ```
 
 ## Tests
