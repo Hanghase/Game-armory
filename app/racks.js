@@ -40,7 +40,13 @@ const GAMES = ['minecraft', '7d2d', 'teamspeak3', 'teamspeak6', 'satisfactory'];
 const LOADERS = ['vanilla', 'neoforge', 'forge', 'fabric', 'quilt', 'paper', 'spigot', 'purpur', 'native'];
 const TIERS = ['free', 'premium'];
 const INSTALL_METHODS = ['curseforge', 'steamcmd', 'zip', 'upload', 'github'];
-const SOURCE_TYPES = ['curseforge', 'modrinth', 'ftb', 'steam', 'github', 'local'];
+// Erlaubte source.type. 'zip' und 'upload' sind die beiden Methoden OHNE
+// entfernte Quelle: der Betreiber stellt das Archiv selbst (2026-11-06).
+// Sie fehlten hier, obwohl installRoutes.js sie bedient (dort :1048 'zip'
+// -> source.path, :1052 'upload' -> source.uploadId) und
+// INSTALL_TYPE_FOR_METHOD (:977) sie als Zielwert bildet - ein ZIP-Rack
+// liess sich dadurch gar nicht erst anlegen.
+const SOURCE_TYPES = ['curseforge', 'modrinth', 'ftb', 'steam', 'github', 'local', 'zip', 'upload'];
 
 const ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const ROOT_RE = /^\/[a-zA-Z0-9._/-]+$/;

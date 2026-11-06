@@ -261,3 +261,64 @@ test('Felder mit $ sind keine Warnung (z.B. $schema)', () => {
   const { warnings } = validateRackDraft(rack());
   assert.deepEqual(warnings, []);
 });
+
+// --- zip/upload: Racks ohne entfernte Quelle (2026-11-06) ----------------
+//
+// Befund: der Installer verzweigt nach source.type (installRoutes.js:1048
+// 'zip' -> source.path, :1052 'upload' -> source.uploadId). Das Frontend
+// mappt installMethod auf genau diesen Wert (INSTALL_TYPE_FOR_METHOD,
+// installRoutes.js:977). Aber SOURCE_TYPES kannte 'zip' und 'upload' nicht -
+// ein solches Rack liess sich deshalb gar nicht anlegen, obwohl der
+// Installer den Fall implementiert hat.
+//
+// ZIP und Upload sind die beiden Methoden OHNE entfernte Quelle: der
+// Betreiber stellt das Archiv selbst bereit. Der Wert im source.type ist
+// derselbe wie die Methode, weil das Frontend ihn so bildet.
+
+test('installMethod zip wird akzeptiert (Archiv liegt auf dem Server)', () => {
+  const { rack: out } = validateRackDraft(rack({
+    installMethod: 'zip',
+    source: { type: 'zip', projectId: null },
+    configTemplate: 'test.yaml',
+  }));
+  assert.equal(out.installMethod, 'zip');
+  assert.equal(out.source.type, 'zip');
+});
+
+test('installMethod upload wird akzeptiert (Archiv kommt per Panel-Upload)', () => {
+  const { rack: out } = validateRackDraft(rack({
+    installMethod: 'upload',
+    source: { type: 'upload', projectId: null },
+    configTemplate: 'test.yaml',
+  }));
+  assert.equal(out.installMethod, 'upload');
+  assert.equal(out.source.type, 'upload');
+});
+
+test('jede Install-Methode hat einen passenden source.type im Code', async () => {
+  // Der Test, der die beiden Listen zusammenhaelt. Er liest die eine Liste
+  // aus dem Code und die andere aus dem Code - aber er prueft, dass jede
+  // Methode, die der Installer bedient, auch anlegbar ist.
+  const { readFile } = await import('node:fs/promises');
+  const quelle = await readFile(new URL('../app/installRoutes.js', import.meta.url), 'utf8');
+
+  const block = quelle.match(/const INSTALL_TYPE_FOR_METHOD = \{([\s\S]*?)\};/);
+  assert.ok(block, 'INSTALL_TYPE_FOR_METHOD nicht gefunden');
+  const methoden = [...block[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
+
+  assert.ok(methoden.length >= 5, `unerwartet wenige Methoden: ${methoden.join(', ')}`);
+
+  for (const methode of methoden) {
+    assert.doesNotThrow(
+      () => validateRackDraft(rack({
+        installMethod: methode,
+        source: methode === 'steamcmd'
+          ? { type: 'steam', projectId: null, appId: 1 }
+          : { type: methode, projectId: null },
+        configTemplate: methode === 'github' ? 'test.yaml' : undefined,
+        ...(methode === 'github' ? { source: { type: 'github', projectId: null, url: 'owner/repo' } } : {}),
+      })),
+      `installMethod "${methode}" wird vom Installer bedient, ist aber nicht anlegbar`,
+    );
+  }
+});

@@ -45,7 +45,8 @@
         "minecraft",
         "7d2d",
         "teamspeak3",
-        "teamspeak6"
+        "teamspeak6",
+        "satisfactory"
       ]
     },
     "loader": {
@@ -81,7 +82,7 @@
         "steamcmd",
         "zip",
         "upload",
-        "url"
+        "github"
       ]
     },
     "defaultRoot": {
@@ -151,8 +152,10 @@
             "modrinth",
             "ftb",
             "steam",
-            "url",
-            "local"
+            "github",
+            "local",
+            "zip",
+            "upload"
           ]
         },
         "projectId": {

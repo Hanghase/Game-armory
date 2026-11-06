@@ -3,6 +3,48 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.2] - 2026-11-06
+
+### Behoben
+
+- **ZIP- und Upload-Racks liessen sich nicht anlegen.** Die beiden Methoden
+  ohne entfernte Quelle waren in `SOURCE_TYPES` (`app/racks.js`) nicht
+  enthalten, obwohl der Installer sie bedient (`installRoutes.js:1048` 'zip'
+  -> `source.path`, `:1052` 'upload' -> `source.uploadId`) und
+  `INSTALL_TYPE_FOR_METHOD` (`:977`) sie als Zielwert bildet. Jedes Anlegen
+  endete mit `source.type ungueltig`.
+- **Der Editor bot sie auch nicht an.** Das `source.type`-Dropdown in
+  `public/app.html` hatte `zip` und `upload` nicht. Wer eine ZIP-Rack bauen
+  wollte, waehlte zwangslaeufig etwas anderes - das Rack wurde gespeichert
+  und brach erst bei der Installation mit 400 ab
+  ("erwartet: zip, im Rack: local"). Der Fehler kam erst beim Klick.
+- **Schema-Enums waren in beide Richtungen falsch.** `game` kannte
+  `satisfactory` nicht (der Code schon), `installMethod` erlaubte `url` (vom
+  Code am 2026-10-19 ersetzt, weil jeder http(s)-String als GitHub-Repo
+  aufgeloest und per root-Helfer entpackt wurde) und verbot `github`, das der
+  Code verlangt. Wer nach dem Schema baut, waehlte `url` und wurde abgewiesen;
+  wer `github` nutzt, wurde vom Schema abgewiesen. Das ausgelieferte
+  `teamspeak6.rack.json` war laut Schema ungueltig, laut Code gueltig.
+- **`source.type` hatte im Schema ueberhaupt keine Werteliste.** Jetzt eine,
+  mit `zip` und `upload`.
+
+### Neu
+
+- **Tests vergleichen jetzt auch Enum-Werte, nicht nur Feldnamen.** Der
+  Abgleich aus 1.3.1 war zu flach: er haette die Enum-Abweichungen nicht
+  gefunden. Neu sind sechs Tests, die die Wertelisten gegeneinander halten -
+  inklusive der Liste, die `installRoutes.js` bildet.
+- **Das Frontend wird gegen das Backend geprueft.** Zwei Tests lesen
+  `public/app.html` und stellen sicher, dass jede Quelle und jede
+  Install-Methode, die der Server bedient, im Editor waehlbar ist.
+
+### Warum das erst jetzt auffiel
+
+Der Schema-Test aus 1.3.1 prueft nur, ob die richtigen *Felder* existieren.
+Ein Rack kann alle Felder haben und trotzdem unbaubar sein. Nachgewiesen mit
+sieben absichtlichen Verschlechterungen: jede faerbte genau die Tests rot,
+die sie betreffen sollte.
+
 ## [1.3.1] - 2026-11-06
 
 ### Neu
