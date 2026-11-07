@@ -28,6 +28,9 @@ const CODE_FELDER = [
   'id', 'name', 'description', 'icon', 'game', 'loader',
   'tier', 'licenseRequired', 'installMethod', 'defaultRoot',
   'source', 'javaRequired',
+  // Art des Racks (seit 2026-11-07): game | service. Steht im Schema und im
+  // KNOWN-Set von app/racks.js.
+  'kind',
   // optional (KNOWN-Set)
   'singleton', 'ports', 'eula', 'configFile', 'startScript',
   'startArgs', 'saveDir', 'logFile', 'packMarkers', 'readyMarkers',

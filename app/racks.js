@@ -29,11 +29,40 @@ let rackErrors = [];    // Ladefehler des letzten loadRacks() - fuer die Diagnos
 let rackWarnings = [];  // weiche Hinweise (z.B. unbekannte Felder), Rack laedt trotzdem
 
 // --- Erlaubte Werte (Spiegel des Schemas) -----------------------------------
-const REQUIRED_FIELDS = [
-  'id', 'name', 'description', 'icon', 'game', 'loader',
-  'tier', 'licenseRequired', 'installMethod', 'defaultRoot',
-  'source', 'javaRequired',
+// Zwei Arten von Racks (2026-11-07):
+//   game    - eine Schablone zum INSTALLIEREN eines Spiels (bisheriges Verhalten)
+//   service - ein bereits laufender Dienst, der nur verwaltet wird
+//
+// Warum: Nextcloud laeuft als Docker-Stack. Es hat kein Spiel, keine
+// Spiel-Version, keinen loader und keine Install-Quelle. Trotzdem braucht es
+// ein Rack, weil die Seitenleiste RACKS listet, nicht Swords
+// (public/app.js: countFor = (rack) => allSwords.filter(...)). Ohne Rack stand
+// NC im Hauptbereich, fehlte aber links.
+//
+// Ohne `kind` gilt 'game' - alle Bestands-Racks bleiben damit gueltig, ohne
+// dass eine Datei angefasst werden muss.
+const KINDS = ['game', 'service'];
+
+// Felder, die NUR ein Spiel-Rack braucht (es wird etwas installiert).
+const GAME_REQUIRED_FIELDS = [
+  'game', 'loader', 'installMethod', 'defaultRoot', 'source', 'javaRequired',
 ];
+
+// Felder, die fuer BEIDE Arten gelten.
+const BASE_REQUIRED_FIELDS = [
+  'id', 'name', 'description', 'icon', 'tier', 'licenseRequired',
+];
+
+// Installer-Felder, die ein Dienst-Rack NICHT haben darf. Ein installMethod an
+// einem Dienst waere eine Luege im Datenmodell - und der Installer koennte sie
+// spaeter sogar befolgen.
+const INSTALLER_FIELDS = [
+  'game', 'loader', 'installMethod', 'defaultRoot', 'source', 'javaRequired',
+  'startScript', 'startArgs', 'saveDir', 'logFile', 'packMarkers',
+  'configTemplate', 'configFile', 'eula',
+];
+
+const REQUIRED_FIELDS = [...BASE_REQUIRED_FIELDS, ...GAME_REQUIRED_FIELDS];
 // Erlaubte Spielwerte. teamspeak3 und teamspeak6 getrennt, weil es zwei
 // eigenstaendige Produkte sind (eigene Racks, eigene Releases).
 const GAMES = ['minecraft', '7d2d', 'teamspeak3', 'teamspeak6', 'satisfactory'];
@@ -60,10 +89,29 @@ function validateRack(rack, filename, warnings) {
     fail(filename, 'kein JSON-Objekt');
   }
 
-  // 1) Pflichtfelder
-  const missing = REQUIRED_FIELDS.filter((f) => rack[f] === undefined);
-  if (missing.length > 0) {
-    fail(filename, `Pflichtfelder fehlen: ${missing.join(', ')}`);
+  // 0) Art bestimmen. Ohne kind = 'game' (Bestand).
+  if (rack.kind !== undefined && !KINDS.includes(rack.kind)) {
+    fail(filename, `kind ungültig: ${JSON.stringify(rack.kind)} (erlaubt: ${KINDS.join(', ')})`);
+  }
+  const kind = rack.kind ?? 'game';
+  rack.kind = kind;
+
+  // 1) Pflichtfelder - je nach Art unterschiedlich.
+  if (kind === 'service') {
+    const missingBase = BASE_REQUIRED_FIELDS.filter((f) => rack[f] === undefined);
+    if (missingBase.length > 0) {
+      fail(filename, `Pflichtfelder fehlen: ${missingBase.join(', ')}`);
+    }
+    // Keine Mischform: ein Dienst-Rack installiert nichts.
+    const verboten = INSTALLER_FIELDS.filter((f) => rack[f] !== undefined);
+    if (verboten.length > 0) {
+      fail(filename, `Ein Dienst-Rack (kind "service") darf keine Installer-Felder haben: ${verboten.join(', ')}`);
+    }
+  } else {
+    const missing = REQUIRED_FIELDS.filter((f) => rack[f] === undefined);
+    if (missing.length > 0) {
+      fail(filename, `Pflichtfelder fehlen: ${missing.join(', ')}`);
+    }
   }
 
   // 2) id + String-Felder
@@ -76,18 +124,23 @@ function validateRack(rack, filename, warnings) {
     }
   }
 
-  // 3) Enums
-  if (!GAMES.includes(rack.game)) {
-    fail(filename, `game ungültig: ${JSON.stringify(rack.game)} (erlaubt: ${GAMES.join(', ')})`);
+  // 3) Enums - game/loader/installMethod NUR fuer Spiel-Racks. Ein Dienst
+  //    hat kein Spiel und keinen Loader; die Pruefung wuerde sonst
+  //    "game ungültig: undefined" melden (live erlebt beim ersten Versuch).
+  if (kind === 'game') {
+    if (!GAMES.includes(rack.game)) {
+      fail(filename, `game ungültig: ${JSON.stringify(rack.game)} (erlaubt: ${GAMES.join(', ')})`);
+    }
+    if (!LOADERS.includes(rack.loader)) {
+      fail(filename, `loader ungültig: ${JSON.stringify(rack.loader)} (erlaubt: ${LOADERS.join(', ')})`);
+    }
+    if (!INSTALL_METHODS.includes(rack.installMethod)) {
+      fail(filename, `installMethod ungültig: ${JSON.stringify(rack.installMethod)} (erlaubt: ${INSTALL_METHODS.join(', ')})`);
+    }
   }
-  if (!LOADERS.includes(rack.loader)) {
-    fail(filename, `loader ungültig: ${JSON.stringify(rack.loader)} (erlaubt: ${LOADERS.join(', ')})`);
-  }
+  // Diese zwei gelten fuer BEIDE Arten.
   if (!TIERS.includes(rack.tier)) {
     fail(filename, `tier muss "free" oder "premium" sein`);
-  }
-  if (!INSTALL_METHODS.includes(rack.installMethod)) {
-    fail(filename, `installMethod ungültig: ${JSON.stringify(rack.installMethod)} (erlaubt: ${INSTALL_METHODS.join(', ')})`);
   }
   if (typeof rack.licenseRequired !== 'boolean') {
     fail(filename, `licenseRequired muss boolean sein`);
@@ -104,11 +157,13 @@ function validateRack(rack, filename, warnings) {
   // Erlaubte Install-Wurzeln. '/opt' selbst ist zulaessig (dann ist der
   // Zielordner /opt/<id>), ebenso tiefere Pfade wie '/opt/minecraft'.
   const ALLOWED_ROOTS = ['/opt'];
-  if (typeof rack.defaultRoot !== 'string' || !ROOT_RE.test(rack.defaultRoot) || rack.defaultRoot.includes('..')) {
-    fail(filename, `defaultRoot ungültig: ${JSON.stringify(rack.defaultRoot)}`);
-  }
-  if (!ALLOWED_ROOTS.some((base) => rack.defaultRoot === base || rack.defaultRoot.startsWith(base + '/'))) {
-    fail(filename, `defaultRoot muss unter ${ALLOWED_ROOTS.join(' oder ')} liegen (ist: ${rack.defaultRoot})`);
+  if (kind === 'game') {
+    if (typeof rack.defaultRoot !== 'string' || !ROOT_RE.test(rack.defaultRoot) || rack.defaultRoot.includes('..')) {
+      fail(filename, `defaultRoot ungültig: ${JSON.stringify(rack.defaultRoot)}`);
+    }
+    if (!ALLOWED_ROOTS.some((base) => rack.defaultRoot === base || rack.defaultRoot.startsWith(base + '/'))) {
+      fail(filename, `defaultRoot muss unter ${ALLOWED_ROOTS.join(' oder ')} liegen (ist: ${rack.defaultRoot})`);
+    }
   }
 
   // 5) Optionale Pfad-/Datei-Felder
@@ -132,7 +187,8 @@ function validateRack(rack, filename, warnings) {
     }
   }
 
-  // 7) source (Bezugsquelle)
+  // 7) source (Bezugsquelle) - nur Spiel-Racks haben eine Quelle zum Installieren.
+  if (kind === 'game') {
   const src = rack.source;
   if (src === null || typeof src !== 'object' || Array.isArray(src)) {
     fail(filename, 'source muss ein Objekt sein');
@@ -180,8 +236,10 @@ function validateRack(rack, filename, warnings) {
     fail(filename, 'installMethod "github" verlangt configTemplate (Vorlage unter templates/)');
   }
 
-  // 8) javaRequired
-  if (rack.javaRequired !== undefined && rack.javaRequired !== null && !Number.isInteger(rack.javaRequired)) {
+  } // Ende source (nur kind === 'game')
+
+  // 8) javaRequired (nur Spiel-Racks - ein Dienst hat kein Java)
+  if (kind === 'game' && rack.javaRequired !== undefined && rack.javaRequired !== null && !Number.isInteger(rack.javaRequired)) {
     fail(filename, 'javaRequired muss eine Ganzzahl oder null sein');
   }
   // 8b) eula: sagt, ob ein EULA-Schritt noetig ist. Optional, Default 'none'.
@@ -223,7 +281,10 @@ function validateRack(rack, filename, warnings) {
     }
   }
 
-  const KNOWN = new Set([...REQUIRED_FIELDS, 'singleton', 'ports', 'eula', 'configFile', 'startScript', 'startArgs', 'saveDir', 'logFile', 'packMarkers', 'readyMarkers', 'configTemplate']);
+  // `kind` ist seit 2026-11-07 bekannt (game | service). Ohne den Eintrag hier
+// meldete jedes Rack "unbekannte Felder: kind (werden ignoriert)" - live
+// erlebt beim ersten Lauf, weil validateRack() das Feld selbst setzt.
+const KNOWN = new Set([...REQUIRED_FIELDS, 'kind', 'singleton', 'ports', 'eula', 'configFile', 'startScript', 'startArgs', 'saveDir', 'logFile', 'packMarkers', 'readyMarkers', 'configTemplate']);
   const unknown = Object.keys(rack).filter((k) => !k.startsWith('$') && !KNOWN.has(k));
   if (unknown.length > 0) {
     warnings.push(`unbekannte Felder: ${unknown.join(', ')} (werden ignoriert)`);

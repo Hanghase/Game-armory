@@ -1,0 +1,14 @@
+{
+  "$schema": "./rack.schema.json",
+  "kind": "service",
+  "id": "nextcloud",
+  "name": "Nextcloud",
+  "description": "Dateien, Deck, Kalender und Kontakte als Docker-Stack",
+  "icon": "service",
+  "tier": "premium",
+  "licenseRequired": false,
+  "singleton": true,
+  "ports": {
+    "web": 8088
+  }
+}

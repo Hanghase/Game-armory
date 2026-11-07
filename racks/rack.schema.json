@@ -232,6 +232,15 @@
       "type": "string",
       "description": "Dateiname einer Vorlage unter templates/ (Pflicht bei installMethod github)",
       "pattern": "^[A-Za-z0-9._-]+\\.(yaml|yml|json|conf|properties|xml|cfg|ini)$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "game",
+        "service"
+      ],
+      "default": "game",
+      "description": "Art des Racks: \"game\" installiert ein Spiel, \"service\" verwaltet einen bereits laufenden Dienst (z.B. Nextcloud im Docker-Stack). Fehlt das Feld, gilt \"game\" - alle Bestands-Racks bleiben gueltig."
     }
   }
 }

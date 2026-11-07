@@ -2238,7 +2238,13 @@
     const GAME_LABELS = {
       minecraft: 'Minecraft',
       '7d2d': '7 Days to Die',
+      // teamspeak6/teamspeak3/satisfactory fehlten hier - die Gruppen hiessen
+      // deshalb "teamspeak6"/"satisfactory" statt lesbar. Aufgefallen
+      // 2026-11-07 beim Nachrechnen der Sidebar-Gruppierung.
+      teamspeak6: 'TeamSpeak',
+      teamspeak3: 'TeamSpeak 3',
       teamspeak: 'TeamSpeak',
+      satisfactory: 'Satisfactory',
     };
     const GAME_ORDER = ['minecraft', '7d2d', 'teamspeak6', 'teamspeak3'];
 
@@ -2689,19 +2695,33 @@ async function loadSidebar() {
   renderSidebar();
 }
 
-// Racks nach SPIEL gruppieren (Minecraft, 7 Days to Die, ...).
+// Racks nach ART und dann nach SPIEL gruppieren.
+//
+// Seit 2026-11-07 gibt es zwei Arten: Spiel-Racks (installieren ein Spiel) und
+// Dienst-Racks (verwalten einen laufenden Dienst, z.B. Nextcloud). Dienst-Racks
+// haben kein `game` - sie landeten vorher unter "andere". Jetzt bekommen sie
+// eine eigene Gruppe "Home Lab", und zwar VOR den Spielen: was laeuft, sieht
+// man zuerst.
+const SERVICE_LABEL = 'Home Lab';
+
 function groupRacks(list) {
   const byKey = {};
+  const dienste = [];
   for (const r of list) {
+    if (r.kind === 'service') { dienste.push(r); continue; }
     const key = r.game ?? 'andere';
     (byKey[key] ??= []).push(r);
   }
   // Bekannte Spiele zuerst in fester Reihenfolge, Unbekanntes danach.
   const unknown = Object.keys(byKey).filter((k) => !GAME_ORDER.includes(k)).sort();
   const order = [...GAME_ORDER, ...unknown].filter((k) => byKey[k]?.length);
-  return order.map((k) => ({
+  const gruppen = order.map((k) => ({
     key: k, label: GAME_LABELS[k] ?? k, racks: byKey[k],
   }));
+  if (dienste.length) {
+    gruppen.unshift({ key: 'homelab', label: SERVICE_LABEL, racks: dienste });
+  }
+  return gruppen;
 }
 
 // Racks, die aktuell in der Sidebar sichtbar sein sollen.
@@ -2731,7 +2751,8 @@ function renderSidebar() {
   for (const group of groupRacks(shown)) {
     html += '<div class="rack-group">' + esc(group.label) + '</div>';
     for (const r of group.racks) {
-      const icon = r.icon === 'minecraft' ? '🟩' : (r.game === '7d2d' ? '🧟' : '🎮');
+      const icon = r.kind === 'service' ? '🧩'
+        : r.icon === 'minecraft' ? '🟩' : (r.game === '7d2d' ? '🧟' : '🎮');
       // Filter-Button und Entfernen-Button sind GETRENNT - ein X im Button
       // waere nur auf 20px treffbar und wuerde sonst den Filter ausloesen.
       html += '<div class="rack-row">'
