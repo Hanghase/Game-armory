@@ -16,7 +16,8 @@ import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
 import { loadRacks, getRack } from './racks.js';
 import { serviceAction, serviceStatus, streamLogs, withReadiness,
-  controlKind, dockerStatus, dockerAction } from './control.js';
+  controlKind, dockerStatus, dockerAction,
+  dockerReihenfolge } from './control.js';
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
 import { getSessionUser, requireAuth, cleanupExpiredSessions,  cleanupLoginAttempts,
@@ -201,8 +202,11 @@ app.post('/api/swords/:id/:action(start|stop|restart)', requireAuth, async (req,
       // Mehrere Dienste: jeden EINZELN, nacheinander, jeder mit eigener
       // Antwort. Ein Fehler bricht nicht ab - nc-redis soll starten, auch
       // wenn nc-db schon laeuft.
+      // Reihenfolge: beim Start Abhaengigkeiten zuerst. Ohne das lief nc-app
+      // vor nc-db hoch und Nextcloud antwortete ~20s mit HTTP 500
+      // ("Connection refused" zur Datenbank) - live erwischt 2026-11-07.
       const ergebnisse = [];
-      for (const dienst of dienste) {
+      for (const dienst of dockerReihenfolge(dienste, req.params.action)) {
         ergebnisse.push(await dockerAction(sword.control, dienst, req.params.action));
       }
       const alleOk = ergebnisse.every((e) => e.ok);

@@ -223,3 +223,54 @@ test('start wird OHNE --timeout aufgerufen, stop/restart MIT', async () => {
   assert.match(q, /compose "\$action" --timeout 20 "\$service"/,
     'stop/restart soll weiterhin ein Timeout setzen');
 });
+
+// --- Reihenfolge beim starten --------------------------------------------------
+//
+// Live erwischt am 2026-11-07: `start` rief nc-app zuerst auf, nc-db und
+// nc-redis danach. Nextcloud oeffnete schon, bevor die Datenbank lief ->
+// "Connection refused" und HTTP 500 fuer ~20 Sekunden.
+//
+// docker-compose sagt es selbst: nc-app hat depends_on [nc-db, nc-redis].
+// Beim START muss also die Abhaengigkeit zuerst hoch, beim STOPP umgekehrt.
+
+test('beim Starten stehen Datenbank und Cache vor der Anwendung', async () => {
+  const { dockerReihenfolge } = await import('../app/control.js');
+  const dienste = ['nc-app', 'nc-db', 'nc-redis'];
+
+  assert.deepEqual(dockerReihenfolge(dienste, 'start'),
+    ['nc-db', 'nc-redis', 'nc-app'],
+    'start muss die Abhaengigkeiten zuerst hochfahren');
+
+  assert.deepEqual(dockerReihenfolge(dienste, 'stop'),
+    ['nc-app', 'nc-db', 'nc-redis'],
+    'stop muss die Anwendung zuerst runterfahren');
+
+  // restart: pro Dienst Neustart, die Reihenfolge ist dann unkritisch,
+  // aber Abhaengigkeiten weiterhin zuerst (die App startet gegen eine
+  // bereits laufende DB).
+  assert.deepEqual(dockerReihenfolge(dienste, 'restart'),
+    ['nc-db', 'nc-redis', 'nc-app']);
+});
+
+test('unbekannte Dienste bleiben drin, nur nach hinten sortiert', async () => {
+  const { dockerReihenfolge } = await import('../app/control.js');
+  // Ein Stack mit anderem Namen darf nicht verschwinden - sonst wuerde ein
+  // kuenftiger zweiter Docker-Stack gar nicht gestartet.
+  const r = dockerReihenfolge(['app', 'db'], 'start');
+  assert.equal(r.length, 2, 'kein Dienst darf verloren gehen');
+  assert.deepEqual([...r].sort(), ['app', 'db']);
+});
+
+test('der Endpunkt benutzt die Reihenfolge wirklich', async () => {
+  // Die Tests oben pruefen nur dockerReihenfolge selbst. Die Mutationsprobe
+  // ("for (const dienst of dienste)") blieb damit GRUEN - genau die Luecke,
+  // in die ich am 2026-11-07 schon einmal getappt bin (dockerStatus gruen,
+  // Panel rot). Hier wird der Quelltext der Route geprueft: die Schleife im
+  // docker-Zweig muss durch dockerReihenfolge laufen.
+  const { readFile } = await import('node:fs/promises');
+  const q = await readFile(new URL('../app/server.js', import.meta.url), 'utf8');
+  const zweig = q.slice(q.indexOf("if (controlKind(sword) === 'docker')"));
+  const schleife = zweig.slice(0, zweig.indexOf('clearPendingRestart'));
+  assert.match(schleife, /for \(const dienst of dockerReihenfolge\(/,
+    'der docker-Zweig muss ueber dockerReihenfolge laufen, nicht roh ueber dienste');
+});

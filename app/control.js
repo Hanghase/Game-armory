@@ -565,3 +565,35 @@ export async function dockerAction(control, service, action, deps = {}) {
     return { ...basis, ok: false, error: grund || `docker compose ${action} fehlgeschlagen` };
   }
 }
+
+/**
+ * Reihenfolge fuer Start/Stop eines Docker-Stacks.
+ *
+ * Live erwischt am 2026-11-07: beim Start von Nextcloud lief nc-app zuerst
+ * hoch, die Datenbank danach. Nextcloud oeffnete schon und bekam
+ * "SQLSTATE[HY000] [2002] Connection refused" - HTTP 500 fuer rund 20
+ * Sekunden. Die compose-Datei sagt es selbst: nc-app hat
+ * `depends_on: [nc-db, nc-redis]`.
+ *
+ * Deshalb: beim Start Abhaengigkeiten (db, cache) zuerst, beim Stop
+ * umgekehrt (Anwendung zuerst, damit sie keine halbtoten Verbindungen
+ * hinterlaesst). Dienste, die nicht wie eine Abhaengigkeit heissen, bleiben
+ * erhalten und landen in ihrer urspruenglichen Reihenfolge.
+ *
+ * @param {string[]} dienste
+ * @param {string} action  start | stop | restart
+ * @returns {string[]}
+ */
+export function dockerReihenfolge(dienste, action) {
+  const liste = Array.isArray(dienste) ? [...dienste] : [];
+  // Heuristik ueber den Namen: das ist bewusst KEIN Parser der compose-Datei.
+  // Ein Parser waere genauer, wuerde aber die feste Bindung an eine Datei im
+  // Helfer unterlaufen - und der Helfer prueft nur Namen.
+  const istAbhaengigkeit = (n) => /(^|[-_])(db|database|redis|cache|db-|postgres|maria|mysql)/i.test(n);
+
+  const abh = liste.filter(istAbhaengigkeit);
+  const rest = liste.filter((n) => !istAbhaengigkeit(n));
+
+  if (action === 'stop') return [...rest, ...abh];
+  return [...abh, ...rest];
+}
