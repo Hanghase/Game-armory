@@ -69,7 +69,7 @@ export class InstallerError extends Error {
 export function validateInstallInput({ id, name, port }) {
   if (!id || !ID_RE.test(id)) {
     throw new InstallerError(
-      'Ungueltige ID: nur a-z, 0-9 und "-"; 2-31 Zeichen; muss mit Buchstabe/Zahl beginnen.',
+      'Ungültige ID: nur a-z, 0-9 und "-"; 2-31 Zeichen; muss mit Buchstabe/Zahl beginnen.',
     );
   }
   if (!name || String(name).trim().length === 0) {
@@ -82,11 +82,11 @@ export function validateInstallInput({ id, name, port }) {
   // als Kommentarzeile). Ein Zeilenumbruch wuerde dort echte Direktiven anlegen
   // (z.B. ExecStartPre=). Steuerzeichen sind nie Teil eines Servernamens.
   if (/[\x00-\x1f\x7f]/.test(String(name))) {
-    throw new InstallerError('Name enthaelt Steuerzeichen (Zeilenumbrueche sind nicht erlaubt).');
+    throw new InstallerError('Name enthält Steuerzeichen (Zeilenumbrüche sind nicht erlaubt).');
   }
   const p = Number(port);
   if (!Number.isInteger(p) || p < 1024 || p > 65535) {
-    throw new InstallerError('Ungueltiger Port (1024-65535).');
+    throw new InstallerError('Ungültiger Port (1024-65535).');
   }
   return { id, name: String(name).trim(), port: p };
 }
@@ -195,7 +195,7 @@ export async function systemctl(args) {
     throw new InstallerError(`systemctl: unerlaubte Aktion ${action}`);
   }
   if (target !== null && !SERVICE_RE.test(target)) {
-    throw new InstallerError(`systemctl: ungueltiger Service-Name ${target}`);
+    throw new InstallerError(`systemctl: ungültiger Service-Name ${target}`);
   }
   // Ueber den Install-Helfer (sudo), da die Armory unprivilegiert laeuft.
   if (action === 'daemon-reload') {
@@ -221,16 +221,16 @@ export async function systemctl(args) {
     }
     return runCmd('sudo', ['-n', SERVICE_HELPER, action, target]);
   }
-  throw new InstallerError(`systemctl: Aktion nicht ueber Helfer abbildbar: ${action}`);
+  throw new InstallerError(`systemctl: Aktion nicht über Helfer abbildbar: ${action}`);
 }
 
 // Schreibt eine systemd-Unit nach /etc/systemd/system/<name>.service.
 // Der Inhalt darf mit Kommentarzeilen (#) beginnen; entscheidend ist, dass eine
 // [Unit]-Sektion vorhanden ist (sonst ist die Unit unbrauchbar).
 async function systemWriteService(name, content) {
-  if (!SERVICE_RE.test(name)) throw new InstallerError(`Ungueltiger Unit-Name: ${name}`);
+  if (!SERVICE_RE.test(name)) throw new InstallerError(`Ungültiger Unit-Name: ${name}`);
   if (typeof content !== 'string' || !content.split('\n').some((l) => l.trim() === '[Unit]')) {
-    throw new InstallerError('Ungueltiger Unit-Inhalt (keine [Unit]-Sektion gefunden)');
+    throw new InstallerError('Ungültiger Unit-Inhalt (keine [Unit]-Sektion gefunden)');
   }
   // Schreiben nach /etc/systemd/system braucht root -> ueber den Install-Helfer.
   // Der Inhalt geht per STDIN, damit nie ein Dateipfad von aussen kommt.
@@ -277,7 +277,7 @@ async function userIds(username) {
   const uid = Number(String(u).trim());
   const gid = Number(String(g).trim());
   if (!Number.isInteger(uid) || !Number.isInteger(gid)) {
-    throw new InstallerError(`Konnte uid/gid fuer ${username} nicht ermitteln`);
+    throw new InstallerError(`Konnte uid/gid für ${username} nicht ermitteln`);
   }
   return { uid, gid };
 }
@@ -653,8 +653,8 @@ function anleitungZumAufraeumen(serviceUser, workDir, { userAngelegt = true } = 
     zeilen.push(`  rm -rf ${workDir}`);
   }
   zeilen.push('');
-  zeilen.push('Das Panel hat nichts geloescht - bewusst, weil ein Loeschvorgang als root');
-  zeilen.push('ueber das Panel mehr Risiko traegt als der Nutzen.');
+  zeilen.push('Das Panel hat nichts gelöscht - bewusst, weil ein Löschvorgang als root');
+  zeilen.push('über das Panel mehr Risiko traegt als der Nutzen.');
   return zeilen.join('\n');
 }
 
@@ -761,7 +761,7 @@ async function installFromSource({ id, name, port, sourceDir, workDir, log, acce
   await mkdir(RACKS_DIR, { recursive: true });
   const rackPath = join(RACKS_DIR, `${id}.rack.json`);
   if (await pathExists(rackPath)) {
-    log(`[install] Rack-Schablone existiert bereits: ${id}.rack.json (unveraendert)`);
+    log(`[install] Rack-Schablone existiert bereits: ${id}.rack.json (unverändert)`);
   } else {
     await writeFile(rackPath, JSON.stringify(rackTemplate, null, 2) + '\n');
     log(`[install] Rack-Schablone geschrieben: ${id}.rack.json`);
@@ -854,7 +854,7 @@ export async function installFromZip({ id, name, port, zipPath, acceptEula = fal
   }
   const check = await validatePackZip(zipPath);
   if (!check.ok) throw new InstallerError('ZIP sieht nicht wie ein Serverpack aus (keine mods/libraries/startserver).');
-  log(`[install] ZIP ok: ${check.entryCount} Eintraege`);
+  log(`[install] ZIP ok: ${check.entryCount} Einträge`);
 
   const workDir = join(MINECRAFT_ROOT, v.id);
   if (await pathExists(workDir)) {
@@ -970,7 +970,7 @@ export async function downloadGithubAsset({ repo, assetPattern, log = () => {} }
       + 'Verbindung abgebrochen oder Release beschaedigt - nichts entpackt.',
     );
   }
-  log(`[url] gespeichert: ${dest} (${geschrieben} Bytes, geprueft)`);
+  log(`[url] gespeichert: ${dest} (${geschrieben} Bytes, geprüft)`);
   return { path: dest, url: asset.browser_download_url, tag: rel.tag_name, asset: asset.name, size: geschrieben };
 }
 
@@ -990,11 +990,11 @@ export async function waitForPrivilegeKey({ id, attempts = 15, delayMs = 2000, l
     const text = `${res.stdout ?? ''}\n${res.stderr ?? ''}`;
     const m = text.match(TOKEN_RE);
     if (m) {
-      log('[install] Admin-Schluessel erkannt (nur einmal sichtbar).');
+      log('[install] Admin-Schlüssel erkannt (nur einmal sichtbar).');
       return m[1];
     }
   }
-  log('[install] Kein Admin-Schluessel im Log gefunden (evtl. nicht der Erststart).');
+  log('[install] Kein Admin-Schlüssel im Log gefunden (evtl. nicht der Erststart).');
   return null;
 }
 
@@ -1040,7 +1040,7 @@ export async function installFromTarball(
   // Option a: NIE ein vorhandenes Zielverzeichnis ueberschreiben.
   if (await pathExists(workDir)) {
     throw new InstallerError(
-      `Zielordner existiert bereits: ${workDir}. Ein bestehendes Verzeichnis wird nie ueberschrieben - `
+      `Zielordner existiert bereits: ${workDir}. Ein bestehendes Verzeichnis wird nie überschrieben - `
       + 'bitte vorher entfernen oder einen anderen Pfad waehlen.',
     );
   }
@@ -1109,7 +1109,7 @@ export async function installFromTarball(
     const configPath = join(workDir, configFile);
     if (!configTemplate) {
       throw new InstallerError(
-        `Rack fuer "${id}" nennt keine configTemplate - ohne Vorlage kann die `
+        `Rack für "${id}" nennt keine configTemplate - ohne Vorlage kann die `
         + 'Konfiguration nicht geschrieben werden. Erwartet: '
         + 'templates/<datei> als Feld "configTemplate" im Rack.',
       );
@@ -1140,7 +1140,7 @@ export async function installFromTarball(
     {
       const res = await runCmd('sudo', ['-n', INSTALL_HELPER, 'touch-logfile', v.id, `${v.id}.log`]);
       if (!res.ok) logFn(`[install] WARN Logdatei ${logFilePath}: ${res.stderr || res.error}`);
-      else logFn(`[install] Logdatei vorbereitet: ${logFilePath} (Eigentuemer ${v.id})`);
+      else logFn(`[install] Logdatei vorbereitet: ${logFilePath} (Eigentümer ${v.id})`);
     }
 
     // 7) Sword-Instanz (kein RCON, kein Java; game kommt aus dem Rack).
@@ -1232,8 +1232,8 @@ export async function installFromTarball(
       warnings: isTeamspeak
         ? [
           adminKey
-            ? 'Server gestartet. Admin-Schluessel erzeugt (nur einmal sichtbar!).'
-            : 'Server gestartet, aber noch kein Admin-Schluessel im Log - in der Konsole pruefen.',
+            ? 'Server gestartet. Admin-Schlüssel erzeugt (nur einmal sichtbar!).'
+            : 'Server gestartet, aber noch kein Admin-Schlüssel im Log - in der Konsole prüfen.',
           'Config liegt als ' + configFile + ' vor - im Panel editierbar.',
         ]
         : [
@@ -1247,7 +1247,7 @@ export async function installFromTarball(
     // dann an "Zielordner existiert bereits". Bewusst KEIN automatisches Loeschen:
     // ein rm -rf als root ueber das Panel ist mehr Risiko als Nutzen. Stattdessen
     // eine Meldung, mit der der Betreiber in zwei Zeilen weiterkommt.
-    const hinweis = `\nDie Installation wurde abgebrochen.${anleitungZumAufraeumen(serviceUser, workDir)}`;
+    const hinweis = `\nDie Installation wurde abgebrochen.${anleitungZumAufräumen(serviceUser, workDir)}`;
     logFn(hinweis);
     if (err instanceof InstallerError) {
       throw new InstallerError(`${err.message}${hinweis}`);
@@ -1329,7 +1329,7 @@ export async function installFromSteam(
   };
   const v = validateInstallInput({ id, name, port });
   if (!Number.isInteger(Number(appId)) || Number(appId) < 100) {
-    throw new InstallerError(`Ungueltige Steam-App-ID: ${appId}`);
+    throw new InstallerError(`Ungültige Steam-App-ID: ${appId}`);
   }
   const root = rootDir ?? GAME_ROOTS['7d2d'];
   const workDir = join(root, v.id);
@@ -1370,7 +1370,7 @@ export async function installFromSteam(
       phase: 'running',
       progress: p.percent === null ? undefined : p.percent,
       message: p.percent === null
-        ? `${p.phase} laeuft`
+        ? `${p.phase} läuft`
         : `${p.phase}: ${p.percent.toFixed(1)} %`,
       steamPhase: p.phase,
       steamPercent: p.percent,
@@ -1456,9 +1456,9 @@ export async function installFromSteam(
     if (logDir === `/var/log/${v.id}`) {
       const res = await runCmd('sudo', ['-n', INSTALL_HELPER, 'touch-logfile', v.id, logName]);
       if (!res.ok) log(`[install] WARN Logdatei ${logFilePath}: ${res.stderr || res.error}`);
-      else log(`[install] Logdatei vorbereitet: ${logFilePath} (Eigentuemer ${v.id})`);
+      else log(`[install] Logdatei vorbereitet: ${logFilePath} (Eigentümer ${v.id})`);
     } else {
-      log(`[install] WARN logFile ausserhalb /var/log/${v.id}: ${logFilePath} - Rechte bitte manuell pruefen`);
+      log(`[install] WARN logFile außerhalb /var/log/${v.id}: ${logFilePath} - Rechte bitte manuell prüfen`);
     }
   }
 
@@ -1591,7 +1591,7 @@ async function writeArmoryStartScript({ id, workDir, startScript, logFile, log =
     `-logfile ${logFile} -quit`,
   );
   if (replaced === content) {
-    log('[install] WARN Startskript-Kopie: kein -logfile im Skript gefunden - unveraendert uebernommen');
+    log('[install] WARN Startskript-Kopie: kein -logfile im Skript gefunden - unverändert übernommen');
   }
 
   const dstName = startScript.replace(/\.sh$/, '.armory.sh');

@@ -49,7 +49,7 @@
       if (!username) return setMsg('Bitte zuerst deinen Benutzernamen eingeben.', 'err');
       // Endpunkt erwartet eine E-Mail. Nutzer melden sich mit Benutzername an,
       // daher fragen wir die Adresse hier direkt ab.
-      const email = prompt('E-Mail-Adresse fuer den Reset-Link:');
+      const email = prompt('E-Mail-Adresse für den Reset-Link:');
       if (!email) return;
       submitBtn.disabled = true;
       setMsg('…');

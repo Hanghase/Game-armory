@@ -75,12 +75,12 @@ test('defaultRoot ausserhalb /opt wird abgelehnt (Sicherheitsregel)', () => {
 
 test('defaultRoot mit ".." wird abgelehnt', () => {
   const err = wirft(rack({ defaultRoot: '/opt/../etc' }));
-  assert.match(err.message, /defaultRoot ungueltig/);
+  assert.match(err.message, /defaultRoot ungültig/);
 });
 
 test('defaultRoot relativ wird abgelehnt', () => {
   const err = wirft(rack({ defaultRoot: 'opt/test' }));
-  assert.match(err.message, /defaultRoot ungueltig/);
+  assert.match(err.message, /defaultRoot ungültig/);
 });
 
 test('defaultRoot "/opt" selbst ist erlaubt', () => {
@@ -97,17 +97,17 @@ test('defaultRoot "/opt/minecraft/instanz" ist erlaubt', () => {
 
 test('unbekanntes Spiel wird abgelehnt', () => {
   const err = wirft(rack({ game: 'tetris' }));
-  assert.match(err.message, /game ungueltig/);
+  assert.match(err.message, /game ungültig/);
 });
 
 test('unbekannter Loader wird abgelehnt', () => {
   const err = wirft(rack({ loader: 'mojang' }));
-  assert.match(err.message, /loader ungueltig/);
+  assert.match(err.message, /loader ungültig/);
 });
 
 test('unbekannte Install-Methode wird abgelehnt', () => {
   const err = wirft(rack({ installMethod: 'apt' }));
-  assert.match(err.message, /installMethod ungueltig/);
+  assert.match(err.message, /installMethod ungültig/);
 });
 
 test('tier muss free oder premium sein', () => {
@@ -117,12 +117,12 @@ test('tier muss free oder premium sein', () => {
 
 test('id mit Grossbuchstaben wird abgelehnt', () => {
   const err = wirft(rack({ id: 'TestRack' }));
-  assert.match(err.message, /id ungueltig/);
+  assert.match(err.message, /id ungültig/);
 });
 
 test('id mit Schraegstrich wird abgelehnt (waere ein Pfad)', () => {
   const err = wirft(rack({ id: '../etc' }));
-  assert.match(err.message, /id ungueltig/);
+  assert.match(err.message, /id ungültig/);
 });
 
 // --- Typen --------------------------------------------------------------
@@ -235,12 +235,12 @@ test('packMarkers als leerer Array wird abgelehnt', () => {
 
 test('packMarkers mit Pfadanteil wird abgelehnt', () => {
   const err = wirft(rack({ packMarkers: ['mods/x.jar'] }));
-  assert.match(err.message, /packMarkers enthaelt einen ungueltigen Namen/);
+  assert.match(err.message, /packMarkers enthält einen ungültigen Namen/);
 });
 
 test('readyMarkers mit leerem String wird abgelehnt', () => {
   const err = wirft(rack({ readyMarkers: ['   '] }));
-  assert.match(err.message, /readyMarkers enthaelt einen ungueltigen Eintrag/);
+  assert.match(err.message, /readyMarkers enthält einen ungültigen Eintrag/);
 });
 
 // readyMarkers sind freie Log-Texte - "Done (" muss erlaubt sein.

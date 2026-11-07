@@ -10,7 +10,7 @@
 // Geschuetzt (bleiben unangetastet): world*, server.properties, eula.txt,
 // ops/whitelist/banned-*.json, usercache.json, server-icon.png, logs/,
 // journeymap/, backups/, dynamic-data-pack-cache/, .mixin.out.
-// NICHT mehr geschuetzt: local/ (ist ein Pack-Ordner, wird ersetzt).
+// NICHT mehr geschützt: local/ (ist ein Pack-Ordner, wird ersetzt).
 // config/ und kubejs/ sind Pack-Inhalt und werden IMMER ersetzt; sie gehoeren
 // zur Pack-Version (ein neuer Mod braucht die passenden Configs).
 
@@ -45,7 +45,7 @@ export const PROTECTED_PATHS = [
 // "world*", der Code prueft aber mit includes() auf exakte Gleichheit - also
 // traf nur 'world'. Minecraft legt bei mehreren Dimensionen zusaetzlich
 // world_nether/ und world_the_end/ an; ein Pack-Update haette sie ueberschrieben.
-// Alles, was auf diese Muster passt, gilt ebenfalls als geschuetzt.
+// Alles, was auf diese Muster passt, gilt ebenfalls als geschützt.
 const PROTECTED_PATTERNS = [
   /^world(_nether|_the_end)?$/,   // world, world_nether, world_the_end
 ];
@@ -286,7 +286,7 @@ export async function extractTarballToTemp(tarballPath, { id, log = () => {} } =
   const m = String(res.stdout).match(/extracted (.+)$/m);
   if (!m) throw new PackError(`Helfer meldete keinen Temp-Pfad: ${String(res.stdout).trim()}`);
   const tmpRoot = m[1].trim();
-  log(`[pack] Tarball entpackt nach ${tmpRoot} (${entries.length} Eintraege)`);
+  log(`[pack] Tarball entpackt nach ${tmpRoot} (${entries.length} Einträge)`);
   return { tmpRoot, sourceDir: tmpRoot };
 }
 
@@ -314,7 +314,7 @@ export async function extractToTemp(archivePath, { id, log = () => {} } = {}) {
     if (!m) throw new PackError(`Helfer meldete keinen Temp-Pfad: ${String(res.stdout).trim()}`);
     const tmpRoot = m[1].trim();
     log(`[pack] Tarball entpackt nach ${tmpRoot}`);
-    log(`[pack] Archiv enthaelt ${entries.length} Eintraege, Top-Level: ${top.slice(0, 12).join(', ')}${top.length > 12 ? ' ...' : ''}`);
+    log(`[pack] Archiv enthält ${entries.length} Einträge, Top-Level: ${top.slice(0, 12).join(', ')}${top.length > 12 ? ' ...' : ''}`);
     return { tmpRoot, sourceDir: tmpRoot, kind };
   }
 
@@ -325,7 +325,7 @@ export async function extractToTemp(archivePath, { id, log = () => {} } = {}) {
   const tmpRoot = m[1].trim();
   const root = await detectZipRoot(archivePath);
   log(`[pack] ZIP-Wurzel erkannt: '${root || '(Root)'}', entpackt nach ${tmpRoot}`);
-  log(`[pack] ZIP enthaelt ${entries.length} Eintraege, Top-Level: ${top.slice(0, 12).join(', ')}${top.length > 12 ? ' ...' : ''}`);
+  log(`[pack] ZIP enthält ${entries.length} Einträge, Top-Level: ${top.slice(0, 12).join(', ')}${top.length > 12 ? ' ...' : ''}`);
   return { tmpRoot, sourceDir: join(tmpRoot, root), kind };
 }
 
@@ -333,7 +333,7 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   if (!id) throw new PackError('replacePackContents braucht die Instanz-id (Rechte des Server-Users).');
   const report = { replaced: [], skipped: [], removed: [] };
 
-  // ALLES aus dem entpackten Pack ersetzen - ausser den geschuetzten Pfaden und
+  // ALLES aus dem entpackten Pack ersetzen - ausser den geschützten Pfaden und
   // (bei keepConfigs) den Config-Ordnern. Keine feste Positiv-Liste mehr: die
   // hat Eintraege still ausgelassen (Neoforge-Installer-Jar!).
   //
@@ -360,9 +360,9 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   //     nur fuer das Pack-Temp. Vorher wurde isProtectedPath ausschliesslich
   //     gegen sourceEntries (Pack-Inhalt) geprueft - ein Pack, das eine Welt
   //     unter anderem Namen mitbringt oder dessen Eintraege mit einer der
-  //     geschuetzten Dateien kollidieren, konnte den Ziel-Zustand ersetzen,
+  //     geschützten Dateien kollidieren, konnte den Ziel-Zustand ersetzen,
   //     ohne dass irgendwo geprueft wurde, was im Ziel liegt.
-  //     Jetzt: liegt im Ziel ein geschuetzter Name, und will das Pack ihn
+  //     Jetzt: liegt im Ziel ein geschützter Name, und will das Pack ihn
   //     ersetzen, wird der Eintrag uebersprungen und im Report gefuehrt.
   let targetEntries = [];
   try {
@@ -375,15 +375,15 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   }
   const protectedInTarget = new Set(targetEntries.filter((n) => isProtectedPath(n)));
   if (protectedInTarget.size > 0) {
-    log(`[pack] Im Ziel geschuetzt: ${[...protectedInTarget].join(', ')}`);
+    log(`[pack] Im Ziel geschützt: ${[...protectedInTarget].join(', ')}`);
   }
   if (protPresent.length > 0) {
     const res = await runHelper('cleanup-path', protPresent, { log });
-    if (!res.ok) throw new PackError(`Geschuetzte Pfade entfernen fehlgeschlagen: ${res.stderr || res.error}`);
+    if (!res.ok) throw new PackError(`Geschützte Pfade entfernen fehlgeschlagen: ${res.stderr || res.error}`);
     for (const name of sourceEntries) {
       if (isProtectedPath(name)) {
         report.skipped.push(name);
-        log(`[pack] Geschuetzt, aus Pack entfernt: ${name}`);
+        log(`[pack] Geschützt, aus Pack entfernt: ${name}`);
       }
     }
   }
@@ -397,7 +397,7 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
     if (protectedInTarget.has(name)) {
       // Liegt im Ziel (z.B. world) und das Pack will es ersetzen -> ablehnen.
       report.removed.push(name);
-      log(`[pack] Nicht ersetzt (im Ziel geschuetzt): ${name}`);
+      log(`[pack] Nicht ersetzt (im Ziel geschützt): ${name}`);
       continue;
     }
     if (keepConfigs && CONFIG_LIKE.has(name)) {
@@ -408,7 +408,7 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
     const src = join(sourceDir, name);
     const res = await runHelper('replace-pack', [id, targetDir, name, src], { log });
     if (!res.ok) {
-      throw new PackError(`Ersetzen fehlgeschlagen fuer ${name}: ${res.stderr || res.error}`);
+      throw new PackError(`Ersetzen fehlgeschlagen für ${name}: ${res.stderr || res.error}`);
     }
     report.replaced.push(name);
     replaced += 1;
@@ -419,14 +419,14 @@ export async function replacePackContents(sourceDir, targetDir, { id, keepConfig
   // nichts bewirkt - das darf nicht als Erfolg durchgehen.
   if (replaced === 0) {
     const teile = [];
-    if (report.removed.length > 0) teile.push(`${report.removed.length} im Ziel geschuetzt`);
+    if (report.removed.length > 0) teile.push(`${report.removed.length} im Ziel geschützt`);
     if (report.skipped.length > 0) teile.push(`${report.skipped.length} Configs behalten`);
     throw new PackError(
       'Kein Pack-Inhalt ersetzt: nichts uebrig'
       + (teile.length ? ` (${teile.join(', ')})` : '') + '.',
     );
   }
-  log(`[pack] Fertig: ${replaced} Eintraege ersetzt, ${report.skipped.length} geschuetzt/behalten.`);
+  log(`[pack] Fertig: ${replaced} Einträge ersetzt, ${report.skipped.length} geschützt/behalten.`);
   return report;
 }
 

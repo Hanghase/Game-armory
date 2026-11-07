@@ -132,7 +132,7 @@ export function pruneErrors() {
       )
     `).run(MAX_ROWS);
   } catch (e) {
-    console.error(`[errorLog] Aufraeumen fehlgeschlagen: ${e.message}`);
+    console.error(`[errorLog] Aufräumen fehlgeschlagen: ${e.message}`);
   }
 }
 

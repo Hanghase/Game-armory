@@ -346,7 +346,7 @@ app.use((err, req, res, next) => {
 process.on('unhandledRejection', (reason, promise) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
   const stack = reason instanceof Error ? reason.stack : '';
-  console.error(`[armory] UNBEHANDELTE ABLEHNUNG (Prozess laeuft weiter): ${msg}`);
+  console.error(`[armory] UNBEHANDELTE ABLEHNUNG (Prozess läuft weiter): ${msg}`);
   if (stack) console.error(stack);
   // In die Fehlertabelle, damit es nach dem Neustart nicht verschwunden ist.
   try {
@@ -361,7 +361,7 @@ process.on('uncaughtException', (err) => {
   // Ein synchroner Wurf ohne catch: schwerwiegender, aber ein Panel, das
   // deswegen alle Nutzer aussperrt, hilft niemandem. Protokollieren und
   // weiterlaufen; der betroffene Request ist ohnehin verloren.
-  console.error(`[armory] UNBEHANDELTE AUSNAHME (Prozess laeuft weiter): ${err?.message ?? err}`);
+  console.error(`[armory] UNBEHANDELTE AUSNAHME (Prozess läuft weiter): ${err?.message ?? err}`);
   if (err?.stack) console.error(err.stack);
   try {
     recordError(err instanceof Error ? err : new Error(String(err)), null, { status: 500, id: null });
@@ -397,7 +397,7 @@ process.on('uncaughtException', (err) => {
   }, 1000 * 60 * 60);
 
   // Hochgeladene ZIPs, die aelter als 7 Tage sind, entfernen (Sicherheitsnetz).
-  cleanupOldUploads().then((n) => { if (n) console.log(`[armory] ${n} alte(r) Upload(s) aufgeraeumt.`); }).catch(() => {});
+  cleanupOldUploads().then((n) => { if (n) console.log(`[armory] ${n} alte(r) Upload(s) aufgeräumt.`); }).catch(() => {});
   setInterval(() => { cleanupOldUploads().catch(() => {}); }, 1000 * 60 * 60 * 6);
 
   // Versions-Gegenprobe (2026-10-18): optionaler Hintergrund-Timer.
@@ -426,10 +426,10 @@ process.on('uncaughtException', (err) => {
     versionTimerMinutes = minutes;
     if (versionTimer) { clearInterval(versionTimer); versionTimer = null; }
     if (minutes > 0) {
-      console.log(`[armory] Versions-Pruefung alle ${minutes} min.`);
+      console.log(`[armory] Versions-Prüfung alle ${minutes} min.`);
       versionTimer = setInterval(() => { runVersionChecks().catch(() => {}); }, 1000 * 60 * minutes);
     } else {
-      console.log('[armory] Versions-Pruefung: nur manuell (Intervall 0).');
+      console.log('[armory] Versions-Prüfung: nur manuell (Intervall 0).');
     }
   }
   scheduleVersionChecks();
@@ -448,10 +448,10 @@ process.on('uncaughtException', (err) => {
     suMinutes = minutes;
     if (suTimer) { clearInterval(suTimer); suTimer = null; }
     if (minutes > 0) {
-      console.log(`[armory] Selbst-Update-Pruefung alle ${minutes} min (rollierend).`);
+      console.log(`[armory] Selbst-Update-Prüfung alle ${minutes} min (rollierend).`);
       suTimer = setInterval(() => {
         runSelfUpdateCheck({ log: (m) => console.log(m) }).catch((err) => {
-          console.warn(`[armory] Selbst-Update-Pruefung fehlgeschlagen: ${err.message}`);
+          console.warn(`[armory] Selbst-Update-Prüfung fehlgeschlagen: ${err.message}`);
         });
       }, 1000 * 60 * minutes);
       // Erste Pruefung kurz nach dem Start, damit der Header nicht lange
@@ -460,7 +460,7 @@ process.on('uncaughtException', (err) => {
         runSelfUpdateCheck({ log: (m) => console.log(m) }).catch(() => {});
       }, 1000 * 20);
     } else {
-      console.log('[armory] Selbst-Update-Pruefung: nur manuell (Intervall 0).');
+      console.log('[armory] Selbst-Update-Prüfung: nur manuell (Intervall 0).');
     }
   }
   scheduleSelfUpdateCheck();

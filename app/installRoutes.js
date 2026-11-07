@@ -82,7 +82,7 @@ async function resolveAllowedZipPath(rawPath) {
   if (typeof rawPath !== 'string' || !rawPath.trim()) {
     throw new Error('zipPath ist leer');
   }
-  if (rawPath.includes('\0')) throw new Error('zipPath enthaelt ungueltige Zeichen');
+  if (rawPath.includes('\0')) throw new Error('zipPath enthält ungültige Zeichen');
   if (rawPath.length > 4096) throw new Error('zipPath ist zu lang');
 
   let real;
@@ -118,7 +118,7 @@ installRouter.get('/swords/:id/config', requirePerm('sword.config.read'), async 
   if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
   const game = sword.game ?? 'minecraft';
   if (!SUPPORTED_GAMES.includes(game)) {
-    return res.status(400).json({ error: `Config-Editor fuer Spiel "${game}" nicht verfuegbar`, supported: SUPPORTED_GAMES });
+    return res.status(400).json({ error: `Config-Editor für Spiel "${game}" nicht verfügbar`, supported: SUPPORTED_GAMES });
   }
   const rack = getRack(sword.rack);
   const configFile = rack?.configFile ?? sword.configFile ?? null;
@@ -136,7 +136,7 @@ installRouter.put('/swords/:id/config', requirePerm('sword.config.write'), async
   if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
   const game = sword.game ?? 'minecraft';
   if (!SUPPORTED_GAMES.includes(game)) {
-    return res.status(400).json({ error: `Config-Editor fuer Spiel "${game}" nicht verfuegbar` });
+    return res.status(400).json({ error: `Config-Editor für Spiel "${game}" nicht verfügbar` });
   }
   const rack = getRack(sword.rack);
   const configFile = rack?.configFile ?? sword.configFile ?? null;
@@ -470,7 +470,7 @@ async function installWorldFile({ swordId, saveDir, savPath, stageDir }) {
 
   const sword = getSwords().find((sw) => sw.id === swordId);
   const home = sword?.rootDir ?? sword?.control?.workingDir;
-  if (!home) throw Object.assign(new Error(`Arbeitsverzeichnis fuer ${swordId} unbekannt`), { status: 400 });
+  if (!home) throw Object.assign(new Error(`Arbeitsverzeichnis für ${swordId} unbekannt`), { status: 400 });
 
   const dir = join(home, saveDir);
   const file = String(savPath).split('/').pop();
@@ -519,7 +519,7 @@ installRouter.post('/swords/:id/world', requirePerm('sword.config.write'), (req,
     try {
       const swordId = String(req.params.id ?? '');
       if (!/^[a-z0-9][a-z0-9_-]{1,31}$/.test(swordId)) {
-        return res.status(400).json({ error: 'Ungueltige Sword-ID' });
+        return res.status(400).json({ error: 'Ungültige Sword-ID' });
       }
       const swords = getSwords();
       const sword = swords.find((sw) => sw.id === swordId);
@@ -537,8 +537,8 @@ installRouter.post('/swords/:id/world', requirePerm('sword.config.write'), (req,
         const active = /^ActiveState=(\S+)$/m.exec(String(stdout))?.[1] ?? null;
         if (active === 'active' || active === 'activating' || active === 'reloading') {
           return res.status(409).json({
-            error: `Instanz ${swordId} laeuft (${active}). Welt-Upload nur bei gestopptem Server - `
-              + 'sonst ueberschreibt der Autosave die Datei.',
+            error: `Instanz ${swordId} läuft (${active}). Welt-Upload nur bei gestopptem Server - `
+              + 'sonst überschreibt der Autosave die Datei.',
           });
         }
       } catch (e) {
@@ -550,7 +550,7 @@ installRouter.post('/swords/:id/world', requirePerm('sword.config.write'), (req,
       const saveDir = rack?.saveDir ?? null;
       if (!saveDir) {
         return res.status(400).json({
-          error: `Rack "${rackId}" hat kein saveDir - Welt-Upload wird dafuer nicht unterstuetzt.`,
+          error: `Rack "${rackId}" hat kein saveDir - Welt-Upload wird dafür nicht unterstützt.`,
         });
       }
 
@@ -577,7 +577,7 @@ installRouter.post('/swords/:id/world', requirePerm('sword.config.write'), (req,
       }
       if (found.length > 1) {
         return res.status(400).json({
-          error: `Das ZIP enthaelt ${found.length} .sav-Dateien (${found.map((f) => f.split('/').pop()).join(', ')}). `
+          error: `Das ZIP enthält ${found.length} .sav-Dateien (${found.map((f) => f.split('/').pop()).join(', ')}). `
             + 'Bitte genau eine Welt je Upload.',
         });
       }
@@ -632,7 +632,7 @@ installRouter.put('/racks/:id', requirePerm('rack.edit'), async (req, res) => {
   const body = req.body ?? {};
   if (body.id !== undefined && String(body.id) !== String(req.params.id)) {
     return res.status(400).json({
-      error: `Die id eines Racks ist unveraenderlich (URL: ${req.params.id}, Body: ${body.id})`,
+      error: `Die id eines Racks ist unveränderlich (URL: ${req.params.id}, Body: ${body.id})`,
       name: 'RackError',
     });
   }
@@ -721,14 +721,14 @@ installRouter.put('/settings', requirePerm('settings.write'), async (req, res) =
   const body = req.body ?? {};
   const keys = Object.keys(body).filter((k) => SETTING_KEYS.includes(k));
   if (keys.length === 0) {
-    return res.status(400).json({ error: `Keine bekannten Settings uebergeben (erlaubt: ${SETTING_KEYS.join(', ')})` });
+    return res.status(400).json({ error: `Keine bekannten Settings übergeben (erlaubt: ${SETTING_KEYS.join(', ')})` });
   }
 
   // Secrets sind superuser-Sache. Normale Einstellungen bleiben bei settings.write.
   const secretKeys = keys.filter((k) => SECRET_KEYS.has(k));
   if (secretKeys.length > 0 && req.user?.role !== 'superuser') {
     return res.status(403).json({
-      error: 'Nur der Superuser darf Geheimnisse aendern.',
+      error: 'Nur der Superuser darf Geheimnisse ändern.',
       code: 'SECRET_REQUIRES_SUPERUSER',
       keys: secretKeys,
     });
@@ -749,7 +749,7 @@ installRouter.put('/settings', requirePerm('settings.write'), async (req, res) =
       }
     } catch (err) {
       return res.status(502).json({
-        error: `Key konnte nicht geprueft werden: ${err.message}`,
+        error: `Key konnte nicht geprüft werden: ${err.message}`,
         code: 'CURSEFORGE_KEY_UNVERIFIED',
       });
     }
@@ -779,7 +779,7 @@ installRouter.put('/settings', requirePerm('settings.write'), async (req, res) =
 installRouter.post('/settings/test-mail', requirePerm('settings.test_mail'), async (req, res) => {
   const to = String(req.body?.to ?? '').trim();
   if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-    return res.status(400).json({ error: 'Bitte eine gueltige Empfaengeradresse angeben.' });
+    return res.status(400).json({ error: 'Bitte eine gültige Empfängeradresse angeben.' });
   }
   try {
     await verifyMail();
@@ -804,7 +804,7 @@ installRouter.get('/curseforge/search', requirePerm('rack.read'), async (req, re
 
 installRouter.get('/curseforge/mod/:modId/files', requirePerm('rack.read'), async (req, res) => {
   const modId = Number(req.params.modId);
-  if (!Number.isInteger(modId) || modId <= 0) return res.status(400).json({ error: 'Ungueltige modId' });
+  if (!Number.isInteger(modId) || modId <= 0) return res.status(400).json({ error: 'Ungültige modId' });
   try {
     res.json(await getFiles(modId, { pageSize: 50 }));
   } catch (err) {
@@ -895,7 +895,7 @@ installRouter.post('/swords/:id/update', requirePerm('sword.update'), async (req
   // Laufender Job? Nicht parallel starten.
   const st = getUpdateState(sword.id);
   if (st.phase && !['idle', 'done', 'error'].includes(st.phase)) {
-    return res.status(409).json({ error: 'Update laeuft bereits', state: st });
+    return res.status(409).json({ error: 'Update läuft bereits', state: st });
   }
 
   // Quelle bestimmen: Upload-ID, ZIP-Pfad ODER CurseForge modId/fileId.
@@ -1042,7 +1042,7 @@ installRouter.post('/installs', requirePerm('sword.create'), async (req, res) =>
   };
 
   const runInstall = async () => {
-    setJob(jobId, { phase: 'running', progress: 20, message: 'Installation laeuft' });
+    setJob(jobId, { phase: 'running', progress: 20, message: 'Installation läuft' });
     let result;
     let uploadedId = null;
     if (source.type === 'zip') {

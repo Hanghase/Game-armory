@@ -81,7 +81,7 @@ function runHelper(args, { timeoutMs = 20000, env = null } = {}) {
         exitCode: code,
         stdout,
         stderr,
-        error: timedOut ? `Zeitlimit (${timeoutMs} ms) ueberschritten` : undefined,
+        error: timedOut ? `Zeitlimit (${timeoutMs} ms) überschritten` : undefined,
       });
     });
   });
@@ -102,7 +102,7 @@ function parseOutput(stdout) {
 function assertTag(tag) {
   const t = String(tag ?? '').trim();
   if (!TAG_RE.test(t)) {
-    throw new SelfUpdateError(`Ungueltiger Tag: ${JSON.stringify(tag)} (erwartet vX.Y.Z)`);
+    throw new SelfUpdateError(`Ungültiger Tag: ${JSON.stringify(tag)} (erwartet vX.Y.Z)`);
   }
   return t;
 }
@@ -263,7 +263,7 @@ export async function checkSelfUpdate() {
       state: 'unknown',
       installed,
       available: null,
-      reason: `Arbeitsstand: ${trackedChanged} geaenderte verfolgte Datei(en)`,
+      reason: `Arbeitsstand: ${trackedChanged} geänderte verfolgte Datei(en)`,
       checkedAt,
     };
   }
@@ -276,7 +276,7 @@ export async function checkSelfUpdate() {
       state: 'unknown',
       installed,
       available: null,
-      reason: `Abgleich nicht moeglich: ${err.message}`,
+      reason: `Abgleich nicht möglich: ${err.message}`,
       checkedAt,
     };
   }

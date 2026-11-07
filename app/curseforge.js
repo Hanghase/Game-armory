@@ -152,7 +152,7 @@ export function isConfigured() {
 // Rueckgabe: { ok: true } oder { ok: false, error, status }.
 export async function verifyApiKey(candidate) {
   const key = String(candidate ?? '').trim();
-  if (!key) return { ok: false, error: 'Kein Key uebergeben', status: null };
+  if (!key) return { ok: false, error: 'Kein Key übergeben', status: null };
 
   let res;
   try {
@@ -180,8 +180,8 @@ export async function verifyApiKey(candidate) {
       studioLike: isStudioLike,
       error: isStudioLike
         ? 'Das sieht nach einem CurseForge-Studio-Key aus. Die Armory braucht einen APPLICATION-API-Key '
-          + '(Beantragung noetig, Bearbeitung dauert ca. 14 Tage).'
-        : 'CurseForge hat den Request abgelehnt (403). Falls es ein gueltiger Application-Key ist, '
+          + '(Beantragung nötig, Bearbeitung dauert ca. 14 Tage).'
+        : 'CurseForge hat den Request abgelehnt (403). Falls es ein gültiger Application-Key ist, '
           + 'kann die Blockade vom CurseForge-CDN kommen (nicht vom Key).',
       hint: 'Application-Key beantragen: https://support.curseforge.com/support/solutions/articles/9000208346-about-the-curseforge-api-and-how-to-apply-for-a-key '
           + '(Bearbeitung dauert ca. 14 Tage). Nicht zu verwechseln mit dem Studio-Key. '
@@ -189,7 +189,7 @@ export async function verifyApiKey(candidate) {
     };
   }
   if (res.status === 401) {
-    return { ok: false, status: 401, error: 'Nicht autorisiert (401). Key pruefen.' };
+    return { ok: false, status: 401, error: 'Nicht autorisiert (401). Key prüfen.' };
   }
   return { ok: false, status: res.status, error: `Unerwartete API-Antwort: HTTP ${res.status}` };
 }

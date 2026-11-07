@@ -21,7 +21,7 @@ export function getSelfUpdateState() {
     raw = null;
   }
   if (!raw) {
-    return { state: 'unknown', installed: null, available: null, reason: 'Noch nicht geprueft', checkedAt: null };
+    return { state: 'unknown', installed: null, available: null, reason: 'Noch nicht geprüft', checkedAt: null };
   }
   try {
     const parsed = JSON.parse(raw);
@@ -70,7 +70,7 @@ export async function runSelfUpdateCheck({ log = console.log } = {}) {
         lastGoodAt: previous.checkedAt,
       };
       saveSelfUpdateState(carried);
-      log(`[armory] Selbst-Update-Pruefung: ${result.reason} - letzte gute Aussage `
+      log(`[armory] Selbst-Update-Prüfung: ${result.reason} - letzte gute Aussage `
         + `(${previous.state}, ${new Date(previous.checkedAt).toLocaleString('de-DE')}) bleibt stehen`);
       return carried;
     }
@@ -79,9 +79,9 @@ export async function runSelfUpdateCheck({ log = console.log } = {}) {
   saveSelfUpdateState(result);
   const bits = [`${result.state}`];
   if (result.installed) bits.push(`installiert ${result.installed}`);
-  if (result.available) bits.push(`verfuegbar ${result.available}`);
+  if (result.available) bits.push(`verfügbar ${result.available}`);
   if (result.reason) bits.push(result.reason);
-  log(`[armory] Selbst-Update-Pruefung: ${bits.join(', ')}`);
+  log(`[armory] Selbst-Update-Prüfung: ${bits.join(', ')}`);
   return result;
 }
 

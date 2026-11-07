@@ -63,7 +63,7 @@ function publicBaseUrl(req) {
     ? rawHost
     : null;
   if (!host) {
-    if (rawHost) console.warn(`[auth] Unbekannter Host fuer Mail-Link verworfen: ${rawHost.slice(0, 100)}`);
+    if (rawHost) console.warn(`[auth] Unbekannter Host für Mail-Link verworfen: ${rawHost.slice(0, 100)}`);
     return ARMORY_BASE_URL.replace(/\/+$/, '');
   }
   // Protokoll ebenso: nur http/https, und hinter dem Proxy nur, wenn der Host
@@ -168,7 +168,7 @@ authRouter.post('/login', async (req, res) => {
   } catch (err) {
     // bcrypt-Fehler (z. B. beschaedigter Hash) nicht als 500 nach aussen
     // zeigen - wie ein Fehlversuch behandeln, aber protokollieren.
-    console.error(`[auth] Login-Pruefung fehlgeschlagen: ${err.message}`);
+    console.error(`[auth] Login-Prüfung fehlgeschlagen: ${err.message}`);
     return res.status(401).json({ error: 'Falscher Benutzername oder Passwort' });
   }
   if (!user) {
@@ -250,7 +250,7 @@ authRouter.post('/users/:id/email', requirePerm('user.email'), (req, res) => {
   const raw = req.body?.email;
   const email = raw ? String(raw).trim() : null;
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: 'Ungueltige E-Mail-Adresse' });
+    return res.status(400).json({ error: 'Ungültige E-Mail-Adresse' });
   }
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
@@ -280,7 +280,7 @@ authRouter.patch('/users/:id', requirePerm('user.role'), (req, res) => {
   // der einzige Superuser selbst degradieren und ist ausgesperrt.
   if (id === req.user.id) {
     return res.status(400).json({
-      error: 'Die eigene Rolle kann nicht geaendert werden. Bitte einen anderen Superuser darum bitten.',
+      error: 'Die eigene Rolle kann nicht geändert werden. Bitte einen anderen Superuser darum bitten.',
     });
   }
 
@@ -289,7 +289,7 @@ authRouter.patch('/users/:id', requirePerm('user.role'), (req, res) => {
     const current = getRole(id);
     if (current === 'superuser' && role !== 'superuser' && countSuperusers() <= 1) {
       return res.status(400).json({
-        error: 'Der letzte Superuser kann nicht herabgestuft werden - sonst waere die Armory nicht mehr administrierbar.',
+        error: 'Der letzte Superuser kann nicht herabgestuft werden - sonst wäre die Armory nicht mehr administrierbar.',
       });
     }
     setRole(id, role);
@@ -308,7 +308,7 @@ authRouter.delete('/users/:id', requirePerm('user.delete'), (req, res) => {
     const current = getRole(id);
     if (current === 'superuser' && countSuperusers() <= 1) {
       return res.status(400).json({
-        error: 'Der letzte Superuser kann nicht geloescht werden - sonst waere die Armory nicht mehr administrierbar.',
+        error: 'Der letzte Superuser kann nicht gelöscht werden - sonst wäre die Armory nicht mehr administrierbar.',
       });
     }
     deleteUser(id);
@@ -325,7 +325,7 @@ authRouter.post('/email', requireAuth, (req, res) => {
   const raw = req.body?.email;
   const email = raw ? String(raw).trim() : null;
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: 'Ungueltige E-Mail-Adresse' });
+    return res.status(400).json({ error: 'Ungültige E-Mail-Adresse' });
   }
   if (email) {
     const other = getUserByEmail(email);
@@ -422,7 +422,7 @@ authRouter.post('/reset-password', async (req, res) => {
     return res.status(400).json({ error: err.message });
   }
   const hit = consumeAuthToken(String(token ?? ''), 'reset');
-  if (!hit) return res.status(400).json({ error: 'Der Link ist ungueltig oder abgelaufen.' });
+  if (!hit) return res.status(400).json({ error: 'Der Link ist ungültig oder abgelaufen.' });
   try {
     await setUserPassword(hit.userId, newPassword);
     pruneAuthTokens();
@@ -441,7 +441,7 @@ authRouter.post('/accept-invite', async (req, res) => {
     return res.status(400).json({ error: err.message });
   }
   const hit = consumeAuthToken(String(token ?? ''), 'invite');
-  if (!hit) return res.status(400).json({ error: 'Die Einladung ist ungueltig oder abgelaufen.' });
+  if (!hit) return res.status(400).json({ error: 'Die Einladung ist ungültig oder abgelaufen.' });
   try {
     await setUserPassword(hit.userId, newPassword);
     pruneAuthTokens();

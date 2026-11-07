@@ -89,7 +89,7 @@ async function hibpCheck(password) {
     return { checked: true, count: 0 };
   } catch (err) {
     // Fail-open: durchlassen, aber sichtbar machen.
-    console.error('[armory] HIBP-Pruefung fehlgeschlagen (Passwort durchgelassen):', err.message);
+    console.error('[armory] HIBP-Prüfung fehlgeschlagen (Passwort durchgelassen):', err.message);
     return { checked: false, count: 0, skipped: err.message };
   }
 }

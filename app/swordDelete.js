@@ -63,13 +63,13 @@ export async function removeSword(id, { deleteFiles = true, log = () => {} } = {
   // 1) Stoppen, falls aktiv.
   const st = await serviceStatus(service);
   if (st.running) {
-    log(`[delete] Server laeuft (${st.state}) - wird gestoppt ...`);
+    log(`[delete] Server läuft (${st.state}) - wird gestoppt ...`);
     const stop = await serviceAction(service, 'stop');
     if (!stop.ok) log(`[delete] Stop-Warnung: ${stop.error}`);
     const gone = await waitInactive(service);
     if (!gone) {
       throw new SwordDeleteError(
-        `Server ${service} liess sich nicht stoppen (laeuft noch). Abbruch, nichts geloescht.`,
+        `Server ${service} liess sich nicht stoppen (läuft noch). Abbruch, nichts gelöscht.`,
       );
     }
     log('[delete] Server gestoppt.');
@@ -83,7 +83,7 @@ export async function removeSword(id, { deleteFiles = true, log = () => {} } = {
   // aber vor Unit/User/Ordner, also mit halb geloeschtem Server. Der weitere
   // Weg (rm der Unit + daemon-reload) raeumt auch dann auf, wenn disable
   // scheitert: die Unit ist per force weg, ein enable-Rest ist damit wirkungslos.
-  let dis = { ok: false, stderr: '', error: 'disable nicht ausgefuehrt' };
+  let dis = { ok: false, stderr: '', error: 'disable nicht ausgeführt' };
   try {
     dis = await systemctl(['disable', service]);
   } catch (err) {

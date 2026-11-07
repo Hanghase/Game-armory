@@ -68,7 +68,7 @@ function validateRack(rack, filename, warnings) {
 
   // 2) id + String-Felder
   if (typeof rack.id !== 'string' || !ID_RE.test(rack.id)) {
-    fail(filename, `id ungueltig: ${JSON.stringify(rack.id)}`);
+    fail(filename, `id ungültig: ${JSON.stringify(rack.id)}`);
   }
   for (const f of ['name', 'description', 'icon']) {
     if (typeof rack[f] !== 'string' || rack[f].length < 1) {
@@ -78,16 +78,16 @@ function validateRack(rack, filename, warnings) {
 
   // 3) Enums
   if (!GAMES.includes(rack.game)) {
-    fail(filename, `game ungueltig: ${JSON.stringify(rack.game)} (erlaubt: ${GAMES.join(', ')})`);
+    fail(filename, `game ungültig: ${JSON.stringify(rack.game)} (erlaubt: ${GAMES.join(', ')})`);
   }
   if (!LOADERS.includes(rack.loader)) {
-    fail(filename, `loader ungueltig: ${JSON.stringify(rack.loader)} (erlaubt: ${LOADERS.join(', ')})`);
+    fail(filename, `loader ungültig: ${JSON.stringify(rack.loader)} (erlaubt: ${LOADERS.join(', ')})`);
   }
   if (!TIERS.includes(rack.tier)) {
     fail(filename, `tier muss "free" oder "premium" sein`);
   }
   if (!INSTALL_METHODS.includes(rack.installMethod)) {
-    fail(filename, `installMethod ungueltig: ${JSON.stringify(rack.installMethod)} (erlaubt: ${INSTALL_METHODS.join(', ')})`);
+    fail(filename, `installMethod ungültig: ${JSON.stringify(rack.installMethod)} (erlaubt: ${INSTALL_METHODS.join(', ')})`);
   }
   if (typeof rack.licenseRequired !== 'boolean') {
     fail(filename, `licenseRequired muss boolean sein`);
@@ -105,7 +105,7 @@ function validateRack(rack, filename, warnings) {
   // Zielordner /opt/<id>), ebenso tiefere Pfade wie '/opt/minecraft'.
   const ALLOWED_ROOTS = ['/opt'];
   if (typeof rack.defaultRoot !== 'string' || !ROOT_RE.test(rack.defaultRoot) || rack.defaultRoot.includes('..')) {
-    fail(filename, `defaultRoot ungueltig: ${JSON.stringify(rack.defaultRoot)}`);
+    fail(filename, `defaultRoot ungültig: ${JSON.stringify(rack.defaultRoot)}`);
   }
   if (!ALLOWED_ROOTS.some((base) => rack.defaultRoot === base || rack.defaultRoot.startsWith(base + '/'))) {
     fail(filename, `defaultRoot muss unter ${ALLOWED_ROOTS.join(' oder ')} liegen (ist: ${rack.defaultRoot})`);
@@ -141,7 +141,7 @@ function validateRack(rack, filename, warnings) {
     fail(filename, 'source braucht type und projectId');
   }
   if (!SOURCE_TYPES.includes(src.type)) {
-    fail(filename, `source.type ungueltig: ${JSON.stringify(src.type)}`);
+    fail(filename, `source.type ungültig: ${JSON.stringify(src.type)}`);
   }
   if (src.appId !== undefined && src.appId !== null && !Number.isInteger(src.appId)) {
     fail(filename, 'source.appId muss eine Ganzzahl sein');
@@ -200,7 +200,7 @@ function validateRack(rack, filename, warnings) {
     }
     for (const m of rack.packMarkers) {
       if (typeof m !== 'string' || !/^[a-zA-Z0-9._-]+$/.test(m)) {
-        fail(filename, `packMarkers enthaelt einen ungueltigen Namen: ${JSON.stringify(m)}`);
+        fail(filename, `packMarkers enthält einen ungültigen Namen: ${JSON.stringify(m)}`);
       }
     }
   }
@@ -218,7 +218,7 @@ function validateRack(rack, filename, warnings) {
     }
     for (const m of rack.readyMarkers) {
       if (typeof m !== 'string' || m.trim().length === 0) {
-        fail(filename, `readyMarkers enthaelt einen ungueltigen Eintrag: ${JSON.stringify(m)}`);
+        fail(filename, `readyMarkers enthält einen ungültigen Eintrag: ${JSON.stringify(m)}`);
       }
     }
   }
@@ -264,7 +264,7 @@ export async function loadRacks() {
       const expectedId = file.slice(0, -'.rack.json'.length);
       if (rack.id !== expectedId) {
         throw new Error(
-          `id im Inhalt ("${rack.id}") stimmt nicht mit dem Dateinamen ("${expectedId}") ueberein`,
+          `id im Inhalt ("${rack.id}") stimmt nicht mit dem Dateinamen ("${expectedId}") überein`,
         );
       }
       // Sperrlogik vorgesehen: Premium-Racks werden geladen, aber markiert.
@@ -344,11 +344,11 @@ export function validateRackDraft(rack, filename = 'rack.json') {
 // (doppeltes Netz gegen Path-Traversal, unabhaengig von validateRack).
 function rackFilenameFor(id) {
   if (typeof id !== 'string' || !ID_RE.test(id)) {
-    throw new RackError(`Rack-id ungueltig: ${JSON.stringify(id)}`);
+    throw new RackError(`Rack-id ungültig: ${JSON.stringify(id)}`);
   }
   const file = `${id}.rack.json`;
   if (!RACK_FILE_RE.test(file)) {
-    throw new RackError(`Rack-id ergibt keinen gueltigen Dateinamen: ${id}`);
+    throw new RackError(`Rack-id ergibt keinen gültigen Dateinamen: ${id}`);
   }
   return file;
 }
@@ -399,7 +399,7 @@ export async function createRack(rack) {
     // id im Inhalt MUSS zur Datei passen - sonst laedt die Datei spaeter unter
     // falschem Namen und das Rack verschwindet still aus dem Cache.
     if (clean.id !== id) {
-      throw new RackError('id im Inhalt stimmt nicht mit der Rack-id ueberein');
+      throw new RackError('id im Inhalt stimmt nicht mit der Rack-id überein');
     }
     await writeRackFile(id, clean);
     await loadRacks(); // Cache sofort synchronisieren
@@ -416,7 +416,7 @@ export async function updateRack(id, rack) {
   }
   const { rack: clean, warnings } = validateRackDraft(rack, `${id}.rack.json`);
   if (clean.id !== id) {
-    throw new RackError('Die id eines Racks ist unveraenderlich und darf nicht geaendert werden');
+    throw new RackError('Die id eines Racks ist unveränderlich und darf nicht geändert werden');
   }
   await writeRackFile(id, clean);
   await loadRacks();

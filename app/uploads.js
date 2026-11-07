@@ -128,7 +128,7 @@ async function writeMetadata(id, data) {
 
 export async function readUpload(id) {
   if (!/^[a-f0-9-]{36}$/i.test(String(id ?? ''))) {
-    throw new UploadError('Ungueltige Upload-ID');
+    throw new UploadError('Ungültige Upload-ID');
   }
   let meta;
   try {
@@ -168,7 +168,7 @@ export async function deleteUpload(id) {
     // Metadaten sagen etwas anderes als der Upload-Ordner: nicht loeschen,
     // sondern die Metadaten selbst wegraeumen und den Fall protokollieren.
     console.error(
-      `[uploads] Loeschpfad ausserhalb von ${UPLOADS_DIR} (${String(meta.path)}) - `
+      `[uploads] Löschpfad außerhalb von ${UPLOADS_DIR} (${String(meta.path)}) - `
         + 'Datei bleibt liegen, nur die Metadaten werden entfernt.',
     );
     await rm(metaPath(id), { force: true });
@@ -198,7 +198,7 @@ export async function registerUpload(file, user, rack = null) {
     check = await validatePackArchive(archivePath, rack);
   } catch (err) {
     await rm(archivePath, { force: true });
-    throw new UploadError(`Archiv ungueltig: ${err.message}`);
+    throw new UploadError(`Archiv ungültig: ${err.message}`);
   }
 
   if (!check.ok) {

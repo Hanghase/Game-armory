@@ -35,7 +35,7 @@ export const PERMISSIONS = [
   // Sword-Lebenszyklus
   { perm: 'sword.upload',           label: 'Sword-Dateien hochladen',    group: 'Sword-Lebenszyklus' },
   { perm: 'sword.create',           label: 'Sword installieren',         group: 'Sword-Lebenszyklus' },
-  { perm: 'sword.delete',           label: 'Sword loeschen',            group: 'Sword-Lebenszyklus' },
+  { perm: 'sword.delete',           label: 'Sword löschen',            group: 'Sword-Lebenszyklus' },
   { perm: 'sword.update',           label: 'Sword aktualisieren',       group: 'Sword-Lebenszyklus' },
   { perm: 'sword.eula',             label: 'EULA akzeptieren',          group: 'Sword-Lebenszyklus' },
   { perm: 'sword.restart_marker',   label: 'Neustart-Merker setzen',    group: 'Sword-Lebenszyklus' },
@@ -46,7 +46,7 @@ export const PERMISSIONS = [
   // am Anlegen-Recht - wer anlegen durfte, konnte auch bestehende Racks umbiegen
   // (root, startScript). Seit 2026-10-22 getrennt.
   { perm: 'rack.edit',              label: 'Racks bearbeiten',          group: 'Racks' },
-  { perm: 'rack.delete',            label: 'Racks loeschen',            group: 'Racks' },
+  { perm: 'rack.delete',            label: 'Racks löschen',            group: 'Racks' },
   { perm: 'rack.sidebar.write',     label: 'Sidebar-Racks bearbeiten',  group: 'Racks' },
   { perm: 'rack.reload',            label: 'Racks neu laden',           group: 'Racks' },
   // Einstellungen/System
@@ -62,8 +62,8 @@ export const PERMISSIONS = [
   // Nutzer
   { perm: 'user.read',              label: 'Nutzer lesen',              group: 'Nutzer' },
   { perm: 'user.create',            label: 'Nutzer anlegen',            group: 'Nutzer' },
-  { perm: 'user.delete',            label: 'Nutzer loeschen',           group: 'Nutzer' },
-  { perm: 'user.role',              label: 'Rolle aendern',             group: 'Nutzer' },
+  { perm: 'user.delete',            label: 'Nutzer löschen',           group: 'Nutzer' },
+  { perm: 'user.role',              label: 'Rolle ändern',             group: 'Nutzer' },
   { perm: 'user.password',          label: 'Passwort setzen',           group: 'Nutzer' },
   { perm: 'user.email',             label: 'E-Mail hinterlegen',        group: 'Nutzer' },
 ];
@@ -208,7 +208,7 @@ export function loadPermissions() {
   if (typeof dbVersion === 'number' && dbVersion > PERMISSIONS_SEED_VERSION) {
     console.error(
       `[permissions] Datenbank hat Seed-Version ${dbVersion}, der Code kennt nur `
-        + `${PERMISSIONS_SEED_VERSION}. Die Rechte-Matrix wird NICHT zurueckgebaut - `
+        + `${PERMISSIONS_SEED_VERSION}. Die Rechte-Matrix wird NICHT zurückgebaut - `
         + 'bitte die neuere Armory-Version verwenden.',
     );
     loaded = true;
@@ -308,7 +308,7 @@ export function isRoleEditable(role) {
 export function setPermission(role, perm, allowed) {
   ensureLoaded();
   if (!ROLES.includes(role)) throw new Error(`Unbekannte Rolle: ${role}`);
-  if (FIXED_ROLES.has(role)) throw new Error(`Rolle "${role}" ist fix und darf nicht geaendert werden`);
+  if (FIXED_ROLES.has(role)) throw new Error(`Rolle "${role}" ist fix und darf nicht geändert werden`);
   if (!PERM_SET.has(perm)) throw new Error(`Unbekanntes Recht: ${perm}`);
   if (!isRoleEditable(role)) throw new Error(`Rolle "${role}" ist nicht editierbar`);
 

@@ -190,7 +190,7 @@ export function resolveConfigPath(workingDir, configFile) {
     throw new ConfigEditorError('workingDir und configFile erforderlich');
   }
   if (configFile.startsWith('/') || configFile.includes('..')) {
-    throw new ConfigEditorError(`Ungueltiger configFile-Pfad: ${configFile}`);
+    throw new ConfigEditorError(`Ungültiger configFile-Pfad: ${configFile}`);
   }
   const full = resolve(join(workingDir, configFile));
   if (!full.startsWith(resolve(workingDir) + '/')) {
@@ -299,7 +299,7 @@ export function applyProperties(text, values) {
 // Liefert Felddefinitionen + aktuelle Werte fuer eine Instanz.
 export async function readConfig({ game, workingDir, configFile }) {
   const spec = FIELDS_BY_GAME[game];
-  if (!spec) throw new ConfigEditorError(`Kein Config-Editor fuer Spiel: ${game}`);
+  if (!spec) throw new ConfigEditorError(`Kein Config-Editor für Spiel: ${game}`);
   const path = resolveConfigPath(workingDir, configFile);
   let raw;
   try {
@@ -321,14 +321,14 @@ export async function readConfig({ game, workingDir, configFile }) {
 // Schreibt geaenderte Werte; legt vorher ein Backup an.
 export async function writeConfig({ id, game, workingDir, configFile, values, backup = true }) {
   const spec = FIELDS_BY_GAME[game];
-  if (!spec) throw new ConfigEditorError(`Kein Config-Editor fuer Spiel: ${game}`);
+  if (!spec) throw new ConfigEditorError(`Kein Config-Editor für Spiel: ${game}`);
   if (values === null || typeof values !== 'object') {
     throw new ConfigEditorError('values muss ein Objekt sein');
   }
   // Der Helfer validiert die ID streng (^[a-z0-9][a-z0-9_-]{1,31}$). Ohne ID
   // kann er Besitzer/Gruppe nicht korrekt setzen - daher Pflicht.
   if (!id || !/^[a-z0-9][a-z0-9_-]{1,31}$/.test(id)) {
-    throw new ConfigEditorError(`Ungueltige bzw. fehlende Sword-ID fuer Config-Schreibzugriff: ${id}`);
+    throw new ConfigEditorError(`Ungültige bzw. fehlende Sword-ID für Config-Schreibzugriff: ${id}`);
   }
   const path = resolveConfigPath(workingDir, configFile);
   let raw;
@@ -347,7 +347,7 @@ export async function writeConfig({ id, game, workingDir, configFile, values, ba
     clean[k] = String(v);
   }
   if (Object.keys(clean).length === 0) {
-    throw new ConfigEditorError('Keine bekannten Felder zum Speichern uebergeben');
+    throw new ConfigEditorError('Keine bekannten Felder zum Speichern übergeben');
   }
 
   let backupPath = null;
@@ -388,7 +388,7 @@ export async function writeConfig({ id, game, workingDir, configFile, values, ba
 
 export function getEditorFields(game) {
   const spec = FIELDS_BY_GAME[game];
-  if (!spec) throw new ConfigEditorError(`Kein Config-Editor fuer Spiel: ${game}`);
+  if (!spec) throw new ConfigEditorError(`Kein Config-Editor für Spiel: ${game}`);
   return spec.fields;
 }
 

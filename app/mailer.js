@@ -49,7 +49,7 @@ export function isMailReady() {
 // Baut einen Transport. Wirft MailError, wenn die Konfiguration unvollstaendig ist.
 function buildTransport(cfg) {
   if (!cfg.host) throw new MailError('SMTP-Server ist nicht gesetzt.', 'ENOCONFIG');
-  if (!Number.isFinite(cfg.port)) throw new MailError('SMTP-Port ist ungueltig.', 'ENOCONFIG');
+  if (!Number.isFinite(cfg.port)) throw new MailError('SMTP-Port ist ungültig.', 'ENOCONFIG');
   if (!cfg.fromAddress) throw new MailError('Absenderadresse ist nicht gesetzt.', 'ENOCONFIG');
   const auth = cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined;
   return nodemailer.createTransport({
@@ -89,7 +89,7 @@ function friendlyError(err) {
 export async function sendMail({ to, subject, text, html }) {
   const cfg = getMailConfig();
   const transport = buildTransport(cfg);
-  if (!to) throw new MailError('Kein Empfaenger angegeben.', 'ENOTRECIPIENT');
+  if (!to) throw new MailError('Kein Empfänger angegeben.', 'ENOTRECIPIENT');
   try {
     const info = await transport.sendMail({
       from: cfg.fromName ? `"${cfg.fromName}" <${cfg.fromAddress}>` : cfg.fromAddress,
@@ -112,7 +112,7 @@ export async function sendTestMail(to) {
   const cfg = getMailConfig();
   const subject = 'Game-Armory: Testmail';
   const text = [
-    'Diese Testmail bestaetigt, dass der SMTP-Versand deiner Game-Armory funktioniert.',
+    'Diese Testmail bestätigt, dass der SMTP-Versand deiner Game-Armory funktioniert.',
     '',
     `Server:   ${cfg.host}:${cfg.port} (${cfg.secure ? 'TLS' : 'STARTTLS'})`,
     `Absender: ${cfg.fromAddress}`,
@@ -129,12 +129,12 @@ export async function sendTestMail(to) {
 }
 
 export async function sendPasswordResetMail(to, link, username, expiresMinutes) {
-  const subject = 'Game-Armory: Passwort zuruecksetzen';
+  const subject = 'Game-Armory: Passwort zurücksetzen';
   const text = [
     `Hallo ${username},`,
     '',
-    'fuer deinen Game-Armory-Zugang wurde ein Passwort-Reset angefordert.',
-    `Oeffne dazu diesen Link (gueltig ${expiresMinutes} Minuten, einmalig):`,
+    'für deinen Game-Armory-Zugang wurde ein Passwort-Reset angefordert.',
+    `Öffne dazu diesen Link (gültig ${expiresMinutes} Minuten, einmalig):`,
     '',
     link,
     '',
@@ -154,7 +154,7 @@ export async function sendInviteMail(to, link, username, roleLabel) {
     `Hallo ${username},`,
     '',
     `du wurdest zur Game-Armory eingeladen (Rolle: ${roleLabel}).`,
-    `Setze dein Passwort ueber diesen Link (gueltig 60 Minuten, einmalig):`,
+    `Setze dein Passwort über diesen Link (gültig 60 Minuten, einmalig):`,
     '',
     link,
   ].join('\n');

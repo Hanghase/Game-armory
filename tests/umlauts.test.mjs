@@ -111,14 +111,103 @@ test('app.html: sichtbare Texte benutzen Umlaute, keine ae/oe/ue-Ersatzformen', 
     + treffer.join('\n'));
 });
 
-test('Die Dateien sind UTF-8 dekodierbar (keine kaputten Sequenzen)', async () => {
-  for (const name of ['app.js', 'app.html']) {
+// Die drei Seiten abseits des Hauptpanels wurden in 1.3.5 VERGESSEN - der Test
+// deckte nur app.js und app.html ab, und prompt stand in login.js noch
+// "E-Mail-Adresse fuer den Reset-Link" und in reset.js "Kein gueltiger Link",
+// "Die Passwoerter stimmen nicht ueberein", "Zurueck zum Login".
+// Deshalb hier alle vier Dateien nacheinander, mit derselben Pruefung.
+for (const [datei, sichtbar] of [
+  ['login.js', jsSichtbarerText],
+  ['login.html', htmlSichtbarerText],
+  ['reset.js', jsSichtbarerText],
+  ['reset.html', htmlSichtbarerText],
+]) {
+  test(`${datei}: sichtbare Texte benutzen Umlaute`, async () => {
+    const q = await readFile(new URL(`../public/${datei}`, import.meta.url), 'utf8');
+    const treffer = findeVerstoesse(q, sichtbar);
+    assert.deepEqual(treffer, [],
+      `In sichtbaren Texten von ${datei} stehen ASCII-Ersatzformen statt Umlauten:\n`
+      + treffer.join('\n'));
+  });
+}
+
+test('Alle vier Frontend-Dateien sind sauber UTF-8', async () => {
+  for (const name of ['app.js', 'app.html', 'login.js', 'login.html', 'reset.js', 'reset.html']) {
     const buf = await readFile(new URL(`../public/${name}`, import.meta.url));
     const alsUtf8 = buf.toString('utf8');
     assert.equal(alsUtf8.includes('\uFFFD'), false,
       `${name} enthaelt Ersatzzeichen (U+FFFD) - die Datei ist nicht sauber UTF-8`);
-    // Doppelkodierung: "Ã¤" statt "ä"
     assert.equal(/Ã[¤¶¼Ÿ]/.test(alsUtf8), false,
       `${name} enthaelt doppelt kodierte Umlaute (z.B. "Ã¤" statt "ä")`);
   }
+});
+
+// --- Backend-Meldungen --------------------------------------------------------
+//
+// Die Meldungen aus app/*.js landen im Panel (error-JSON) oder im Live-Log
+// (log('[praefix] ...')). Sie sind also sichtbar - und standen am 2026-11-07
+// noch in 20 Dateien mit ae/oe/ue ("Ungueltige E-Mail-Adresse",
+// "Der letzte Superuser kann nicht geloescht werden", "Eintraege ersetzt").
+//
+// Geprueft werden nur String-Literale. Kommentare (// * /*) bleiben ASCII.
+// Ausgenommen sind ausserdem Bezeichner-artige Werte (Pfade, Keys, true/false)
+// - erkennbar daran, dass sie kuerzer als 8 Zeichen sind oder nur aus
+// [a-z0-9_.-/] bestehen.
+
+const BACKEND_VERDACHT = [
+  'Ungueltig', 'ungueltig', 'gueltig', 'Empfaenger', 'Pruefung', 'pruefung',
+  'uebergeben', 'uebernommen', 'uebersprungen', 'Aufraeumen', 'aufgeraeumt',
+  'Geschuetz', 'geschuetz', 'Eintraege', 'enthaelt', 'Enthaelt',
+  'unveraendert', 'unveraenderlich', 'geaendert', 'aendern', 'aendert',
+  'geloescht', 'Geloescht', 'loeschen', 'Loesch', 'bestaetigt', 'geprueft',
+  'Geprueft', 'pruefen', 'laeuft', 'Laeuft', 'verfuegbar', 'zurueck',
+  'noetig', 'ausgefuehrt', 'Eigentuemer', 'waere', 'koennen', 'koennte',
+  'moeglich', 'spaeter', 'ausserhalb', 'Schluessel', 'Zeilenumbrueche',
+];
+
+function backendVerstoesse(quelle) {
+  const treffer = [];
+  let imBlock = false;
+  const STR = /(['"`])((?:\\.|(?!\1)[^\\])*)\1/g;
+  quelle.split('\n').forEach((zeile, i) => {
+    const s = zeile.trim();
+    if (!imBlock && (s.startsWith('/*') || s.startsWith('<!--'))) {
+      imBlock = !(s.includes('*/') || s.includes('-->'));
+      return;
+    }
+    if (imBlock) {
+      if (s.includes('*/') || s.includes('-->')) imBlock = false;
+      return;
+    }
+    if (s.startsWith('//') || s.startsWith('*')) return;
+    let m;
+    STR.lastIndex = 0;
+    while ((m = STR.exec(zeile)) !== null) {
+      const txt = m[2];
+      if (txt.length < 8) continue;
+      if (/^[a-z0-9_.\-/]+$/.test(txt)) continue;   // Pfad, Key, Bezeichner
+      for (const wort of BACKEND_VERDACHT) {
+        if (txt.includes(wort)) {
+          treffer.push(`${i + 1}: "${wort}" in: ${txt.slice(0, 90)}`);
+          break;
+        }
+      }
+    }
+  });
+  return treffer;
+}
+
+import { readdir } from 'node:fs/promises';
+
+test('app/*.js: Meldungen und Log-Zeilen benutzen Umlaute', async () => {
+  const dir = new URL('../app/', import.meta.url);
+  const dateien = (await readdir(dir)).filter((n) => n.endsWith('.js')).sort();
+  const alle = [];
+  for (const name of dateien) {
+    const q = await readFile(new URL(name, dir), 'utf8');
+    for (const t of backendVerstoesse(q)) alle.push(`${name}:${t}`);
+  }
+  assert.deepEqual(alle, [],
+    'In Meldungen/Log-Zeilen des Backends stehen ASCII-Ersatzformen statt '
+    + 'Umlauten:\n' + alle.join('\n'));
 });

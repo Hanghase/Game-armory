@@ -24,14 +24,14 @@
 
     if (!token) {
       formEl.classList.add('hidden');
-      subtitleEl.textContent = 'Kein gueltiger Link';
+      subtitleEl.textContent = 'Kein gültiger Link';
       setMsg('Diesem Link fehlt der Token. Bitte fordere eine neue E-Mail an.', 'err');
-      noteEl.innerHTML = '<a href="/login">Zurueck zum Login</a>';
+      noteEl.innerHTML = '<a href="/login">Zurück zum Login</a>';
     } else if (isInvite) {
       subtitleEl.textContent = 'Willkommen — Passwort setzen';
-      noteEl.textContent = 'Setze jetzt dein Passwort, um die Einladung abzuschliessen.';
+      noteEl.textContent = 'Setze jetzt dein Passwort, um die Einladung abzuschließen.';
     } else {
-      noteEl.textContent = 'Der Link ist 60 Minuten gueltig und nur einmal verwendbar.';
+      noteEl.textContent = 'Der Link ist 60 Minuten gültig und nur einmal verwendbar.';
     }
 
     formEl.addEventListener('submit', async (e) => {
@@ -40,7 +40,7 @@
       const p1 = document.getElementById('password').value;
       const p2 = document.getElementById('password2').value;
       if (p1.length < 8) return setMsg('Das Passwort braucht mindestens 8 Zeichen.', 'err');
-      if (p1 !== p2) return setMsg('Die Passwoerter stimmen nicht ueberein.', 'err');
+      if (p1 !== p2) return setMsg('Die Passwörter stimmen nicht überein.', 'err');
 
       submitBtn.disabled = true;
       setMsg('…');
@@ -57,7 +57,7 @@
         submitBtn.disabled = true;
         noteEl.innerHTML = '<a href="/login">Jetzt einloggen</a>';
       } else {
-        setMsg(data?.error ?? 'Der Link ist ungueltig oder abgelaufen.', 'err');
+        setMsg(data?.error ?? 'Der Link ist ungültig oder abgelaufen.', 'err');
       }
     });
 

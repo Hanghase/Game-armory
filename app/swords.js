@@ -64,7 +64,7 @@ function validateSword(sword, filename, warnings) {
   if (typeof sword.installedVersion !== 'string' || sword.installedVersion.trim() === '') {
     throw new Error(
       `Sword ${filename}: installedVersion fehlt - automatisch nicht ermittelbar, `
-      + 'bitte im Panel ueber "Version eintragen" nachtragen.',
+      + 'bitte im Panel über "Version eintragen" nachtragen.',
     );
   }
 
@@ -135,7 +135,7 @@ export async function loadSwords() {
       const rack = getRack(sword.rack);
       sword.game = rack?.game ?? 'minecraft';
       if (!rack) {
-        fileWarnings.push(`kein Rack "${sword.rack}" gefunden - game faellt auf 'minecraft' zurueck`);
+        fileWarnings.push(`kein Rack "${sword.rack}" gefunden - game faellt auf 'minecraft' zurück`);
       }
       // EULA-Schritt aus dem Rack ableiten (einheitliche Quelle). So weiss
       // das Frontend pro Sword, ob der EULA-Button ueberhaupt sinnvoll ist.

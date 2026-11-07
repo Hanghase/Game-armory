@@ -107,7 +107,7 @@ export async function createBackup(workingDir, { id, paths = [], log = () => {},
     if (await pathExists(join(workingDir, p))) present.push(p);
   }
   if (present.length === 0) {
-    log('[backup] Keine der angegebenen Pfade vorhanden - Backup uebersprungen.');
+    log('[backup] Keine der angegebenen Pfade vorhanden - Backup übersprungen.');
     return { created: false, file: null, included: [] };
   }
   if (!id) throw new UpdaterError('createBackup braucht die Instanz-id (Rechte des Server-Users).');
@@ -136,7 +136,7 @@ async function pruneBackups(backupDir, { id, keepGenerations, label, log }) {
   if (!id) throw new UpdaterError('pruneBackups braucht die Instanz-id.');
   const res = await runHelper('prune-backups', [backupDir, label, String(Math.max(0, keepGenerations))], { log });
   if (!res.ok) {
-    log(`[backup] Warnung: Aufraeumen fehlgeschlagen: ${res.stderr || res.error}`);
+    log(`[backup] Warnung: Aufräumen fehlgeschlagen: ${res.stderr || res.error}`);
     return;
   }
   const out = String(res.stdout).trim();
@@ -226,13 +226,13 @@ export async function ensureNeoforgePresent(sword, workingDir, { log = () => {} 
   const startScript = sword.startScript || 'startserver.sh';
   const required = await detectRequiredNeoforgeVersion(join(workingDir, startScript));
   if (!required) {
-    log('[update] Keine NEOFORGE_VERSION im Startskript - Neoforge-Aufbau uebersprungen.');
+    log('[update] Keine NEOFORGE_VERSION im Startskript - Neoforge-Aufbau übersprungen.');
     return { required: null, installed: null, action: 'skipped' };
   }
   const installed = await detectInstalledNeoforgeVersion(workingDir);
   const versionDir = join(workingDir, 'libraries', 'net', 'neoforged', 'neoforge', required);
   if (await pathExists(versionDir)) {
-    log(`[update] Neoforge ${required} liegt bereits in libraries/ - kein Neuaufbau noetig.`);
+    log(`[update] Neoforge ${required} liegt bereits in libraries/ - kein Neuaufbau nötig.`);
     return { required, installed, action: 'ok' };
   }
   // Version fehlt. Ist ein Installer im Ziel, den startserver.sh nutzen kann?
@@ -241,7 +241,7 @@ export async function ensureNeoforgePresent(sword, workingDir, { log = () => {} 
   if (!hasInstaller) {
     throw new UpdaterError(
       `Neoforge ${required} fehlt in libraries/ und im Instanzordner liegt kein ` +
-      `neoforge-*-installer.jar - startserver.sh koennte nichts installieren. ` +
+      `neoforge-*-installer.jar - startserver.sh könnte nichts installieren. ` +
       `Update abgebrochen (statt toten Server zu starten). Pruefe das Pack-ZIP.`
     );
   }
@@ -259,11 +259,11 @@ export async function checkNeoforgeVersion(workingDir, zipLibPaths, { log = () =
   const installed = await detectInstalledNeoforgeVersion(workingDir);
   const changed = Boolean(packVersion && installed && packVersion !== installed);
   if (changed) {
-    log(`[update] Neoforge-Version aendert sich: ${installed} -> ${packVersion}`);
+    log(`[update] Neoforge-Version ändert sich: ${installed} -> ${packVersion}`);
   } else if (packVersion) {
-    log(`[update] Neoforge-Version unveraendert: ${installed ?? packVersion}`);
+    log(`[update] Neoforge-Version unverändert: ${installed ?? packVersion}`);
   } else {
-    log('[update] Keine Neoforge-Version im ZIP gefunden - Check uebersprungen.');
+    log('[update] Keine Neoforge-Version im ZIP gefunden - Check übersprungen.');
   }
   return { packVersion, installed, changed };
 }
@@ -330,7 +330,7 @@ async function waitForInactive(service, { timeoutMs = 60_000, pollMs = 2000, log
     if (!st.running) return true;
     await new Promise((r) => setTimeout(r, pollMs));
   }
-  log('[update] Timeout: Service laeuft noch.');
+  log('[update] Timeout: Service läuft noch.');
   return false;
 }
 
@@ -427,11 +427,11 @@ async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, 
     // Jetzt nennt die message den Start mit; error bleibt null, weil das UPDATE
     // selbst durchgelaufen ist. Ein API-Aufrufer sieht am Text, was los ist.
     if (!result.started) {
-      setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber Serverstart FEHLGESCHLAGEN - bitte Log pruefen.', finishedAt: Date.now(), error: null, result: summary });
+      setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber Serverstart FEHLGESCHLAGEN - bitte Log prüfen.', finishedAt: Date.now(), error: null, result: summary });
     } else if (done.ok) {
       setState(swordId, { phase: 'done', progress: 100, message: 'Update erfolgreich abgeschlossen', finishedAt: Date.now(), error: null, result: summary });
     } else {
-      setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber kein Start-Marker im Log bestaetigt (Timeout 180s).', finishedAt: Date.now(), error: null, result: summary });
+      setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber kein Start-Marker im Log bestätigt (Timeout 180s).', finishedAt: Date.now(), error: null, result: summary });
     }
 
     // 8) Version im Sword fortschreiben (Spec 2026-10-10): nach einem Update
@@ -474,7 +474,7 @@ async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, 
         await setInstalledVersion(swordId, { version, source: versionSource, by: null });
         log(`[update] Version im Sword aktualisiert: ${version} (${versionSource})`);
       } else {
-        log('[update] Keine neue Version ermittelbar - Sword-Version bleibt unveraendert.');
+        log('[update] Keine neue Version ermittelbar - Sword-Version bleibt unverändert.');
       }
     } catch (err) {
       log(`[update] Warnung: Sword-Version konnte nicht fortgeschrieben werden: ${err.message}`);
@@ -628,11 +628,11 @@ export async function updateFromSteam(sword, { onLog = () => {}, keepConfigs } =
     } catch (err) {
       // Den Grund mitgeben, damit das Panel ihn nennen kann statt zu raten.
       result.backupError = err.message;
-      log(`[steam] Warnung: Backup fehlgeschlagen (${err.message}) - Update laeuft weiter, validate aendert keine Spieldaten.`);
+      log(`[steam] Warnung: Backup fehlgeschlagen (${err.message}) - Update läuft weiter, validate ändert keine Spieldaten.`);
     }
 
     // 3) SteamCMD app_update validate - derselbe Helfer-Step wie beim Erstinstall.
-    setState(swordId, { phase: 'applying', progress: 45, message: 'Steam prueft und aktualisiert' });
+    setState(swordId, { phase: 'applying', progress: 45, message: 'Steam prüft und aktualisiert' });
     // WICHTIG (Bugfix 2026-10-31): Der Helfer gibt VOR dem Steam-Lauf den
     // GANZEN Install-Ordner dem steam-User (chown -R). Bleibt das zurueck, kann
     // der Instanz-User seine eigenen Configs nicht mehr lesen - live erlebt:
@@ -645,7 +645,7 @@ export async function updateFromSteam(sword, { onLog = () => {}, keepConfigs } =
     // 4) Rechte zurueck auf den Instanz-User (SteamCMD hat als steam-User geschrieben).
     const own = await runHelper('chown-tree', [swordId, workingDir], { log });
     if (!own.ok) {
-      log(`[steam] WARNUNG: Rechte auf ${workingDir} konnten nicht zurueckgesetzt werden: ${own.stderr || own.error}`);
+      log(`[steam] WARNUNG: Rechte auf ${workingDir} konnten nicht zurückgesetzt werden: ${own.stderr || own.error}`);
     }
 
     // Erst NACH dem Rechte-Ruecksetz bewerten, ob der Steam-Lauf erfolgreich war.
@@ -666,7 +666,7 @@ export async function updateFromSteam(sword, { onLog = () => {}, keepConfigs } =
     result.buildAfter = await readBuild();
     result.changed = Boolean(result.buildBefore && result.buildAfter && result.buildBefore !== result.buildAfter);
     if (result.buildBefore && result.buildAfter && result.buildBefore === result.buildAfter) {
-      log(`[steam] Build unveraendert (${result.buildAfter}) - App war bereits aktuell.`);
+      log(`[steam] Build unverändert (${result.buildAfter}) - App war bereits aktuell.`);
     } else if (result.buildAfter) {
       log(`[steam] Build ${result.buildBefore ?? '?'} -> ${result.buildAfter}`);
     }

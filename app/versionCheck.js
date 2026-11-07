@@ -26,7 +26,7 @@ export const CHECK_TIMEOUT_MS = 20_000;
 function withTimeout(promise, ms = CHECK_TIMEOUT_MS) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Zeitueberschreitung')), ms).unref?.()),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Zeitüberschreitung')), ms).unref?.()),
   ]);
 }
 
@@ -119,7 +119,7 @@ export async function checkSteam({ appId, appmanifestPath }) {
     return {
       state: 'unknown',
       reason: r.version_is_listable === false
-        ? 'Steam gibt dieses App nicht fuer Abfragen frei (version_is_listable=false)'
+        ? 'Steam gibt dieses App nicht für Abfragen frei (version_is_listable=false)'
         : 'Steam liefert keinen Ziel-Build',
       installed: `steam build ${localBuild}`,
       source: 'steam-uptodate',
@@ -201,7 +201,7 @@ export async function checkGithub({ repo, installed }) {
       return { state: 'unknown', reason: 'Repository nicht oeffentlich lesbar (privat oder falscher Name)', installed: installed ?? null };
     }
     if (msg.includes('HTTP 403')) {
-      return { state: 'unknown', reason: 'GitHub-Rate-Limit erreicht - spaeter erneut pruefen', installed: installed ?? null };
+      return { state: 'unknown', reason: 'GitHub-Rate-Limit erreicht - später erneut prüfen', installed: installed ?? null };
     }
     return { state: 'unknown', reason: `GitHub nicht erreichbar: ${msg}`, installed: installed ?? null };
   }

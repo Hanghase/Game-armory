@@ -89,7 +89,7 @@ async function cleanupTmpFiles() {
     );
   } catch (err) {
     if (err.code !== 'ENOENT') {
-      console.error(`[pendingRestart] Aufraeumen der Temp-Reste fehlgeschlagen: ${err.message}`);
+      console.error(`[pendingRestart] Aufräumen der Temp-Reste fehlgeschlagen: ${err.message}`);
     }
   }
 }
@@ -160,7 +160,7 @@ export async function getPendingRestart(id) {
 
 // Setzt den Merker. by = wer die Config gespeichert hat (fuer die Anzeige).
 export async function setPendingRestart(id, by = null) {
-  if (!isValidId(id)) throw new Error(`Ungueltige Sword-ID fuer Neustart-Merker: ${id}`);
+  if (!isValidId(id)) throw new Error(`Ungültige Sword-ID für Neustart-Merker: ${id}`);
   return mutate((state) => {
     state[id] = { since: Date.now(), by: typeof by === 'string' ? by : null };
     return state[id];
