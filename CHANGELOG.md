@@ -3,6 +3,38 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.4] - 2026-11-07
+
+### Behoben
+
+- **Der Update-Dialog sagte zwei gegensaetzliche Dinge zum Server-Neustart.**
+  Im Hinweis unter dem Upload-Tab stand "gestoppt und danach **nicht**
+  automatisch gestartet", in der Warnung darueber und im Preflight aber
+  "startet ihn danach wieder". Der Code hat recht: `runUpdate` startet immer
+  neu (`app/updater.js:401`, Phase `starting`, `serviceAction(service, 'start')`)
+  und wartet auf den Done-Marker. Live belegt am 2026-11-07: atm11 lief nach
+  dem Update auf 0.14.0-beta. Der falsche Satz ist ersetzt.
+- **Die Karte zeigte nach einem Update den Stand von vorher.** `finishProgress()`
+  lud die Sword-Liste nicht neu; `upSword` wird beim Oeffnen des Dialogs
+  eingefroren (`app.js:1808`) und blieb stehen, bis die Seite neu geladen wurde.
+  Jetzt ruft `finishProgress()` nach einem erfolgreichen Update
+  `scheduleSwordsRefresh(200)`.
+- **Der Abschluss-Toast war irrefuehrend.** Er sagte "Server ggf. neu starten",
+  obwohl `runUpdate` das selbst tut. Jetzt meldet er schlicht "Update
+  abgeschlossen" - und wenn der Server nicht hochkam, sagt er das statt es zu
+  vermuten (`result.started === false`).
+- **Sichtbare Texte im Panel benutzten ae/oe/ue statt Umlaute.** Betroffen waren
+  Stellen wie "Neoforge-Version pruefen", "Server laeuft", "Eintraege",
+  "behalten/geschuetzt", "aus dem Pack uebernommen", "unveraendert",
+  "drueckt" und "Spaeter". Kommentare im Code bleiben bewusst ASCII.
+
+### Absicherung
+
+- `tests/updateDialog.test.mjs` haelt beides fest: der Dialog darf nicht
+  behaupten, der Server bleibe aus, und `finishProgress()` muss die Karte
+  auffrischen. Mutationsgeprueft - den falschen Satz zurueckholen bzw.
+  `scheduleSwordsRefresh` entfernen macht genau einen Test rot.
+
 ## [1.3.3] - 2026-11-07
 
 ### Behoben

@@ -1741,7 +1741,18 @@
       bar.style.background = st.error ? 'var(--red)' : 'var(--green)';
       if (!st.error) bar.style.width = '100%';
       document.getElementById('upProgressClose').disabled = false;
-      if (upMode === 'update' && !st.error) toast('Update abgeschlossen. Server ggf. neu starten.');
+      // Der Toast sagte "Server ggf. neu starten" - das ist irrefuehrend: runUpdate
+      // startet den Server selbst neu (updater.js:401, Phase 'starting') und wartet
+      // auf den Done-Marker. Ob er hochkam, steht in st.result.started; das zeigt
+      // renderUpdateResult() gleich darunter. Und die Karte hinter dem Dialog muss
+      // den neuen Stand zeigen: upSword wird beim Oeffnen eingefroren (2026-11-07
+      // live gemeldet - nach dem Update stand dort noch die alte Version).
+      if (upMode === 'update' && !st.error) {
+        toast(st.result && st.result.started === false
+          ? 'Update abgeschlossen - Server startet nicht, siehe Ergebnis.'
+          : 'Update abgeschlossen.');
+        scheduleSwordsRefresh(200);
+      }
 
       // Wizard Stufe 2: Ergebnis zeigen statt nur "fertig" melden.
       // Wo liegt das Backup? Kam der Server hoch? Das sind die zwei Fragen,
@@ -1781,17 +1792,17 @@
         const rep = Array.isArray(result.pack.replaced) ? result.pack.replaced.length : null;
         const skip = Array.isArray(result.pack.skipped) ? result.pack.skipped.length : null;
         if (rep !== null) {
-          rows.push(`<div class="meta">Ersetzt: <b>${esc(String(rep))}</b> Eintraege`
-            + (skip !== null ? `, behalten/geschuetzt: <b>${esc(String(skip))}</b>` : '')
+          rows.push(`<div class="meta">Ersetzt: <b>${esc(String(rep))}</b> Einträge`
+            + (skip !== null ? `, behalten/geschützt: <b>${esc(String(skip))}</b>` : '')
             + '</div>');
         }
       }
       if (result.started === false) {
-        rows.push('<div class="meta" style="color:var(--red);">Server wurde NICHT gestartet - bitte Log pruefen.</div>');
+        rows.push('<div class="meta" style="color:var(--red);">Server wurde NICHT gestartet - bitte Log prüfen.</div>');
       } else if (result.doneSeen === false) {
-        rows.push('<div class="meta" style="color:var(--yellow);">Server gestartet, aber kein "Done (" innerhalb von 3 Min. - Log pruefen.</div>');
+        rows.push('<div class="meta" style="color:var(--yellow);">Server gestartet, aber kein "Done (" innerhalb von 3 Min. - Log prüfen.</div>');
       } else if (result.started) {
-        rows.push('<div class="meta" style="color:var(--green);">Server laeuft ("Done (" gesehen).</div>');
+        rows.push('<div class="meta" style="color:var(--green);">Server läuft ("Done (" gesehen).</div>');
       }
       if (st.error) {
         rows.push(`<div class="meta" style="color:var(--red);">Fehler: ${esc(st.error)}</div>`);
@@ -1868,14 +1879,14 @@
         'Server stoppen und warten, bis er wirklich aus ist',
         'Backup nach <code class="pathhint">backups/</code> (nur bei gestopptem Server - sonst kein konsistenter Schnitt)',
         'ZIP entpacken und Inhalte ersetzen',
-        'Neoforge-Version pruefen, ggf. <code class="pathhint">libraries/</code> neu aufbauen',
+        'Neoforge-Version prüfen, ggf. <code class="pathhint">libraries/</code> neu aufbauen',
         'Server starten und auf <code>Done (</code> warten (max. 3 Min.)',
       ];
       const keepLine = keep
         ? `Behalten: <code class="pathhint">${esc(keep.join('</code>, <code class="pathhint">'))}</code>`
-        : 'Es wird <b>alles</b> aus dem Pack uebernommen (keine Ausnahmen konfiguriert).';
+        : 'Es wird <b>alles</b> aus dem Pack übernommen (keine Ausnahmen konfiguriert).';
       const running = stateInfo.running
-        ? `<div class="meta" style="margin-top:8px;">Server laeuft gerade - er wird fuer das Update gestoppt und danach wieder gestartet.</div>`
+        ? `<div class="meta" style="margin-top:8px;">Server läuft gerade - er wird für das Update gestoppt und danach wieder gestartet.</div>`
         : `<div class="meta" style="margin-top:8px;">Server ist aktuell gestoppt.</div>`;
       txt.innerHTML =
         `<div style="font-weight:600;margin-bottom:6px;">Ablauf beim Start</div>`

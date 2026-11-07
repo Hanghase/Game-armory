@@ -756,7 +756,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
         <label for="smtpUser">Benutzername</label>
         <input id="smtpUser" type="text" placeholder="Benutzername" autocomplete="off" />
         <label for="smtpPass">Passwort</label>
-        <input id="smtpPass" type="password" placeholder="Passwort - leer lassen = unveraendert" autocomplete="new-password" />
+        <input id="smtpPass" type="password" placeholder="Passwort - leer lassen = unverändert" autocomplete="new-password" />
         <label for="smtpFromName">Absendername</label>
         <input id="smtpFromName" type="text" placeholder="Game-Armory" autocomplete="off" />
         <label for="smtpFromAddress">Absenderadresse</label>
@@ -979,7 +979,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
         <div class="warn" id="upRunningWarn" style="display:none;"></div>
 
         <!-- Wizard Stufe 2 (2026-10-18): zeigt VOR dem Start, was gleich
-             passiert - damit niemand blind auf "Update starten" drueckt. -->
+             passiert - damit niemand blind auf "Update starten" drückt. -->
         <div id="upPreflight" style="display:none;">
           <div class="status-box" id="upPreflightBox">
             <div class="grow" id="upPreflightText"></div>
@@ -1074,8 +1074,8 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
           </label>
         </div>
 
-        <p class="hint">Bei laufendem Server wird dieser vor dem Update gestoppt und danach nicht
-          automatisch gestartet.</p>
+        <p class="hint">Bei laufendem Server wird dieser vor dem Update gestoppt, gesichert und
+          danach wieder gestartet.</p>
         <div class="modal-foot">
           <button class="ghost" id="upCancel">Abbrechen</button>
           <button class="primary" id="upStart">Update starten</button>
@@ -1182,7 +1182,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
   <!-- Generischer Bestaetigungs-Dialog (Promise-basiert). Genutzt u.a. fuer die
        Frage nach einem Neustart, wenn die Config eines laufenden Servers
        gespeichert wurde. Eigener Dialog, weil confirm() im Browser nicht
-       stylbar ist und "Abbrechen" hier "Spaeter" bedeutet. -->
+       stylbar ist und "Abbrechen" hier "Später" bedeutet. -->
   <div class="modal" id="confirmModal">
     <div class="box">
       <h3 id="confirmTitle">Best\u00e4tigen</h3>
