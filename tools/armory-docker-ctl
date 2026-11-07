@@ -14,15 +14,21 @@
 # root und gibt nur die Auswertung zurueck. Die compose-.env (root:root 600)
 # wird dabei gelesen, ihr Inhalt verlaesst das Skript aber nie.
 #
-# Start/Stop ist bewusst NICHT enthalten. Das kommt erst, wenn Status und
-# Logs im Panel belegt funktionieren (docs/rack-schema.md:179).
+# Start/Stop/Restart sind seit 2026-11-07 enthalten - aber nur fuer EINEN
+# Dienst pro Aufruf aus der Whitelist. Status und Logs waren davor belegt
+# (Panel zeigte running, 3/3 Dienste, Log-Stream mit 100 Zeilen), das war die
+# Bedingung in docs/rack-schema.md:179.
+#
+# Bewusst NICHT enthalten: down, rm, exec, build, run. `down` entfernt den
+# Stack samt Netzwerk, `exec` waere root im Container - beides ist keine
+# Serversteuerung mehr, sondern Umbau.
 
 set -euo pipefail
 
 # --- Feste Bindung an genau einen Stack --------------------------------------
 COMPOSE_FILE="/opt/nextcloud/docker-compose.yml"
 ALLOWED_SERVICES="nc-app nc-db nc-redis"
-ALLOWED_ACTIONS="status ps logs"
+ALLOWED_ACTIONS="status ps logs start stop restart"
 
 # Obergrenze fuer Log-Zeilen - verhindert, dass das Panel den Speicher flutet.
 MAX_LINES=2000
@@ -40,6 +46,35 @@ if [[ ! -r "$COMPOSE_FILE" ]]; then
   echo "Compose-Datei nicht lesbar: $COMPOSE_FILE" >&2
   exit 3
 fi
+
+# --- Dienstpruefung, an EINER Stelle -------------------------------------
+# Der alte Weg war ein case-Vergleich gegen " nc-app nc-db nc-redis ".
+# Der prueft den GANZEN String als Teilstring - also kam
+#   "nc-app nc-db"
+# durch die Whitelist, und docker compose bekam daraus ZWEI Dienste
+# (live nachgemessen 2026-11-07: rc=8, "no such service").
+# Mit einem anderen Paar waere das ein freies zweites Ziel gewesen.
+# Deshalb jetzt: erst Form pruefen (keine Leerzeichen, keine Optionen),
+# dann exakter Wortvergleich.
+pruefe_dienst() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    echo "Dienst nicht erlaubt: (fehlt)" >&2
+    exit 4
+  fi
+  if [[ ! "$name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+    echo "Dienst nicht erlaubt: $name" >&2
+    exit 4
+  fi
+  local erlaubt
+  for erlaubt in $ALLOWED_SERVICES; do
+    if [[ "$name" == "$erlaubt" ]]; then
+      return 0
+    fi
+  done
+  echo "Dienst nicht erlaubt: $name" >&2
+  exit 4
+}
 
 compose() {
   docker compose -f "$COMPOSE_FILE" "$@"
@@ -69,10 +104,7 @@ case "$action" in
     lines="${3:-200}"
 
     # 3) Dienst MUSS aus der Whitelist kommen (kein freier Container-Name)
-    case " $ALLOWED_SERVICES " in
-      *" $service "*) ;;
-      *) echo "Dienst nicht erlaubt: ${service:-(fehlt)}" >&2; exit 4 ;;
-    esac
+    pruefe_dienst "$service"
 
     # 4) Zeilenzahl streng numerisch und begrenzt
     if [[ ! "$lines" =~ ^[0-9]+$ ]]; then
@@ -84,6 +116,42 @@ case "$action" in
 
     # --no-color, damit im Panel keine ANSI-Escapes stehen
     compose logs --tail "$lines" --no-color "$service" 2>&1
+    ;;
+  start|stop|restart)
+    service="${2:-}"
+
+    # Dienst MUSS aus der Whitelist kommen - kein freier Container-Name.
+    pruefe_dienst "$service"
+
+    # Genau EIN Dienst pro Aufruf. Ohne diese Pruefung liesse sich
+    # "restart nc-app --force-recreate" oder ein zweiter Dienst anhaengen -
+    # der Rest waere freie Kommandozeile an docker compose.
+    if [[ $# -ne 2 ]]; then
+      echo "Zu viele Argumente: genau eine Aktion und ein Dienst" >&2
+      exit 7
+    fi
+
+    # --timeout nur bei stop/restart: `docker compose start` kennt das Flag
+    # NICHT und bricht mit "unknown flag: --timeout" ab (live erwischt
+    # 2026-11-07 - der start schlug fehl, obwohl die Aktion richtig war).
+    if [[ "$action" == "start" ]]; then
+      if ! out=$(compose start "$service" 2>&1); then
+        rc=$?
+        echo "docker compose start $service fehlgeschlagen (rc=$rc): $out" >&2
+        exit 8
+      fi
+      printf '%s\n' "$out"
+      exit 0
+    fi
+
+    # --timeout begrenzt das Warten: sonst wartet stop bis zu 10s pro Dienst
+    # und das Panel laeuft in einen Timeout.
+    if ! out=$(compose "$action" --timeout 20 "$service" 2>&1); then
+      rc=$?
+      echo "docker compose $action $service fehlgeschlagen (rc=$rc): $out" >&2
+      exit 8
+    fi
+    printf '%s\n' "$out"
     ;;
 esac
 

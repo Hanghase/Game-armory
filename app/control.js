@@ -508,3 +508,60 @@ export async function dockerLogs(service, lines = 200, deps = {}) {
     return `Logs nicht abrufbar: ${grund || 'unbekannter Fehler'}`;
   }
 }
+
+/** Aktionen, die der Helfer fuer einen Docker-Stack kennt. */
+const DOCKER_ACTIONS = ['start', 'stop', 'restart'];
+
+/**
+ * Start/Stop/Restart eines Docker-Dienstes ueber den engen Helfer.
+ *
+ * Warum nicht direkt `docker compose`: der armory-User darf den Docker-Socket
+ * nicht ansprechen (siehe dockerStatus) - und das soll so bleiben.
+ *
+ * Die Grenzen liegen im Helfer (Whitelist, genau ein Dienst, keine freien
+ * Argumente). Hier wird VORHER geprueft, damit bei offensichtlichem Unsinn
+ * gar kein Prozess startet: billiger und ehrlicher, als auf sudo zu warten.
+ *
+ * @param {{compose: string, services?: string[]}} control
+ * @param {string} service  nc-app | nc-db | nc-redis
+ * @param {string} action   start | stop | restart
+ * @param {{run?: Function}} [deps]
+ * @returns {Promise<{ok: boolean, action: string, service: string,
+ *                    output?: string, error?: string}>}
+ */
+export async function dockerAction(control, service, action, deps = {}) {
+  const run = deps.run ?? execFileAsync;
+  const basis = { action, service };
+
+  if (!DOCKER_ACTIONS.includes(action)) {
+    return { ...basis, ok: false,
+      error: `Nicht erlaubt: ${action} (erlaubt: ${DOCKER_ACTIONS.join(', ')})` };
+  }
+
+  const compose = control?.compose;
+  if (!compose || !COMPOSE_RE.test(compose)) {
+    return { ...basis, ok: false, error: `Ungültiger compose-Pfad: ${compose ?? '(fehlt)'}` };
+  }
+
+  if (typeof service !== 'string' || !DOCKER_SERVICE_RE.test(service)) {
+    return { ...basis, ok: false, error: `Dienst nicht erlaubt: ${service ?? '(fehlt)'}` };
+  }
+
+  // Gehoert der Dienst zu DIESEM Stack? Sonst scheitert es erst im Helfer mit
+  // "no such service" - eine Meldung, die dem Nutzer nicht weiterhilft.
+  const erlaubt = Array.isArray(control?.services) && control.services.length
+    ? control.services
+    : null;
+  if (erlaubt && !erlaubt.includes(service)) {
+    return { ...basis, ok: false,
+      error: `Dienst gehört nicht zu diesem Stack: ${service} (erwartet: ${erlaubt.join(', ')})` };
+  }
+
+  try {
+    const { stdout } = await run('sudo', ['-n', DOCKER_CTL, action, service]);
+    return { ...basis, ok: true, output: String(stdout ?? '') };
+  } catch (err) {
+    const grund = (err.stderr || err.message || '').toString().trim();
+    return { ...basis, ok: false, error: grund || `docker compose ${action} fehlgeschlagen` };
+  }
+}

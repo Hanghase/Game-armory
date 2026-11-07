@@ -16,7 +16,7 @@ import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
 import { loadRacks, getRack } from './racks.js';
 import { serviceAction, serviceStatus, streamLogs, withReadiness,
-  controlKind, dockerStatus } from './control.js';
+  controlKind, dockerStatus, dockerAction } from './control.js';
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
 import { getSessionUser, requireAuth, cleanupExpiredSessions,  cleanupLoginAttempts,
@@ -181,15 +181,38 @@ app.post('/api/swords/:id/:action(start|stop|restart)', requireAuth, async (req,
   if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
   if (sword.locked) return res.status(403).json({ error: 'Lizenz erforderlich', locked: true });
 
-  // Docker: nicht freigegeben. Bewusst VOR der Service-Pruefung, damit hier
-  // keine Meldung "Kein Service definiert" herauskommt - das waere bei einem
-  // Docker-Stack die falsche Aussage (er hat einen Stack, nur keinen Dienst).
-  if (controlKind(sword) === 'docker') {
-    return res.status(400).json({
-      error: 'Docker-Steuerung für diesen Sword ist noch nicht freigegeben',
-      kind: 'docker',
-    });
-  }
+    // Docker: eigener Weg, VOR der Service-Pruefung. Ein Docker-Stack hat
+    // keinen systemd-Service - die Meldung "Kein Service definiert" waere hier
+    // die falsche Aussage (er hat einen Stack, nur keinen Dienst).
+    //
+    // Seit 2026-11-07 laeuft das ueber dockerAction und den engen Helfer
+    // (start|stop|restart fuer Dienste aus der Whitelist). Vorher war es eine
+    // 400-Sperre - der Klick lief ins Leere.
+    if (controlKind(sword) === 'docker') {
+      const dienste = Array.isArray(sword.control?.services) && sword.control.services.length
+        ? sword.control.services
+        : [];
+      if (!dienste.length) {
+        return res.status(400).json({
+          error: 'Kein Dienst im Docker-Stack definiert (Feld services fehlt)',
+          kind: 'docker',
+        });
+      }
+      // Mehrere Dienste: jeden EINZELN, nacheinander, jeder mit eigener
+      // Antwort. Ein Fehler bricht nicht ab - nc-redis soll starten, auch
+      // wenn nc-db schon laeuft.
+      const ergebnisse = [];
+      for (const dienst of dienste) {
+        ergebnisse.push(await dockerAction(sword.control, dienst, req.params.action));
+      }
+      const alleOk = ergebnisse.every((e) => e.ok);
+      if (alleOk) await clearPendingRestart(sword.id);
+      return res.status(alleOk ? 200 : 500).json({
+        ok: alleOk, kind: 'docker', action: req.params.action,
+        services: ergebnisse,
+        error: alleOk ? undefined : ergebnisse.find((e) => !e.ok)?.error,
+      });
+    }
 
   const service = sword.control?.service;
   if (!service) return res.status(400).json({ error: 'Kein Service im Sword definiert' });

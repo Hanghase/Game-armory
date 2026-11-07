@@ -173,10 +173,31 @@ beherrschen — und Compose macht das schon.
 Meine Neigung: **A**, weil Compose die Ordnung, die Healthchecks und das
 Netzwerk bereits löst. B hieße, Compose nachzubauen.
 
-**Aber:** die Armory hat heute einen `armory-service-ctl`-Helfer, der nur
+**Aber:** die Armory hat einen `armory-service-ctl`-Helfer, der nur
 `systemctl` kann und nur Service-Namen durchläßt, die als Sword registriert
-sind (`tools/armory-service-ctl:25`). Für Docker bräuchte es einen zweiten
-Helfer mit derselben Enge — nicht `docker` frei durchreichen.
+sind (`tools/armory-service-ctl:25`). Für Docker gibt es seit 2026-11-07 den
+zweiten Helfer `armory-docker-ctl` mit derselben Enge — nicht `docker` frei
+durchreichen.
+
+**Stand 2026-11-07 (v1.3.56): Start/Stop/Restart sind freigegeben.** Der
+Helfer kennt `status | ps | logs | start | stop | restart`. Grenzen, die
+nicht gelockert werden dürfen:
+
+- EINE feste Compose-Datei (`/opt/nextcloud/docker-compose.yml`), Pfad steht
+  im Skript und kommt nie als Argument.
+- Dienste nur aus der Whitelist `nc-app nc-db nc-redis`, exakter
+  Wortvergleich. Ein `case`-Teilstringvergleich ließ `"nc-app nc-db"` als
+  EIN Argument durch — docker sah daraus zwei Dienste (live erwischt
+  2026-11-07, seitdem `pruefe_dienst()`).
+- Genau eine Aktion und ein Dienst pro Aufruf; überzählige Argumente → Exit 7.
+- Kein `down`, `rm`, `exec`, `build`, `run`. `down` entfernt den Stack samt
+  Netzwerk, `exec` wäre root im Container.
+- `--timeout` nur bei `stop`/`restart`: `docker compose start` kennt das Flag
+  nicht und bricht mit "unknown flag" ab.
+
+Das Panel startet/stoppt bei einem Stack mit mehreren Diensten jeden
+**einzeln** und meldet je Dienst ein Ergebnis; ein Fehler bricht die übrigen
+nicht ab.
 
 ---
 

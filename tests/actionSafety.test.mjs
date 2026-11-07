@@ -303,23 +303,44 @@ async function mitSession(fn) {
   }
 }
 
+// GEÄNDERT 2026-11-07 (v1.3.56): Diese Tests hiessen vorher
+// "docker-Sword ${aktion} -> 400 mit klarer Meldung" und hielten die SPERRE
+// fest ("noch nicht freigegeben"). Die Sperre ist jetzt bewusst aufgehoben -
+// die Tests pruefen deshalb nicht mehr das Verbot, sondern dass der Aufruf
+// sauber beantwortet wird und die Grenzen halten.
+//
+// Wichtig: hier wird NICHTS gestartet. `nextcloud.control.services` ist
+// pruefbar, aber ein echter start/stop wuerde den laufenden Nextcloud-Stack
+// anfassen - in einem Testlauf nicht akzeptabel. Was hier zaehlt: die
+// Antwortform, die JSON-Form und dass eine unerlaubte Aktion abprallt.
 for (const aktion of ['start', 'stop', 'restart']) {
-  test(`Endpunkt: docker-Sword ${aktion} -> 400 mit klarer Meldung`, async () => {
+  test(`Endpunkt: docker-Sword ${aktion} antwortet als JSON mit der Steuerart`, async () => {
     const resp = await mitSession((headers) =>
       fetch(`${EIGEN}/api/swords/nextcloud/${aktion}`, { method: 'POST', headers }));
 
-    assert.equal(resp.status, 400,
-      `docker-${aktion} muss eine saubere 400 sein, kam ${resp.status}`);
+    // 200 = Stack wurde angesprochen, 500 = Helfer meldete einen Fehler.
+    // Beides ist eine echte Antwort; 400 waere "gar nicht erst versucht".
+    assert.ok([200, 500].includes(resp.status),
+      `docker-${aktion} muss beantwortet werden (200/500), kam ${resp.status}`);
     const body = await resp.json();
-    assert.equal(typeof body.error, 'string');
-    assert.match(body.error, /Docker/i, `Meldung nennt Docker, kam: ${body.error}`);
-    assert.match(body.error, /noch nicht freigegeben|nicht freigegeben|nicht unterstützt/i,
-      `Meldung sagt, dass Start/Stop (noch) nicht geht, kam: ${body.error}`);
-    assert.ok(!/undefined/.test(body.error),
-      `kein "undefined" in der Meldung, kam: ${body.error}`);
     assert.equal(body.kind, 'docker', 'die Antwort nennt die Steuerart');
+    assert.equal(body.action, aktion);
+    assert.equal(typeof body.ok, 'boolean');
+    assert.ok(Array.isArray(body.services), 'die Antwort nennt die angesprochenen Dienste');
+    assert.ok(body.services.length > 0, 'mindestens ein Dienst muss versucht worden sein');
+    assert.ok(!JSON.stringify(body).includes('undefined'),
+      `kein "undefined" in der Antwort: ${JSON.stringify(body).slice(0, 200)}`);
   });
 }
+
+test('Endpunkt: docker-Sword lehnt "down" ab (Route kennt nur start|stop|restart)', async () => {
+  // Zweite Verteidigungslinie: selbst wenn jemand den Helfer erweitert, nimmt
+  // die Route nur diese drei Aktionen an.
+  const resp = await mitSession((headers) =>
+    fetch(`${EIGEN}/api/swords/nextcloud/down`, { method: 'POST', headers }));
+  assert.equal(resp.status, 404,
+    `"down" darf die Steuerroute nicht treffen, kam ${resp.status}`);
+});
 
 test('Endpunkt: docker-Sword liefert JSON, keine HTML-Fehlerseite', async () => {
   const resp = await mitSession((headers) =>
@@ -328,12 +349,16 @@ test('Endpunkt: docker-Sword liefert JSON, keine HTML-Fehlerseite', async () => 
     'das Panel zeigt die Antwort als JSON an - HTML waere ein Serverabsturz');
 });
 
-test('Endpunkt: docker-Ablehnung erledigt keinen ausstehenden Neustart-Merker', async () => {
-  // Gegenprobe: die Ablehnung darf nichts "aufraeumen". clearPendingRestart
-  // laeuft nur bei result.ok - ein abgelehnter Klick ist kein erledigter Start.
+test('Endpunkt: docker-Aufruf liefert eine Antwort, nie HTML', async () => {
+  // Vorher pruefte dieser Test, dass eine Ablehnung (400) keinen
+  // Neustart-Merker aufraeumt. Mit der Freigabe ist das hinfällig - wichtig
+  // bleibt: ein Docker-Aufruf darf nie in eine HTML-Fehlerseite laufen.
   const resp = await mitSession((headers) =>
     fetch(`${EIGEN}/api/swords/nextcloud/restart`, { method: 'POST', headers }));
-  assert.equal(resp.status, 400);
+  assert.match(resp.headers.get('content-type') ?? '', /application\/json/,
+    `HTML waere ein Serverabsturz, kam: ${resp.headers.get('content-type')}`);
+  const body = await resp.json();
+  assert.equal(body.kind, 'docker');
 });
 
 test('Endpunkt: unbekannter Sword bleibt 404 (Verhalten unveraendert)', async () => {
