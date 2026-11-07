@@ -31,13 +31,13 @@
     function versionTooltip(sword) {
       const parts = [`Installiert: ${sword.installedVersion ?? 'unbekannt'}`];
       if (sword.installedVersionSource) parts.push(`Quelle: ${sword.installedVersionSource}`);
-      if (sword.availableVersion) parts.push(`Verfuegbar: ${sword.availableVersion}`);
+      if (sword.availableVersion) parts.push(`Verfügbar: ${sword.availableVersion}`);
       if (sword.versionState === 'current') parts.push('Status: aktuell');
-      else if (sword.versionState === 'outdated') parts.push('Status: Update verfuegbar');
+      else if (sword.versionState === 'outdated') parts.push('Status: Update verfügbar');
       else if (sword.versionState === 'unknown') parts.push('Status: unbekannt');
       if (sword.versionCheckReason) parts.push(sword.versionCheckReason);
       if (sword.versionCheckedAt) {
-        parts.push(`Geprueft: ${new Date(sword.versionCheckedAt).toLocaleString('de-DE')}`);
+        parts.push(`Geprüft: ${new Date(sword.versionCheckedAt).toLocaleString('de-DE')}`);
       }
       return parts.join(' · ');
     }
@@ -544,7 +544,7 @@
         // DASS eines gesetzt ist. Leer lassen = unveraendert.
         el('smtpPass').value = '';
         el('smtpPass').placeholder = pass.set
-          ? `gesetzt (${pass.preview ?? '••••'}) - leer lassen = unveraendert`
+          ? `gesetzt (${pass.preview ?? '••••'}) - leer lassen = unverändert`
           : 'Passwort';
       const state = el('smtpState');
       const bits = [
@@ -562,7 +562,7 @@
     async function loadDiagnostics() {
       const box = document.getElementById('diagResult');
       if (!box) return;
-      box.textContent = 'Wird geprueft…';
+      box.textContent = 'Wird geprüft…';
       const { status, data } = await api('/api/diagnostics');
       if (status !== 200) {
         box.innerHTML = '<div class="warn">Diagnose nicht abrufbar: ' + esc(data.error ?? ('HTTP ' + status)) + '</div>';
@@ -656,7 +656,7 @@
       let html = '<table class="perms"><thead><tr><th class="perm-col">Recht</th>';
       for (const r of roles) {
         const fixed = data.editable && data.editable[r] === false;
-        html += '<th title="' + esc(r) + (fixed ? ' (fix: alle Rechte, nicht aenderbar)' : '') + '">'
+        html += '<th title="' + esc(r) + (fixed ? ' (fix: alle Rechte, nicht änderbar)' : '') + '">'
           + esc(RANGEN[r] ?? r) + (fixed ? ' 🔒' : '') + '</th>';
       }
       html += '</tr></thead><tbody>';
@@ -897,7 +897,7 @@
       const to = String(document.getElementById('smtpTestTo').value ?? '').trim();
       const out = document.getElementById('smtpTestResult');
       out.style.display = 'block';
-      if (!to) { out.textContent = 'Bitte eine Empfaengeradresse angeben.'; return; }
+      if (!to) { out.textContent = 'Bitte eine Empfängeradresse angeben.'; return; }
       const btn = document.getElementById('smtpTest');
       btn.disabled = true;
       out.textContent = 'Sende Testmail an ' + to + ' …';
@@ -967,7 +967,7 @@
 
       const bits = [];
       if (data.commit) bits.push('Commit ' + data.commit);
-      if (data.dirty) bits.push('Arbeitsstand: ungespeicherte Aenderungen');
+      if (data.dirty) bits.push('Arbeitsstand: ungespeicherte Änderungen');
       if (data.source === 'package') bits.push('Quelle: package.json (kein Git)');
 
       // Zustand der Selbst-Update-Pruefung. Faellt sie aus, bleibt das Badge
@@ -985,15 +985,15 @@
         badge.textContent = tag + (data.dirty ? ' *' : '') + ' \u25cf';
       } else if (su && su.state === 'outdated') {
         badge.classList.add('v-outdated');
-        bits.push('Verfuegbar: ' + su.available);
-        bits.push('Status: Update verfuegbar');
+        bits.push('Verfügbar: ' + su.available);
+        bits.push('Status: Update verfügbar');
         badge.textContent = tag + (data.dirty ? ' *' : '') + ' \u2192 ' + su.available;
       } else {
         badge.classList.add('v-unknown');
         bits.push(su && su.reason ? su.reason : 'Status: unbekannt');
         badge.textContent = tag + (data.dirty ? ' *' : '') + ' \u25cb';
       }
-      if (su && su.checkedAt) bits.push('Geprueft: ' + new Date(su.checkedAt).toLocaleString('de-DE'));
+      if (su && su.checkedAt) bits.push('Geprüft: ' + new Date(su.checkedAt).toLocaleString('de-DE'));
       badge.title = bits.join(' \u00b7 ') || tag;
     }
 
@@ -1894,7 +1894,7 @@
         + steps.map((s) => `<li>${s}</li>`).join('')
         + `</ol>`
         + `<div class="meta">${keepLine}</div>`
-        + `<div class="meta" style="margin-top:4px;">Backup-Generationen behalten: <b>${esc(String(gen))}</b> - aeltere werden danach geloescht.</div>`
+        + `<div class="meta" style="margin-top:4px;">Backup-Generationen behalten: <b>${esc(String(gen))}</b> - ältere werden danach gelöscht.</div>`
         + (sword.installedVersion
           ? `<div class="meta" style="margin-top:4px;">Aktuell installiert: <b>v${esc(sword.installedVersion)}</b></div>`
           : '')
@@ -2848,7 +2848,7 @@ function renderRackManage() {
     const isShown = shownIds.has(r.id);
     const delTitle = used > 0
       ? 'Wird von ' + used + ' Server(n) benutzt - erst diese entfernen'
-      : 'Rack loeschen';
+      : 'Rack löschen';
     return '<div class="rack-manage-row">'
       + '<div class="rm-name"><b>' + esc(r.name) + '</b>'
       + '<span class="si-meta">' + esc(r.id) + ' \u00b7 ' + esc(r.game) + ' \u00b7 '
@@ -2860,7 +2860,7 @@ function renderRackManage() {
         : '')
       + (canEdit ? '<button data-edit-rack="' + esc(r.id) + '">Bearbeiten</button>' : '')
       + (canDel ? '<button class="danger" data-del-rack="' + esc(r.id) + '"'
-        + (used > 0 ? ' disabled' : '') + ' title="' + esc(delTitle) + '">Loeschen</button>' : '')
+        + (used > 0 ? ' disabled' : '') + ' title="' + esc(delTitle) + '">Löschen</button>' : '')
       + '</div>';
   }).join('');
 
@@ -2949,7 +2949,7 @@ function buildRackDraft() {
   if (portsRaw !== '') {
     let parsed;
     try { parsed = JSON.parse(portsRaw); }
-    catch (e) { throw new Error('ports ist kein gueltiges JSON: ' + e.message); }
+    catch (e) { throw new Error('ports ist kein gültiges JSON: ' + e.message); }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('ports muss ein JSON-Objekt sein, z.B. {"game":25565}');
     }
@@ -2993,14 +2993,14 @@ async function saveRackEditor() {
 
 async function deleteRackFromPanel(id) {
   const ok = await confirmModal(
-    'Rack "' + id + '" wirklich loeschen? Bestehende Server bleiben, verlieren '
+    'Rack "' + id + '" wirklich löschen? Bestehende Server bleiben, verlieren '
     + 'aber ihre Schablone. Die Rack-Datei wird von der Platte entfernt.',
-    { title: 'Rack loeschen', ok: 'Loeschen' },
+    { title: 'Rack löschen', ok: 'Löschen' },
   );
   if (!ok) return;
   const { status, data } = await api('/api/racks/' + encodeURIComponent(id), { method: 'DELETE' });
   if (status !== 200) return toast('Fehler: ' + ((data && data.error) || status));
-  toast('Rack geloescht.');
+  toast('Rack gelöscht.');
   await refreshRacks();
   renderRackManage();
 }

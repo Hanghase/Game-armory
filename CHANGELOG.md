@@ -3,7 +3,7 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
-## [1.3.4] - 2026-11-07
+## [1.3.5] - 2026-11-07
 
 ### Behoben
 
@@ -23,12 +23,25 @@ Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   obwohl `runUpdate` das selbst tut. Jetzt meldet er schlicht "Update
   abgeschlossen" - und wenn der Server nicht hochkam, sagt er das statt es zu
   vermuten (`result.started === false`).
-- **Sichtbare Texte im Panel benutzten ae/oe/ue statt Umlaute.** Betroffen waren
-  Stellen wie "Neoforge-Version pruefen", "Server laeuft", "Eintraege",
-  "behalten/geschuetzt", "aus dem Pack uebernommen", "unveraendert",
-  "drueckt" und "Spaeter". Kommentare im Code bleiben bewusst ASCII.
+- **Sichtbare Texte im Panel benutzten ae/oe/ue statt Umlaute.** Zwei Runden
+  waren noetig, weil die einzelnen Stellen von Hand gesucht wurden. Betroffen
+  waren unter anderem "Neoforge-Version pruefen", "Server laeuft", "Eintraege",
+  "aeltere werden danach geloescht", "Rack loeschen"/"Loeschen",
+  "Empfaengeradresse", "Aenderungen", "gueltiges JSON", "Racks
+  anlegen/bearbeiten/loeschen", "fuer Faelle" und "beim Oeffnen". Kommentare
+  und Bezeichner im Code bleiben bewusst ASCII.
 
 ### Absicherung
+
+- **`tests/umlauts.test.mjs` verhindert Rueckfaelle systematisch.** Der Test
+  prueft sichtbaren Text (HTML-Textknoten, Attributwerte wie `placeholder` und
+  `title`, String-Literale in `app.js`) gegen eine Liste deutscher
+  Ersatzschreibweisen - Kommentare und Bezeichner bleiben ASCII und sind
+  ausgenommen. Anlass: die Stellen einzeln zu suchen hat zwei Runden gedauert;
+  der Test fand danach noch neun weitere in `app.html`, darunter Kommentare
+  (ausgenommen) und sichtbare Texte wie "Racks anlegen/bearbeiten/loeschen".
+- Zusaetzlich prueft er, dass beide Dateien sauber UTF-8 sind: kein U+FFFD und
+  keine doppelt kodierten Umlaute ("Ã¤" statt "ä").
 
 - `tests/updateDialog.test.mjs` haelt beides fest: der Dialog darf nicht
   behaupten, der Server bleibe aus, und `finishProgress()` muss die Karte

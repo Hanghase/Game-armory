@@ -362,7 +362,7 @@
         <button type="button" id="menuAccount" role="menuitem">Konto &amp; Verwaltung</button>
         <button type="button" id="reloadSwordsBtn" role="menuitem" style="display:none;">↻ Swords neu laden</button>
         <!-- Fehlerprotokoll (2026-10-31): zeigt die Fehlertabelle. Nur mit
-             system.diagnostics sichtbar - die Eintraege koennen Pfade und
+             system.diagnostics sichtbar - die Einträge können Pfade und
              Interna enthalten. -->
         <button type="button" id="menuErrors" role="menuitem" style="display:none;">📜 Logs</button>
         <div class="menu-sep"></div>
@@ -415,11 +415,11 @@
   </div>
 
   <!-- Profil-Modal: Tabs [Profil] [Nutzer] [Einstellungen].
-       Nutzer/Einstellungen nur fuer Admin sichtbar. Die bestehenden IDs
+       Nutzer/Einstellungen nur für Admin sichtbar. Die bestehenden IDs
        (#newUserForm, #usersList, #cfKeyState, ...) bleiben unveraendert,
        damit alle Event-Handler weiter funktionieren. -->
 
-  <!-- Rack-Verwaltung: Racks anlegen/bearbeiten/loeschen (nur rack.create/delete).
+  <!-- Rack-Verwaltung: Racks anlegen/bearbeiten/löschen (nur rack.create/delete).
        Liste -> Editor. Ein Rack ist die SCHABLONE (Spiel, Loader, Install-Quelle,
        Zielpfad) - nicht mit dem Sword-Install ("Neuer Server") verwechseln. -->
   <div class="modal" id="rackManageModal">
@@ -435,7 +435,7 @@
     </div>
   </div>
 
-  <!-- Rack-Editor: Formular fuer ein einzelnes Rack (neu oder bearbeiten). -->
+  <!-- Rack-Editor: Formular für ein einzelnes Rack (neu oder bearbeiten). -->
   <div class="modal" id="rackEditModal">
     <div class="box wide rack-editor">
       <h3 id="reTitle">Neues Rack</h3>
@@ -888,7 +888,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
 
       <!-- Tab: Diagnose. Beantwortet "warum laedt mein Rack/Sword nicht?"
            im Panel, statt dass der Kunde den Server-Log per SSH holen muss.
-           Racks/Swords werden beim Oeffnen frisch von der Platte geladen. -->
+           Racks/Swords werden beim Öffnen frisch von der Platte geladen. -->
       <div class="tabpane" id="pTabDiagnose">
         <h4>Racks &amp; Swords</h4>
         <p class="hint">Prüft die Konfigurationsdateien auf der Platte. Ein
@@ -1108,7 +1108,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
     </div>
   </div>
 
-  <!-- Sword entfernen: Bestaetigung, optional auch Server-Ordner + Welt loeschen -->
+  <!-- Sword entfernen: Bestaetigung, optional auch Server-Ordner + Welt löschen -->
   <div class="modal" id="removeModal">
     <div class="box">
       <h3>Sword entfernen</h3>
@@ -1144,7 +1144,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
     </div>
   </div>
 
-  <!-- Version nachtragen: fuer Faelle, in denen die Automatik keine Version
+  <!-- Version nachtragen: für Fälle, in denen die Automatik keine Version
        findet (z.B. Kundenpack mit unbekanntem Dateinamen). Pflichtfeld. -->
   <div class="modal" id="versionModal">
     <div class="box">
