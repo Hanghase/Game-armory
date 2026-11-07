@@ -110,6 +110,22 @@
       el.textContent = t; el.style.display = 'block';
       setTimeout(() => el.style.display = 'none', 2600);
     }
+    // Beschriftung, waehrend eine Steuer-Aktion laeuft.
+    //
+    // Warum ueberhaupt: am 2026-11-07 vergingen beim Stop von Nextcloud rund
+    // 3 Sekunden, in denen der Knopf nur deaktiviert war - die Seite sah aus
+    // wie vorher, der Klick schien nicht angekommen zu sein. Jetzt steht am
+    // Knopf, was gerade passiert.
+    //
+    // "Wird gestoppt" und nicht "Stoppe..." - der Vorgang laeuft schon, wenn
+    // der Text erscheint.
+    function steuerText(action) {
+      if (action === 'stop') return 'Wird gestoppt \u2026';
+      if (action === 'start') return 'Wird gestartet \u2026';
+      if (action === 'restart') return 'Wird neu gestartet \u2026';
+      return 'L\u00e4uft \u2026';
+    }
+
     function can(need) {
       // Prueft die aufgeloesten Rechte (perms) statt der alten Rang-Leiter.
       // me.perms kommt aus /api/auth/me (Rechte-Matrix). Fallback auf die
@@ -325,15 +341,29 @@
             setTimeout(() => refreshStatus(sword.id, stateEl), 800);
           });
         }
-        card.querySelectorAll('[data-a]').forEach((btn) => {
-          btn.addEventListener('click', async () => {
-            btn.disabled = true;
-            const { status, data } = await api(`/api/swords/${sword.id}/${btn.dataset.a}`, { method: 'POST' });
-            btn.disabled = false;
-            if (status !== 200) toast('Fehler: ' + (data.error ?? status));
-            setTimeout(() => refreshStatus(sword.id, stateEl), 800);
-          });
-        });
+            card.querySelectorAll('[data-a]').forEach((btn) => {
+              btn.addEventListener('click', async () => {
+                // Text sichern, sonst steht danach dauerhaft "Wird gestoppt" da.
+                const urtext = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = steuerText(btn.dataset.a);
+                try {
+                  const { status, data } = await api(`/api/swords/${sword.id}/${btn.dataset.a}`, { method: 'POST' });
+                  if (status !== 200) {
+                    // Bei einem Stack mit mehreren Diensten steht der Fehler pro
+                    // Dienst in data.services - die erste Meldung reicht.
+                    const grund = data?.error
+                      ?? (Array.isArray(data?.services) ? data.services.find((x) => !x.ok)?.error : null)
+                      ?? status;
+                    toast('Fehler: ' + grund);
+                  }
+                } finally {
+                  btn.textContent = urtext;
+                  btn.disabled = false;
+                  setTimeout(() => refreshStatus(sword.id, stateEl), 800);
+                }
+              });
+            });
         swordsEl.appendChild(card);
         refreshStatus(sword.id, stateEl);
         setInterval(() => refreshStatus(sword.id, stateEl), 10000);

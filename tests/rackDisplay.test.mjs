@@ -169,3 +169,46 @@ test('eine fehlende description laesst keinen fuehrenden Trenner stehen', async 
   assert.equal(meta, 'zip', `erwartet "zip", kam "${meta}"`);
   assert.ok(!meta.startsWith('·'), `Metazeile beginnt mit Trenner: "${meta}"`);
 });
+
+// --- Rueckmeldung beim Steuern (start/stop/restart) --------------------------
+//
+// Ausgangslage 2026-11-07: Der Knopf wurde beim Klick deaktiviert, aber ohne
+// sichtbare Aenderung. Beim Stop von Nextcloud vergingen ~3 Sekunden, in denen
+// die Seite aussah wie vorher - der Nutzer wusste nicht, ob der Klick ankam.
+
+test('es gibt eine Funktion fuer den Steuer-Text', async () => {
+  const q = await quelle();
+  assert.match(q, /function steuerText\b/,
+    'die Beschriftung beim Steuern gehoert in EINE Funktion, nicht in den Handler');
+});
+
+test('der Text nennt die laufende Aktion im Partizip', async () => {
+  const q = await quelle();
+  const start = q.indexOf('function steuerText');
+  assert.ok(start > 0);
+  const rumpf = q.slice(start, q.indexOf('\n      }\n', start) + 8);
+  for (const wort of ['Wird gestoppt', 'Wird gestartet', 'Wird neu gestartet']) {
+    assert.ok(rumpf.includes(wort), `"${wort}" fehlt in steuerText`);
+  }
+});
+
+test('der Klick-Handler zeigt den Text und stellt ihn danach wieder her', async () => {
+  const q = await quelle();
+  const anker = q.indexOf("card.querySelectorAll('[data-a]')");
+  assert.ok(anker > 0, 'der Steuer-Handler fehlt');
+  const rumpf = q.slice(anker, q.indexOf('swordsEl.appendChild(card)', anker));
+
+  assert.match(rumpf, /steuerText\(/, 'der Handler muss steuerText benutzen');
+  assert.match(rumpf, /btn\.textContent\s*=/, 'der Knopftext muss gesetzt werden');
+  // Der urspruengliche Text muss gerettet werden - sonst steht danach
+  // "Wird gestoppt" dauerhaft am Knopf.
+  // ERSTER VERSUCH WAR ZU SCHWACH: geprueft wurde nur, dass irgendwo
+  // "urtext =" steht. Die Mutation, die das Zuruecksetzen entfernt, blieb
+  // damit gruen. Jetzt muss die ZUWEISUNG AN textContent im finally stehen.
+  const sicherung = /const\s+(\w+)\s*=\s*btn\.textContent/.exec(rumpf);
+  assert.ok(sicherung, 'der Originaltext muss gesichert werden');
+  const name = sicherung[1];
+  const imFinally = rumpf.slice(rumpf.indexOf('} finally {'));
+  assert.match(imFinally, new RegExp(`btn\\.textContent\\s*=\\s*${name}`),
+    `im finally muss btn.textContent = ${name} stehen, sonst bleibt "Wird gestoppt" stehen`);
+});
