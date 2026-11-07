@@ -15,7 +15,8 @@ import { checkSwordVersion } from './versionCheck.js';
 import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
 import { loadRacks, getRack } from './racks.js';
-import { serviceAction, serviceStatus, streamLogs, withReadiness } from './control.js';
+import { serviceAction, serviceStatus, streamLogs, withReadiness,
+  controlKind, dockerStatus } from './control.js';
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
 import { getSessionUser, requireAuth, cleanupExpiredSessions,  cleanupLoginAttempts,
@@ -111,17 +112,33 @@ app.get('/api/swords/:id/status', requireAuth, async (req, res) => {
   if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
   if (sword.locked) return res.status(403).json({ error: 'Lizenz erforderlich', locked: true });
 
-  const service = sword.control?.service;
-  if (!service) return res.status(400).json({ error: 'Kein Service im Sword definiert' });
-
-  // Spielbereitschaft: systemd sagt "laeuft", sobald der Prozess da ist -
-  // spielbar ist ein 7d2d aber erst ~60 s spaeter. withReadiness verfeinert
-  // das zu "starting", solange kein Marker aus rack.readyMarkers im Log steht
-  // (Zeitfenster READY_FALLBACK_MS, danach Rueckfall auf "running").
-  // Marker fehlt im Rack -> unveraendert durchreichen.
+  // 2026-11-07: control.type wird ausgewertet. Vorher landete bei einem
+  // docker-Sword (kein systemd-Service) ein "undefined" beim Helfer, und das
+  // Panel zeigte "Ungültiger Service-Name: undefined" statt einer Aussage.
+  // systemd bleibt der Standard - alle Bestands-Swords haben kein type-Feld
+  // und nehmen exakt denselben Weg wie vorher.
+  const kind = controlKind(sword);
   const rack = getRack(sword.rack);
-  const baseStatus = await serviceStatus(service);
-  const status = await withReadiness(sword, baseStatus, rack?.readyMarkers ?? []);
+  const readyMarkers = rack?.readyMarkers ?? [];
+
+  let status;
+  if (kind === 'docker') {
+    // Nur lesen. Start/Stop fuer Docker braucht einen eigenen Helfer
+    // (docs/rack-schema.md:179) und ist bewusst noch nicht drin.
+    const base = await dockerStatus(sword.control);
+    status = await withReadiness(sword, base, readyMarkers);
+  } else {
+    const service = sword.control?.service;
+    if (!service) return res.status(400).json({ error: 'Kein Service im Sword definiert' });
+
+    // Spielbereitschaft: systemd sagt "laeuft", sobald der Prozess da ist -
+    // spielbar ist ein 7d2d aber erst ~60 s spaeter. withReadiness verfeinert
+    // das zu "starting", solange kein Marker aus rack.readyMarkers im Log steht
+    // (Zeitfenster READY_FALLBACK_MS, danach Rueckfall auf "running").
+    // Marker fehlt im Rack -> unveraendert durchreichen.
+    const baseStatus = await serviceStatus(service);
+    status = await withReadiness(sword, baseStatus, readyMarkers);
+  }
 
   // Merker "Neustart ausstehend": Wenn der Server gestoppt ist, ist der
   // ausstehende Neustart erledigt/gegenstandslos (der naechste Start nimmt die

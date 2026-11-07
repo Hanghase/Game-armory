@@ -20,6 +20,13 @@ const SERVICE_RE = /^[a-zA-Z0-9@._-]+\.service$/;
 // unprivilegierter User "armory" und darf NUR diese zwei festen Skripte per
 // sudo aufrufen; sie pruefen Aktion, Service-Namen und Whitelist selbst.
 const SERVICE_CTL = '/usr/local/bin/armory-service-ctl';
+// Docker-Helfer (seit 2026-11-07). Gebunden an EINE Compose-Datei
+// (Pfad im Skript), Dienste nur aus fester Whitelist. Grund: Der
+// armory-User ist NICHT in der docker-Gruppe - wer den Socket schreiben
+// darf, ist de facto root. Deshalb liest der Helfer als root und gibt
+// nur die Auswertung zurueck.
+const DOCKER_CTL = '/usr/local/bin/armory-docker-ctl';
+const DOCKER_SERVICE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
 export async function serviceAction(service, action) {
   if (!ALLOWED_ACTIONS.includes(action)) {
@@ -290,4 +297,138 @@ export async function withReadiness(sword, status, markers) {
   // Rueckfall: laeuft lange genug -> "running", auch ohne Marker.
   return { ...status, ready: false, readyMarker: null, readyError: hit.error ?? null,
            readyByTimeout: true };
+}
+
+// ---------------------------------------------------------------------------
+// Steuerart auswerten (2026-11-07)
+//
+// `control.type` steht seit v1.0.0 im Schema (systemd | screen | tmux | docker |
+// process), wurde aber NIE gelesen: server.js holte sich blind
+// `sword.control.service` und rief den systemd-Helfer. Ein Docker-Stack
+// (Nextcloud: /opt/nextcloud/docker-compose.yml) hat keinen systemd-Service -
+// dort kam "Ungültiger Service-Name: undefined" heraus statt einer Aussage.
+//
+// Gelesen wird hier nur. Start/Stop fuer Docker kommt spaeter und braucht einen
+// eigenen, engen Helfer (docs/rack-schema.md:179).
+// ---------------------------------------------------------------------------
+
+const COMPOSE_RE = /^\/[A-Za-z0-9@._/-]+\.ya?ml$/;
+
+/**
+ * Welche Steuerart nutzt dieser Sword?
+ * Ohne type -> systemd. Das ist Pflicht, weil alle Bestands-Swords
+ * (atm11, atm10, 7d2d, teamspeak) kein type-Feld haben.
+ */
+export function controlKind(sword) {
+  const t = sword?.control?.type;
+  if (t === 'docker') return 'docker';
+  return 'systemd';
+}
+
+/**
+ * Zustand eines Docker-Compose-Stacks - ueber den engen Helfer.
+ *
+ * ERSTE FASSUNG WAR FALSCH (2026-11-07): Sie rief `docker compose ps` direkt
+ * auf, in der Annahme "Lesen braucht keine Rechte". Das stimmt beim
+ * Docker-Socket nicht - als armory-User kam
+ *   permission denied while trying to connect to the Docker daemon socket
+ * und zusaetzlich "open /opt/nextcloud/.env: permission denied".
+ * Deshalb geht der Weg jetzt ueber `sudo armory-docker-ctl status`:
+ * der Helfer liest als root und gibt nur die Auswertung zurueck.
+ * Der compose-Pfad geht NICHT als Argument mit, er steht im Helfer.
+ *
+ * @param {{compose: string, services?: string[]}} control
+ * @param {{run?: Function}} [deps]  Injektion fuer Tests
+ */
+export async function dockerStatus(control, deps = {}) {
+  const run = deps.run ?? execFileAsync;
+  const compose = control?.compose;
+  const leer = { kind: 'docker', state: 'unknown', subState: null, changedAt: null,
+    running: false, services: [] };
+
+  if (!compose || !COMPOSE_RE.test(compose)) {
+    return { ...leer, error: `Ungültiger compose-Pfad: ${compose ?? '(fehlt)'}` };
+  }
+
+  let stdout;
+  try {
+    // Ueber den Helfer, NICHT direkt: der armory-User darf den Docker-Socket
+    // nicht ansprechen (siehe Kopf dieser Funktion).
+    ({ stdout } = await run('sudo', ['-n', DOCKER_CTL, 'status']));
+  } catch (err) {
+    return { ...leer, error: (err.stderr || err.message || '').toString().trim() || 'docker compose ps fehlgeschlagen' };
+  }
+
+  // `docker compose ps --format json` liefert je Dienst ein JSON-Objekt,
+  // zeilenweise. Aeltere Versionen liefern ein JSON-Array - beides abfangen.
+  const texte = String(stdout).trim();
+  let roh = [];
+  if (texte.startsWith('[')) {
+    try { roh = JSON.parse(texte); } catch { roh = []; }
+  } else {
+    for (const zeile of texte.split('\n')) {
+      const z = zeile.trim();
+      if (!z) continue;
+      try { roh.push(JSON.parse(z)); } catch { /* Muellzeile ignorieren */ }
+    }
+  }
+
+  const erwartet = Array.isArray(control?.services) && control.services.length
+    ? control.services
+    : roh.map((r) => r.Service ?? r.Name ?? '?');
+
+  const dienste = erwartet.map((name) => {
+    const treffer = roh.find((r) => (r.Service ?? r.Name) === name);
+    const zustand = (treffer?.State ?? 'missing').toLowerCase();
+    return {
+      name,
+      state: zustand,
+      health: treffer?.Health || null,
+      status: treffer?.Status || null,
+      up: zustand === 'running',
+    };
+  });
+
+  const laufen = dienste.filter((d) => d.up).length;
+  let state;
+  if (laufen === dienste.length && dienste.length > 0) state = 'running';
+  else if (laufen === 0) state = 'stopped';
+  else state = 'degraded';
+
+  return {
+    kind: 'docker',
+    state,
+    subState: `${laufen}/${dienste.length}`,
+    changedAt: null,
+    running: state === 'running',
+    services: dienste,
+  };
+}
+
+/**
+ * Logs eines Docker-Dienstes ueber den Helfer.
+ *
+ * Der Dienstname wird hier ZUSAETZLICH geprueft (der Helfer prueft ihn auch) -
+ * so startet bei einem offensichtlich falschen Namen gar kein Prozess.
+ * Die Ausgabe kommt als Text, nicht als JSON: Logs sind zeilenweise.
+ *
+ * @param {string} service  Whitelist-Dienst (nc-app | nc-db | nc-redis)
+ * @param {number} [lines]  Zeilen, Standard 200
+ * @returns {Promise<string>} Log-Text oder eine Fehlermeldung als Text
+ */
+export async function dockerLogs(service, lines = 200, deps = {}) {
+  const run = deps.run ?? execFileAsync;
+
+  if (typeof service !== 'string' || !DOCKER_SERVICE_RE.test(service)) {
+    return `Dienst nicht erlaubt: ${service ?? '(fehlt)'}`;
+  }
+  const n = Number.isFinite(Number(lines)) ? Math.max(1, Math.min(2000, Number(lines))) : 200;
+
+  try {
+    const { stdout } = await run('sudo', ['-n', DOCKER_CTL, 'logs', service, String(n)]);
+    return String(stdout ?? '');
+  } catch (err) {
+    const grund = (err.stderr || err.message || '').toString().trim();
+    return `Logs nicht abrufbar: ${grund || 'unbekannter Fehler'}`;
+  }
 }

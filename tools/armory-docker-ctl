@@ -1,0 +1,90 @@
+#!/bin/bash
+# Game-Armory - Docker-Steuerung (privilegierter Helfer)
+# Wird per sudo vom armory-User aufgerufen. Erlaubt NUR:
+#   - Aktionen: status | ps | logs
+#   - EINE feste Compose-Datei (Pfad steht hier, nie als Argument)
+#   - Dienste aus einer festen Whitelist
+#
+# Kein Shell-Durchreichen, keine freien Argumente, kein `docker run`,
+# kein `docker exec`, kein freies `-f`.
+#
+# Warum das noetig ist (2026-11-07): Der armory-User ist NICHT in der
+# docker-Gruppe - mit Absicht. Wer den Docker-Socket schreiben darf, ist
+# de facto root (docker run -v /:/host). Deshalb liest dieser Helfer als
+# root und gibt nur die Auswertung zurueck. Die compose-.env (root:root 600)
+# wird dabei gelesen, ihr Inhalt verlaesst das Skript aber nie.
+#
+# Start/Stop ist bewusst NICHT enthalten. Das kommt erst, wenn Status und
+# Logs im Panel belegt funktionieren (docs/rack-schema.md:179).
+
+set -euo pipefail
+
+# --- Feste Bindung an genau einen Stack --------------------------------------
+COMPOSE_FILE="/opt/nextcloud/docker-compose.yml"
+ALLOWED_SERVICES="nc-app nc-db nc-redis"
+ALLOWED_ACTIONS="status ps logs"
+
+# Obergrenze fuer Log-Zeilen - verhindert, dass das Panel den Speicher flutet.
+MAX_LINES=2000
+
+action="${1:-}"
+
+# 1) Aktion whitelisten
+case " $ALLOWED_ACTIONS " in
+  *" $action "*) ;;
+  *) echo "Unerlaubte Aktion: ${action}" >&2; exit 2 ;;
+esac
+
+# 2) Compose-Datei muss existieren (sonst ist die Installation kaputt)
+if [[ ! -r "$COMPOSE_FILE" ]]; then
+  echo "Compose-Datei nicht lesbar: $COMPOSE_FILE" >&2
+  exit 3
+fi
+
+compose() {
+  docker compose -f "$COMPOSE_FILE" "$@"
+}
+
+case "$action" in
+  status)
+    # Ein Aufruf, JSON pro Dienst. --format json gibt es seit Compose v2.
+    # ACHTUNG: `set -e` bricht bei einem Fehler sofort ab, BEVOR `||` greift.
+    # Deshalb hier explizit if/else statt `||` - sonst ist die Meldung weg
+    # und der Exit-Code immer 0 (eigener Fehler, am 2026-11-07 bemerkt).
+    if ! out=$(compose ps --format json 2>&1); then
+      rc=$?
+      echo "docker compose ps fehlgeschlagen (rc=$rc): $out" >&2
+      exit 6
+    fi
+    printf '%s\n' "$out"
+    ;;
+
+  ps)
+    # Kurzform fuer Menschen: NAME ZUSTAND STATUS
+    compose ps 2>&1
+    ;;
+
+  logs)
+    service="${2:-}"
+    lines="${3:-200}"
+
+    # 3) Dienst MUSS aus der Whitelist kommen (kein freier Container-Name)
+    case " $ALLOWED_SERVICES " in
+      *" $service "*) ;;
+      *) echo "Dienst nicht erlaubt: ${service:-(fehlt)}" >&2; exit 4 ;;
+    esac
+
+    # 4) Zeilenzahl streng numerisch und begrenzt
+    if [[ ! "$lines" =~ ^[0-9]+$ ]]; then
+      echo "Ungueltige Zeilenzahl: $lines" >&2
+      exit 5
+    fi
+    if (( lines < 1 )); then lines=1; fi
+    if (( lines > MAX_LINES )); then lines=$MAX_LINES; fi
+
+    # --no-color, damit im Panel keine ANSI-Escapes stehen
+    compose logs --tail "$lines" --no-color "$service" 2>&1
+    ;;
+esac
+
+exit 0
