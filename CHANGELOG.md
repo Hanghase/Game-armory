@@ -3,6 +3,45 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.3] - 2026-11-07
+
+### Behoben
+
+- **Sword-Version wurde am Cache vorbei geschrieben.** Nach einem ZIP-Update
+  stand in der Sword-Datei die richtige Version, die Panel-Anzeige blieb aber
+  auf dem alten Wert, bis der Dienst neu startete. Ursache: `runUpdate` schrieb
+  die Datei selbst per `writeFile` und liess den Modul-Cache in `app/swords.js`
+  unberuehrt; `getSword()` liest aus diesem Cache. Jetzt geht der Schreibvorgang
+  ueber `setInstalledVersion()` - das sperrt zusaetzlich (`withSwordLock`),
+  setzt `installedVersionBy` und aktualisiert den Cache.
+
+### Absicherung
+
+- **Testkette fuer die Versions-Ermittlung beim ZIP-Update** (`tests/versionChain.test.mjs`).
+  Beim atm11-Update am 2026-10-30 23:25 meldete das Log "Keine neue Version
+  ermittelbar", obwohl der Dateiname `0.14.0-beta` enthielt. Ursache war nicht
+  der Parser (der erkennt den Namen), sondern dass `runUpdate` nur
+  `basename(zipPath)` kannte - und der Upload heisst `upload-<uuid>.zip`. Genau
+  diesen Namen weist der Parser bewusst ab (kein Raten). Der Fix `6b37b64`
+  (2026-10-31) reicht seither `originalName` durch; die Kette
+  `uploads.js -> installRoutes.js -> updateFromZip -> runUpdate` ist jetzt
+  durch sieben Tests festgenagelt.
+- **Sword-Cache-Tests** (`tests/swordCache.test.mjs`) halten fest, dass im
+  Versionsblock kein direktes `writeFile` auf eine `.sword.json` stehen darf.
+
+73 Tests gruen. Beide neuen Tests sind mutationsgeprueft: wer `originalName`
+aus dem `runUpdate`-Aufruf entfernt bzw. das direkte `writeFile` zurueckbaut,
+bekommt genau einen roten Test.
+
+### Klarstellung
+
+Der in 1.3.3 behobene Cache-Fehler ist **nicht** die Ursache des vom Betreiber
+gemeldeten Symptoms ("Version bleibt beim ZIP-Upload stehen"). Dort zeigte der
+offene Update-Dialog einen beim Oeffnen eingefrorenen Stand (`upSword`), und
+nach einem Reload stimmte die Anzeige. Der Cache-Fehler ist real, war aber
+bisher unsichtbar, weil die erkannte Version zufaellig mit der von Hand
+eingetragenen uebereinstimmte (atm10: `8.5`).
+
 ## [1.3.2] - 2026-11-06
 
 ### Behoben

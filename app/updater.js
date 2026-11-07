@@ -24,6 +24,7 @@ import { detectRequiredNeoforgeVersion, extractCurseForgeVersion } from './insta
 import { serviceAction, serviceStatus } from './control.js';
 import { getMod, getFiles, getDownloadUrl, downloadFile } from './curseforge.js';
 import { getRack } from './racks.js';
+import { setInstalledVersion } from './swords.js';
 import { readSteamBuildId } from './versionCheck.js';
 import { STEAM_HELPER } from './installer.js';
 
@@ -462,12 +463,15 @@ async function runUpdate(sword, { zipPath, keepConfigs = false, log = () => {}, 
           ? 'filename'
           : (fromNeoforge ? 'neoforge-startscript' : null);
       if (version) {
-        const swordPath = join(SWORDS_DIR, `${swordId}.sword.json`);
-        const current = JSON.parse(await readFile(swordPath, 'utf8'));
-        current.installedVersion = version;
-        current.installedVersionSource = versionSource;
-        current.installedVersionAt = Date.now();
-        await writeFile(swordPath, JSON.stringify(current, null, 2) + '\n');
+        // Ueber setInstalledVersion, NICHT per eigenem writeFile (Fix 2026-11-07).
+        // Vorher stand hier ein direktes writeFile: die Datei war danach richtig,
+        // der Modul-Cache in swords.js aber veraltet - getSword() lieferte weiter
+        // die alte Version, und das Panel zeigte sie an. Der Betreiber sah eine
+        // falsche Zahl und trug die richtige von Hand nach; damit stand die
+        // Herkunft anschliessend auf 'manual' statt 'filename', obwohl der Code
+        // korrekt erkannt hatte. setInstalledVersion sperrt zusaetzlich und
+        // erneuert den Cache.
+        await setInstalledVersion(swordId, { version, source: versionSource, by: null });
         log(`[update] Version im Sword aktualisiert: ${version} (${versionSource})`);
       } else {
         log('[update] Keine neue Version ermittelbar - Sword-Version bleibt unveraendert.');
