@@ -159,6 +159,14 @@ app.get('/api/swords/:id/status', requireAuth, async (req, res) => {
 //   restart  -> sword.control.restart
 // Startbelegung: friend hat nur start, moderator/admins haben alle drei
 // -> Verhalten identisch zu vorher (start ab Level 1, stop/restart ab Level 2).
+//
+// Steuerart (2026-11-07): control.type wird hier ausgewertet, genau wie schon
+// bei /status. Ein docker-Sword hat keinen systemd-Service, und der Docker-
+// Helfer (armory-docker-ctl) kennt bewusst nur status|ps|logs. Start/Stop/
+// Restart für Docker ist NICHT freigegeben - das ist eine 400 mit klarer
+// Meldung, kein Versuch und keine erfundene Einheit.
+// Rechte und Rollen bleiben unveraendert: die Permission-Pruefung steht
+// weiterhin VOR allem anderen.
 const ACTION_PERM = {
   start: 'sword.control.start',
   stop: 'sword.control.stop',
@@ -173,10 +181,31 @@ app.post('/api/swords/:id/:action(start|stop|restart)', requireAuth, async (req,
   if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
   if (sword.locked) return res.status(403).json({ error: 'Lizenz erforderlich', locked: true });
 
+  // Docker: nicht freigegeben. Bewusst VOR der Service-Pruefung, damit hier
+  // keine Meldung "Kein Service definiert" herauskommt - das waere bei einem
+  // Docker-Stack die falsche Aussage (er hat einen Stack, nur keinen Dienst).
+  if (controlKind(sword) === 'docker') {
+    return res.status(400).json({
+      error: 'Docker-Steuerung für diesen Sword ist noch nicht freigegeben',
+      kind: 'docker',
+    });
+  }
+
   const service = sword.control?.service;
   if (!service) return res.status(400).json({ error: 'Kein Service im Sword definiert' });
 
-  const result = await serviceAction(service, req.params.action);
+  // serviceAction liefert seit 2026-11-07 bei einem fehlenden/ungültigen
+  // Service ein { ok:false, error } statt zu werfen. Das try/catch bleibt als
+  // Sicherheitsnetz: eine Route darf nie wegen einer unbehandelten Ausnahme
+  // eine 500/abgebrochene Verbindung liefern (ein Wurf fuer eine unerlaubte
+  // Aktion ist weiterhin moeglich, siehe control.js).
+  let result;
+  try {
+    result = await serviceAction(service, req.params.action);
+  } catch (err) {
+    result = { ok: false, action: req.params.action, service,
+      error: err.message || 'Unbekannter Fehler bei der Steuerung' };
+  }
 
   // Jeder Start/Stop/Restart erledigt einen ausstehenden Neustart:
   //   start/restart -> die neuen Werte sind jetzt aktiv.
@@ -223,8 +252,21 @@ wss.on('connection', (ws, req) => {
   if (!sword) { ws.send('[armory] Sword nicht gefunden\n'); ws.close(); return; }
   if (sword.locked) { ws.send('[armory] Lizenz erforderlich\n'); ws.close(); return; }
 
-  const service = sword.control?.service;
-  if (!service) { ws.send('[armory] Kein Service definiert\n'); ws.close(); return; }
+  // Gate vor streamLogs (Bugfix 2026-11-07): Hier stand `if (!service)`, also
+  // eine harte Bedingung auf control.service. Ein Docker-Sword hat keinen
+  // systemd-Service - der Log-Knopf war fuer NC tot, OBWOHL streamLogs den
+  // Typ 'docker' inzwischen kennt. Die Sperre lag eine Ebene darueber.
+  const kind = controlKind(sword);
+  if (kind === 'docker') {
+    if (!sword.logs?.service) {
+      ws.send('[armory] Kein Docker-Dienst fuer Logs definiert\n');
+      ws.close();
+      return;
+    }
+  } else {
+    const service = sword.control?.service;
+    if (!service) { ws.send('[armory] Kein Service definiert\n'); ws.close(); return; }
+  }
 
   let logProcess;
   try {
@@ -387,6 +429,20 @@ process.on('uncaughtException', (err) => {
 
 // --- Start -----------------------------------------------------------------
 
+// Test-Hook (2026-11-07): Mit ARMORY_TEST_APP=1 wird NICHT gelauscht - der
+// Aufrufer (tests/actionSafety.test.mjs) haengt einen eigenen HTTP-Server an
+// die exportierte App und laesst ihn auf Port 0 (frei) lauschen. Ohne die
+// Variable ist der Startweg Zeichen fuer Zeichen derselbe.
+// Grund: der Aktion-Pfad muss gegen den ECHTEN Express-Handler pruefbar sein,
+// nicht gegen eine Nachbildung - und das ohne den laufenden Panel-Prozess
+// anzufassen oder ihm seine Datenbank wegzunehmen.
+const OHNE_START = process.env.ARMORY_TEST_APP === '1';
+
+// Die App wird immer exportiert - ein `export` aendert am Verhalten nichts,
+// und so ist kein zweiter Schalter noetig, der mit dem ersten auseinander-
+// laufen koennte. Genutzt wird er nur vom Test.
+export { app };
+
 (async () => {
   // Racks ZUERST laden: die Sword-Anreicherung (game, eula) liest aus dem
   // Rack-Cache (getRack). Waeren die Racks noch leer, fiele eula auf 'none'
@@ -482,6 +538,8 @@ process.on('uncaughtException', (err) => {
   }
   scheduleSelfUpdateCheck();
   setInterval(scheduleSelfUpdateCheck, 1000 * 60 * 5);  // Intervall-Aenderung nachziehen
+
+  if (OHNE_START) return;   // Test-Hook: der Aufrufer startet selbst
 
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`[armory] Game-Armory läuft auf http://127.0.0.1:${PORT}`);

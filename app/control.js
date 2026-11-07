@@ -28,18 +28,55 @@ const SERVICE_CTL = '/usr/local/bin/armory-service-ctl';
 const DOCKER_CTL = '/usr/local/bin/armory-docker-ctl';
 const DOCKER_SERVICE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
-export async function serviceAction(service, action) {
+export async function serviceAction(service, action, deps = {}) {
+  const run = deps.run ?? execFileAsync;
+
+  // Unerlaubte Aktion bleibt ein Wurf: der Wert kommt aus einer festen
+  // Whitelist im Code, nicht aus der Route. Ein falscher Wert ist ein
+  // Programmierfehler und soll beim Entwickeln auffallen.
   if (!ALLOWED_ACTIONS.includes(action)) {
     throw new Error(`Unerlaubte Aktion: ${action}`);
   }
+
+  // Bugfix 2026-11-07: Vorher warf ein fehlender/ungültiger Service-Name
+  // (`Ungültiger Service-Name: undefined`). Der Aufrufer im Request-Pfad
+  // hatte kein try/catch, und ein docker-Sword hat gar keinen systemd-
+  // Service - ein Klick auf Stop bei Nextcloud endete so in einer
+  // unbehandelten Ausnahme statt in einer Meldung. Jetzt: Ergebnisobjekt.
+  // Rückgabeform wie im catch-Zweig, damit der Aufrufer nur EINE Form kennt.
+  const ergebnis = (error) => ({ ok: false, action, service, error });
+
+  // Ein Sword-Objekt statt eines Namens: Steuerart auswerten. Ein docker-
+  // Sword hat keinen systemd-Service, und der Docker-Helfer
+  // (armory-docker-ctl) kennt bewusst nur status|ps|logs. Start/Stop/Re-
+  // start für Docker ist NICHT freigegeben - das muss die Meldung sagen,
+  // statt eine systemd-Einheit zu erfinden.
+  if (service && typeof service === 'object') {
+    const control = service.control ?? {};
+    if (control.type === 'docker') {
+      return ergebnis('Docker-Steuerung für diesen Sword ist noch nicht freigegeben '
+        + '(der Helfer kann nur status, ps und logs)');
+    }
+    return serviceAction(control.service, action, deps);
+  }
+
+  if (typeof service !== 'string' || service.trim() === '') {
+    return ergebnis(`Kein Service im Sword definiert (Aktion: ${action})`);
+  }
   if (!SERVICE_RE.test(service)) {
-    throw new Error(`Ungültiger Service-Name: ${service}`);
+    return ergebnis(`Ungültiger Service-Name: ${service}`);
   }
   try {
-    await execFileAsync('sudo', ['-n', SERVICE_CTL, action, service]);
+    await run('sudo', ['-n', SERVICE_CTL, action, service]);
     return { ok: true, action, service };
   } catch (err) {
-    return { ok: false, action, service, error: err.message };
+    // Live-Befund 2026-11-07: execFile liefert bei einem Fehler des Helfers
+    // 'Command failed' als message; die eigentliche Begruendung steht in
+    // stderr ("Fehler: Einheit ... nicht gefunden"). Vorher ging nur
+    // err.message ins Panel - also der nichtssagende Teil. Jetzt stderr
+    // zuerst, wie es serviceStatus/dockerLogs schon machen.
+    const grund = (err.stderr || err.message || '').toString().trim();
+    return { ok: false, action, service, error: grund || 'Steuerung fehlgeschlagen' };
   }
 }
 
@@ -105,17 +142,39 @@ export async function serviceStatus(service) {
 
 // --- Log-Quellen -----------------------------------------------------------
 // Sword definiert in `logs`:  { type: "journald", unit }  ODER
-//                             { type: "file", path, lines? }
+//                             { type: "file", path, lines? }  ODER
+//                             { type: "docker", service }     (seit 2026-11-07)
 // streamLogs liefert einen ChildProcess-ähnlichen Handle mit .kill()
+//
+// Warum docker dazu kam: streamLogs kannte nur file und journald. Alles andere
+// fiel in den journald-Zweig, der `sword.control.service` liest - ein
+// Docker-Sword hat den nicht. Live belegt am 2026-11-07:
+//   streamLogs({logs:{type:'docker',service:'nc-app'},...})
+//   -> Fehler: Ungültige Unit: undefined
+// Der Log-Knopf im Panel war fuer NC also tot (wie der Stop-Knopf).
 
-function streamJournald(sword, onData, { lines = 100 } = {}) {
+function streamJournald(sword, onData, { lines = 100, spawn: spawnFn = spawn } = {}) {
   const unit = sword.logs?.unit ?? sword.control?.service;
   if (!SERVICE_RE.test(unit)) throw new Error(`Ungültige Unit: ${unit}`);
   // Ueber den Service-Ctl-Helfer (sudoers: nur dieses Skript + journalctl-Sperre).
   // Der Helfer prueft Aktions- und Service-Whitelist selbst.
-  const child = spawn('sudo', [
+  const child = spawnFn('sudo', [
     '-n', SERVICE_CTL, 'logs', unit,
   ]);
+  child.stdout.on('data', (c) => onData(c.toString()));
+  child.stderr.on('data', (c) => onData(c.toString()));
+  return child;
+}
+
+// Docker-Logs ueber den engen Helfer. Der Dienstname wird hier ZUSAEZTLICH
+// gegen DOCKER_SERVICE_RE geprueft, damit bei einem unsinnigen Namen gar kein
+// Prozess startet (der Helfer prueft ihn ebenfalls).
+function streamDocker(sword, onData, { lines = 100, spawn: spawnFn = spawn } = {}) {
+  const service = sword.logs?.service;
+  if (typeof service !== 'string' || !DOCKER_SERVICE_RE.test(service)) {
+    throw new Error(`Ungültiger Docker-Dienst: ${service}`);
+  }
+  const child = spawnFn('sudo', ['-n', DOCKER_CTL, 'logs', service, String(lines)]);
   child.stdout.on('data', (c) => onData(c.toString()));
   child.stderr.on('data', (c) => onData(c.toString()));
   return child;
@@ -205,6 +264,7 @@ class FollowStream extends EventEmitter {
 export function streamLogs(sword, onData, opts = {}) {
   const type = sword.logs?.type ?? 'journald';
   if (type === 'file') return streamFile(sword, onData, opts);
+  if (type === 'docker') return streamDocker(sword, onData, opts);
   return streamJournald(sword, onData, opts);
 }
 
@@ -284,15 +344,31 @@ export async function withReadiness(sword, status, markers) {
 
   // changedAt kommt jetzt als Unix-Sekunden-String vom Helfer (@<epoch>).
   // Kein Date.parse mehr - das scheiterte am "CET"-Format (live belegt NaN).
+  //
+  // Bugfix 2026-11-07: Docker liefert keine Startzeit (dockerStatus() setzt
+  // changedAt: null, weil `docker compose ps` keinen systemd-Zeitstempel
+  // kennt). Vorher wurde daraus NaN, `NaN < READY_FALLBACK_MS` ist falsch,
+  // ageMs fiel auf 0, und `new Date(NaN).toISOString()` warf
+  // "RangeError: Invalid time value" - live sichtbar als 'unknown' beim
+  // Sword 'nextcloud'. Deshalb: Zeitvergleich NUR bei echter Startzeit
+  // (endlich und > 0). Sonst Status unveraendert durchreichen.
+  // Begruendung: Ein laufender Container hat keinen "faehrt gerade hoch"-
+  // Begriff wie ein 7d2d mit 60-90 s Weltladezeit. Ohne Startzeit gibt es
+  // kein Zeitfenster, in dem "starting" richtig waere - also nichts erfinden.
   const changedSec = Number.parseInt(String(status.changedAt ?? ''), 10);
-  const startedAt = Number.isFinite(changedSec) ? changedSec * 1000 : NaN;
-  // Unbekannte Startzeit -> NICHT sofort "laeuft" behaupten, sondern das
-  // Zeitfenster als laufend behandeln: "startet" ist die vorsichtigere Aussage.
-  const ageMs = Number.isFinite(startedAt) ? Date.now() - startedAt : 0;
-  if (ageMs < READY_FALLBACK_MS) {
-    return { ...status, ready: false, readyMarker: null, readyError: hit.error ?? null,
-             state: 'starting',
-             startedAt: new Date(startedAt).toISOString(), ageMs };
+  const startedAt = Number.isFinite(changedSec) && changedSec > 0 ? changedSec * 1000 : NaN;
+  if (Number.isFinite(startedAt)) {
+    const ageMs = Date.now() - startedAt;
+    // Juenger als das Fenster -> noch "startet" (systemd-Verhalten unveraendert).
+    if (ageMs < READY_FALLBACK_MS) {
+      return { ...status, ready: false, readyMarker: null, readyError: hit.error ?? null,
+               state: 'starting',
+               startedAt: new Date(startedAt).toISOString(), ageMs };
+    }
+  } else {
+    // Keine echte Startzeit -> Status unveraendert, aber den Marker-Befund
+    // (z.B. "keine readyMarkers im Rack") mitgeben.
+    return { ...status, ready: false, readyMarker: null, readyError: hit.error ?? null };
   }
   // Rueckfall: laeuft lange genug -> "running", auch ohne Marker.
   return { ...status, ready: false, readyMarker: null, readyError: hit.error ?? null,
