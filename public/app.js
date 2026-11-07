@@ -2467,10 +2467,10 @@
       box.innerHTML = list.map((r) => `
         <div class="item rack-item" data-id="${esc(r.id)}" style="cursor:pointer;">
           <div class="grow">
-            <div>${esc(r.name)} <span class="badge">${esc(r.game)}</span>
+            <div>${esc(r.name)} ${rackKindBadge(r)}
               ${r.locked ? '<span class="badge premium">gesperrt</span>' : ''}
               ${r.singleton && countRackInstances(r.id) > 0 ? '<span class="badge">bereits installiert</span>' : ''}</div>
-            <div class="meta">${esc(r.description ?? '')} · ${esc(r.installMethod)} · ${esc(r.defaultRoot ?? '')}</div>
+            <div class="meta">${esc(rackMetaLine(r))}</div>
           </div>
         </div>`).join('');
       box.querySelectorAll('.rack-item').forEach((el) => {
@@ -2520,6 +2520,32 @@
       // CurseForge vorausgewaehlt - live gemeldet am 2026-10-31.
       // Hier wird zusaetzlich der passende Tab AKTIV geschaltet.
       upTab(allowed[0]);
+    }
+
+    // Badge fuer ein Rack: Spiel-Racks zeigen ihr Spiel, Dienst-Racks "Dienst".
+    //
+    // Warum eine Funktion: die Zeile stand vorher ZWEIMAL fest im Code
+    // (Shop und Rack-Verwaltung). Ein Dienst-Rack hat kein `game`, also
+    // zeigten beide Stellen "undefined" (live belegt 2026-11-07). Zwei
+    // getrennte Stellen waeren beim naechsten Feld wieder auseinandergelaufen.
+    function rackKindBadge(r) {
+      const text = r.kind === 'service' ? 'Dienst' : (r.game ?? 'Spiel');
+      return '<span class="badge">' + esc(text) + '</span>';
+    }
+
+    // Metazeile. Leere Teile fallen weg - sonst entstehen Ketten wie
+    // "· undefined ·" oder "· · ". Ein Dienst-Rack hat keine Installations-
+    // wurzel und keine Methode; dort ist der Port die sinnvolle Angabe.
+    function rackMetaLine(r) {
+      const teile = [r.description ?? ''];
+      if (r.kind === 'service') {
+        const p = r.ports && typeof r.ports === 'object' ? Object.values(r.ports)[0] : null;
+        if (p) teile.push('Port ' + p);
+      } else {
+        if (r.installMethod) teile.push(r.installMethod);
+        if (r.defaultRoot) teile.push(r.defaultRoot);
+      }
+      return teile.filter(Boolean).join(' · ');
     }
 
     // Wie viele Swords laufen von diesem Rack? Fuer Einmal-Racks (singleton)
@@ -2872,8 +2898,10 @@ function renderRackManage() {
       : 'Rack löschen';
     return '<div class="rack-manage-row">'
       + '<div class="rm-name"><b>' + esc(r.name) + '</b>'
-      + '<span class="si-meta">' + esc(r.id) + ' \u00b7 ' + esc(r.game) + ' \u00b7 '
-      + esc(r.installMethod) + ' \u00b7 ' + used + ' Server</span></div>'
+      + '<span class="si-meta">' + esc(r.id) + ' \u00b7 '
+      + esc(r.kind === 'service' ? 'Dienst' : r.game) + ' \u00b7 '
+      + esc(r.kind === 'service' ? 'Port ' + (r.ports?.web ?? '-') : r.installMethod)
+      + ' \u00b7 ' + used + ' Server</span></div>'
       + (canSidebar
         ? '<button data-toggle-rack="' + esc(r.id) + '"'
           + ' title="' + (isShown ? 'Aus der Sidebar ausblenden' : 'In der Sidebar anzeigen') + '">'
