@@ -66,6 +66,17 @@ export const PERMISSIONS = [
   { perm: 'user.role',              label: 'Rolle ändern',             group: 'Nutzer' },
   { perm: 'user.password',          label: 'Passwort setzen',           group: 'Nutzer' },
   { perm: 'user.email',             label: 'E-Mail hinterlegen',        group: 'Nutzer' },
+  // Arsenale (2026-11-09): mehrere Maschinen unter einer Armory.
+  // Startbelegung NUR superuser - diese Rechte stehen deshalb bewusst NICHT
+  // in ADMIN_PERMS. Wer Arsenale verwalten darf, nimmt fremde Rechner in die
+  // Armory auf; das ist mehr als Racks pflegen.
+  // arsenal.pair ist eigenstaendig: koppeln ist nicht dasselbe wie ein
+  // bestehendes Arsenal pflegen.
+  { perm: 'arsenal.read',           label: 'Arsenale lesen',            group: 'Arsenale' },
+  { perm: 'arsenal.create',         label: 'Arsenal hinzufügen',        group: 'Arsenale' },
+  { perm: 'arsenal.update',         label: 'Arsenal aktualisieren',     group: 'Arsenale' },
+  { perm: 'arsenal.delete',         label: 'Arsenal entfernen',         group: 'Arsenale' },
+  { perm: 'arsenal.pair',           label: 'Arsenal koppeln',           group: 'Arsenale' },
 ];
 
 // Schnelle Lookup-Struktur fuer unbekannte Rechte-Pruefung.

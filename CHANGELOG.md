@@ -3,6 +3,56 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.70] - 2026-11-09
+
+### Neu
+
+- **Kopplung von Arsenalen (Fundament).** Eine Armory kann mehrere Maschinen
+  verwalten. Die Kopplung laeuft bewusst umgedreht: das ARSENAL erzeugt den
+  Kopplungscode, die ARMORY tippt ihn ein. Dadurch muss am Arsenal kein Port
+  nach aussen offen sein - es funktioniert im Heimnetz wie im Internet.
+
+  ```
+  POST /api/arsenals/pairing   Code am Arsenal erzeugen (15 min gueltig)
+  POST /api/arsenals/pair      Code in der Armory einloesen -> Schluessel
+  GET  /api/arsenals           Liste mit Zustand
+  POST /api/arsenals/:id/revoke  Arsenal sperren
+  POST /api/arsenal/heartbeat  Lebenszeichen (Schluessel im Header)
+  ```
+
+### Sicherheit
+
+- **In der DB liegt nur der Hash.** Weder Kopplungscode noch Arsenal-Schluessel
+  stehen im Klartext in der Datenbank (SHA-256, wie bei den Reset-Tokens).
+  Der Schluessel wird beim Einloesen genau EINMAL ausgegeben.
+- **Der Kopplungscode ist einmalig und kurz gueltig** (15 Minuten). Ein neuer
+  Code entwertet den alten, damit nie zwei offen sind.
+- **Die Pruefung des Lebenszeichens ist nicht anfaellig fuer Praefix-Treffer**
+  und vergleicht in konstanter Zeit (`timingSafeEqual`).
+- **Ein gesperrtes Arsenal wird abgewiesen**, auch mit richtigem Schluessel.
+- **Unbekannter und falscher Code geben dieselbe Antwort**, damit sich mit
+  geratenen Codes nicht herausfinden laesst, welche existieren.
+- **`arsenal.*`-Rechte sind Startbelegung nur Superuser** (nicht in
+  `ADMIN_PERMS`), wie bei `system.logs`. `arsenal.pair` ist eigenstaendig:
+  koppeln ist mehr als ein bestehendes Arsenal pflegen.
+
+### Behoben
+
+- **`arsenalState` stufte ein Arsenal an der Grenze als "online" ein.**
+  Bei exakt `HEARTBEAT_STALE_MS` Alter stand `age > STALE` noch auf "online".
+  Ein Arsenal, das 90 s geschwiegen hat, galt damit einen Moment zu lange als
+  lebendig. Jetzt `>=`.
+- **`auth.js`: DB-Pfad ueber `ARMORY_DB_PATH` umlenkbar.** Vorher hartkodiert;
+  Tests haetten sonst gegen die echte Datenbank laufen muessen.
+
+### Tests
+
+- 47 neue Tests (19 Kopplung/Pruefung, 13 Speicher, 15 Routen). Gesamt 222.
+- Jede Schutzfunktion ist per Mutation gegengeprueft: Klartext in der DB,
+  fehlende Einmalverwendung, ignorierter Ablauf, fehlendes Rechte-Gate,
+  Herzschlag ohne Schluessel - jede Mutation macht genau die zugehoerigen
+  Tests rot.
+
 ## [1.3.5] - 2026-11-07
 
 ### Behoben

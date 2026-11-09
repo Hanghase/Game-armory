@@ -143,7 +143,10 @@ export async function validatePassword(password, username = '') {
   return true;
 }
 
-const DB_PATH = '/opt/game-armory/data/armory.db';
+// DB-Pfad: im Betrieb der feste Pfad. Ueber ARMORY_DB_PATH umlenkbar, damit
+// Tests gegen eine Wegwerf-DB laufen und nie die echte Datenbank anfassen.
+// Ohne die Variable verhaelt sich das Modul exakt wie vorher.
+const DB_PATH = process.env.ARMORY_DB_PATH || '/opt/game-armory/data/armory.db';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 Tage
 
 // Rang-Hierarchie (Level 0-4): superuser > admin > moderator > friend > strangerdanger

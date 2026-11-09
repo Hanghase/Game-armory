@@ -20,6 +20,7 @@ import { serviceAction, serviceStatus, streamLogs, withReadiness,
   dockerReihenfolge } from './control.js';
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
+import { arsenalRouter } from './arsenalRoutes.js';
 import { getSessionUser, requireAuth, cleanupExpiredSessions,  cleanupLoginAttempts,
 } from './auth.js';
 import { roleHasPerm } from './permissions.js';
@@ -93,6 +94,7 @@ app.use('/api/auth', authRouter);
 
 // --- API: Settings, CurseForge, Install & Update ---------------------------
 app.use('/api', installRouter);
+app.use('/api', arsenalRouter);
 
 // --- API: Swords (lesen: jeder Eingeloggte) ------------------------------
 
