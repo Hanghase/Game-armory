@@ -65,3 +65,45 @@ test('ein unbekannter Upload ergibt 404, keinen Absturz', () => {
     'der 404 haengt nicht an einem fehlenden Upload',
   );
 });
+
+// --- Das Fenster muss wieder aufgehen -------------------------------------
+//
+// Live am 2026-11-09: 6 MB nach oben, 8 Stuecke (512 KiB) angekommen, dann
+// Stillstand. quittiere() war gebaut und getestet - und wurde NIE aufgerufen.
+// Dieselbe Luecke wie withReadiness/dockerStatus: Funktion gruen, Aufrufer
+// existiert nicht. Diese Tests pruefen den AUFRUFER.
+
+const socketQuelle = await readFile(new URL('../app/arsenalSocket.js', import.meta.url), 'utf8');
+const agentQuelle = await readFile(new URL('../agent/run.js', import.meta.url), 'utf8');
+
+test('die Armory oeffnet das Fenster bei "stand"', () => {
+  assert.match(
+    socketQuelle,
+    /msg\?\.type === 'stand'[\s\S]{0,300}?quittiere\(msg\.id\)/,
+    'kein "stand"-Zweig mit quittiere() - der Pull bleibt nach dem Fenster stehen',
+  );
+});
+
+test('nach dem Quittieren wird weitergesendet', () => {
+  const block = socketQuelle.slice(socketQuelle.indexOf("msg?.type === 'stand'"));
+  const bisEnde = block.slice(0, block.indexOf('return true'));
+  assert.match(bisEnde, /sendeWeiter\(msg\.id\)/, 'Fenster auf, aber nichts nachgeschickt');
+});
+
+test('der Agent quittiert jedes Stueck', () => {
+  assert.match(
+    agentQuelle,
+    /type: 'stand'/,
+    'der Agent schickt keine Quittung - die Armory erfaehrt nie, dass das Fenster frei ist',
+  );
+});
+
+test('die Quittung kommt VOR dem Abschluss', () => {
+  const iStand = agentQuelle.indexOf("type: 'stand'");
+  const iFertig = agentQuelle.indexOf('await schliessePullAb(id)');
+  assert.ok(iStand > 0 && iFertig > 0, 'Quittung oder Abschluss fehlt');
+  assert.ok(
+    iStand < iFertig,
+    'die Quittung kommt nach dem Abschluss - beim letzten Stueck wartet die Armory vergebens',
+  );
+});

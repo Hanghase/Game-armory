@@ -17,7 +17,7 @@
 import crypto from 'node:crypto';
 
 import { getArsenal, touchHeartbeat } from './arsenalStore.js';
-import { sendeWeiter, schliesseAb } from './arsenalTransferSend.js';
+import { sendeWeiter, schliesseAb, quittiere } from './arsenalTransferSend.js';
 import { verifyHeartbeat } from './arsenals.js';
 
 // Offene Leitungen: arsenalId -> ws
@@ -153,6 +153,22 @@ export function verarbeiteNachricht(arsenalId, roh) {
     // Die Stuecke gehen asynchron raus. Ein blockierendes await hier wuerde
     // den Nachrichtenempfang anhalten - und das naechste "stand" kaeme nie.
     sendeWeiter(msg.id).catch(() => {});
+    return true;
+  }
+
+  // Das Arsenal hat Stuecke verarbeitet: Fenster wieder oeffnen und weiter.
+  //
+  // OHNE DIESEN ZWEIG STEHT DER PULL NACH DEM FENSTER.
+  //
+  // Live am 2026-11-09: 6 MB nach oben, 8 Stuecke (512 KiB) angekommen, dann
+  // Stillstand. quittiere() war gebaut und getestet - und wurde NIE
+  // aufgerufen. Dieselbe Luecke wie withReadiness/dockerStatus: die Funktion
+  // ist gruen, der Aufrufer existiert nicht. Der Test dazu prueft jetzt, dass
+  // quittiere im Verteiler aufgerufen wird, nicht nur dass es sie gibt.
+  if (msg?.type === 'stand' && typeof msg.id === 'string') {
+    if (quittiere(msg.id)) {
+      sendeWeiter(msg.id).catch(() => {});
+    }
     return true;
   }
 

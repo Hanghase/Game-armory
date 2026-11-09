@@ -253,6 +253,17 @@ async function fuehreAus({ action, service }) {
       return;
     }
 
+    // QUITTIEREN: der Armory sagen, dass das Stueck verarbeitet ist.
+    //
+    // Ohne diese Meldung weiss die Armory nicht, dass ihr Fenster wieder frei
+    // ist - und schickt nach 8 Stuecken nichts mehr. Live am 2026-11-09: 6 MB
+    // nach oben, 512 KiB angekommen, dann Stillstand. Auf der Sendeseite war
+    // das Fenster schuld, hier fehlte die Quittung.
+    //
+    // Vor schliessePullAb: das Fenster soll auch beim LETZTEN Stueck aufgehen,
+    // sonst wartet die Armory auf eine Quittung, die nie kommt.
+    sende({ type: 'stand', id, empfangen: r.empfangen });
+
     // Fertig, sobald alles da ist - NICHT am Verbindungsende. Die Leitung
     // bleibt fuer Befehle offen, ein "close" gibt es hier nicht.
     if (r.empfangen >= r.gesamt) {

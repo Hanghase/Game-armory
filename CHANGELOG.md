@@ -3,6 +3,41 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.1] - 2026-11-09
+
+### Behoben - der Pull blieb nach 8 Stuecken stehen
+
+**Live mit einer echten 6-MB-ZIP zum Arsenal:** 512 KiB kamen an, dann nichts
+mehr. Auf der VM lag `atm11-server.zip.teil` mit 524288 von 6001888 Bytes.
+
+Zwei Ursachen, die zusammen gehoeren:
+
+1. **Der Agent quittierte nie.** Die Armory hat ein Fenster von 8 Stuecken -
+   ohne Quittung weiss sie nicht, dass wieder Platz ist.
+2. **Die Armory rief `quittiere()` nie auf.** Die Funktion war gebaut und
+   getestet, aber der `stand`-Zweig im Verteiler fehlte.
+
+Beides ist derselbe Fehlertyp wie `withReadiness`/`dockerStatus`:
+**die Funktion ist gruen, der Aufrufer existiert nicht.** Der sechste Fall in
+diesem Projekt, und diesmal habe ich ihn mir selbst gebaut, weil ich beim
+Testen nur die Funktion angesehen habe.
+
+Jetzt:
+- Agent schickt `{ type:'stand', id, empfangen }` nach JEDEM Stueck -
+  **vor** dem Abschluss, damit beim letzten Stueck nichts haengt.
+- Armory oeffnet bei `stand` das Fenster und sendet weiter.
+
+### Tests, die den AUFRUFER pruefen
+
+Vier neue Tests lesen den Quelltext beider Seiten:
+
+- die Armory hat einen `stand`-Zweig mit `quittiere(msg.id)`
+- nach dem Quittieren wird `sendeWeiter(msg.id)` aufgerufen
+- der Agent schickt ueberhaupt ein `stand`
+- die Quittung steht **vor** `schliessePullAb`
+
+4 Mutationen, alle gefangen - auch "Quittung nach dem Abschluss verschoben".
+
 ## [1.5.0] - 2026-11-09
 
 ### Neu - die Sendeseite der Uebertragung
