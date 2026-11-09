@@ -205,16 +205,29 @@ test('die Arsenal-Zeile bietet Fernupdate an', async () => {
   assert.match(block, /Fernupdate/);
 });
 
-test('die Arsenal-Zeile bietet KEIN Start/Stop/Neustart an', async () => {
-  // Nicht weil es technisch nicht ginge, sondern weil es der falsche Ort ist.
-  // Wer das wieder einbaut, soll hier stolpern.
+test('die Arsenal-Zeile bietet KEIN Start/Stop an', async () => {
+  // Nicht weil es technisch nicht ginge, sondern weil es der falsche Ort ist:
+  // ein Sword laeuft auf dem Arsenal und wird ueber die Racks bewegt. Wer das
+  // wieder einbaut, soll hier stolpern.
   const block = await renderBlock();
-  for (const falsch of ['start', 'stop', 'restart']) {
+  for (const falsch of ['start', 'stop']) {
     assert.ok(
       !block.includes(`data-arsenal-action="${falsch}"`),
       `"${falsch}" gehoert nicht an das Arsenal - das ist Swords-Sache`,
     );
   }
+});
+
+test('Neustart ist erlaubt - er meint das ARSENAL, nicht einen Dienst darauf', async () => {
+  // Felix, 2026-11-09: "den restart button fand ich eigentlich echt gut".
+  // Der Unterschied zu start/stop: Neustart betrifft den Agenten selbst.
+  // Wer ihn wieder entfernt, entfernt die Moeglichkeit, einen haengenden
+  // Agenten ohne SSH zu wecken.
+  const block = await renderBlock();
+  assert.ok(
+    block.includes('data-arsenal-action="restart"'),
+    'Neustart-Knopf fehlt',
+  );
 });
 
 test('die angebotene Aktion ist genau die, die die Route durchlaesst', async () => {

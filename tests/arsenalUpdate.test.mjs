@@ -147,3 +147,30 @@ test('der Agent antwortet auf update, BEVOR der Dienst neu startet', async () =>
   assert.match(block, /\.then\(|\.catch\(/,
     'starteUpdate wird nicht im Hintergrund angestossen');
 });
+
+// --- Neustart des Arsenals selbst ------------------------------------------
+// Felix, 2026-11-09: "den restart button fand ich eigentlich echt gut".
+// Gemeint ist NICHT das Neustarten von Diensten auf dem Arsenal (das ist
+// Swords-Sache) - gemeint ist: der Agent haengt, ich will ihn von hier aus
+// neu starten, ohne SSH. Darum heisst die Aktion "restart" und trifft genau
+// den Agenten selbst.
+
+test('die Route bietet update UND restart an - sonst nichts', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const routen = await readFile(new URL('../app/arsenalRoutes.js', import.meta.url), 'utf8');
+  const m = routen.match(/const ERLAUBTE_AKTIONEN = \[([^\]]+)\]/);
+  assert.ok(m, 'ERLAUBTE_AKTIONEN nicht gefunden');
+  const erlaubt = m[1].split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean).sort();
+  assert.deepEqual(erlaubt, ['restart', 'update'],
+    'erlaubt sind genau Fernupdate und Neustart des Arsenals');
+});
+
+test('restart braucht KEINEN Dienstnamen', async () => {
+  const logic = await import('../agent/logic.js');
+  const r = logic.validateCommand({ type: 'command', action: 'restart', service: null });
+  // ACHTUNG: start/stop/restart hiessen im Agenten bisher "Dienst X".
+  // Wenn restart jetzt den Agenten selbst meint, darf es keinen Dienst
+  // verlangen - sonst schickt das Panel ein leeres Feld und bekommt 400.
+  assert.equal(r.ok, true, 'restart ohne Dienst muss erlaubt sein');
+  assert.equal(r.service, null);
+});

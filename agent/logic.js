@@ -31,7 +31,15 @@ export const ALLOWED_ACTIONS = Object.freeze([
 ]);
 
 // Aktionen, die KEINEN Dienstnamen brauchen.
-export const OHNE_DIENST = Object.freeze(['status', 'update']);
+//
+// restart stand hier frueher NICHT und bedeutete "starte Dienst X neu". Seit
+// 2026-11-09 bedeutet es am Arsenal "starte den Agenten selbst neu" (Felix:
+// der Agent haengt, ich will ihn ohne SSH neu starten). Die Bedeutung hat
+// sich geaendert, nicht die Zeichenkette - darum steht der Grund hier.
+// Ein restart MIT Dienstnamen bleibt trotzdem erlaubt: wer bewusst eine Unit
+// auf dem Arsenal neu starten will, soll das koennen (die Route bietet es
+// nicht an, der Weg ueber die Leitung bleibt aber offen).
+export const OHNE_DIENST = Object.freeze(['status', 'update', 'restart']);
 
 // Erlaubte Form eines Dienstnamens (systemd-Unit). Keine Punkte am Anfang,
 // keine Leerzeichen, keine Shell-Metazeichen.
@@ -68,6 +76,10 @@ export function validateCommand(msg) {
       return { ok: true, service: null, action };
     }
   }
+
+  // Ein restart MIT Dienst bleibt ein Dienst-Neustart - aber nur, wenn der
+  // Name die Pruefung unten besteht. Hier wird nichts durchgewinkt.
+
 
   if (typeof service !== 'string' || !SERVICE_RE.test(service)) {
     return { ok: false, reason: 'bad-service' };

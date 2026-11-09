@@ -108,15 +108,19 @@ arsenalRouter.post('/arsenals/:id/revoke', requirePerm('arsenal.delete'), (req, 
 // die Antwort. Das Arsenal prueft den Befehl nochmal selbst gegen seine eigene
 // Whitelist - hier wird nicht blind weitergereicht.
 //
-// Was von der Armory aus erreichbar ist: NUR das Fernupdate des Arsenals.
+// Was von der Armory aus erreichbar ist: das Fernupdate und der NEUSTART DES
+// ARSENALS SELBST.
 //
-// Start/Stop/Neustart stehen bewusst NICHT hier (2026-11-09): ein Sword laeuft
-// auf dem Arsenal und wird ueber die Racks bewegt. Das Arsenal ist die
-// Maschine, die Racks traegt - kein Fernsteuerungszugang zu allem, was darauf
-// laeuft. Der Agent kann die drei Aktionen weiterhin (er prueft gegen seine
-// eigene Whitelist), die Armory bietet sie nicht mehr an. Weniger Angriffs-
-// flaeche ist hier der Zweck, nicht Bequemlichkeit.
-const ERLAUBTE_AKTIONEN = ['update'];
+// Start/Stop stehen bewusst NICHT hier (2026-11-09): ein Sword laeuft auf dem
+// Arsenal und wird ueber die Racks bewegt. Das Arsenal ist die Maschine, die
+// Racks traegt - kein Fernsteuerungszugang zu allem, was darauf laeuft.
+//
+// restart meint hier NICHT "Dienst X neu starten", sondern "der Agent haengt,
+// starte ihn neu" (Felix: den Neustart fand er gut - er meinte das Arsenal,
+// nicht die Dienste darauf). Die Bedeutung hat sich geaendert, nicht das Wort.
+// Der Agent kann start/stop weiterhin (eigene Whitelist), die Armory bietet
+// sie nicht mehr an. Weniger Angriffsflaeche ist der Zweck, nicht Bequemlichkeit.
+const ERLAUBTE_AKTIONEN = ['update', 'restart'];
 
 arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async (req, res) => {
   const id = Number(req.params.id);
@@ -129,8 +133,9 @@ arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async
   if (!ERLAUBTE_AKTIONEN.includes(action)) {
     return res.status(400).json({ error: 'Unbekannte Aktion' });
   }
-  // update betrifft das Arsenal selbst und braucht keinen Dienstnamen.
-  if (action !== 'status' && action !== 'update'
+  // update und restart betreffen das Arsenal selbst und brauchen keinen
+  // Dienstnamen.
+  if (action !== 'status' && action !== 'update' && action !== 'restart'
       && (typeof service !== 'string' || service.length === 0)) {
     return res.status(400).json({ error: 'Dienst fehlt' });
   }

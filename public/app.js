@@ -3362,6 +3362,9 @@ function renderArsenals(list) {
       <span class="a-meta">${esc(arsenalMetaLine(a))}</span>
       <span class="a-acts">
         <button class="ghost a-act" data-arsenal-id="${a.id}"
+                data-arsenal-action="restart" title="Agent auf diesem Arsenal neu starten"
+                ${online ? '' : 'disabled'}>Neustart</button>
+        <button class="ghost a-act" data-arsenal-id="${a.id}"
                 data-arsenal-action="update" title="Arsenal auf die neueste Version bringen"
                 ${online ? '' : 'disabled'}>Fernupdate</button>
       </span>
@@ -3375,8 +3378,28 @@ function renderArsenals(list) {
 // nicht "fertig" - der Rechner ist danach kurz weg.
 async function runArsenalAction(id, aktion) {
   const ziel = document.getElementById('arsenalState');
-  if (aktion !== 'update') return;
-  if (ziel) ziel.textContent = 'Fernupdate angestoßen\u2026';
+  if (aktion !== 'update' && aktion !== 'restart') return;
+  if (ziel) ziel.textContent = aktion === 'restart' ? 'Neustart angestoßen\u2026' : 'Fernupdate angestoßen\u2026';
+  // Neustart: kein Dienstname, die Zeile bleibt wie sie ist. Nach ein paar
+  // Sekunden neu laden, damit der Punkt den neuen Zustand zeigt.
+  if (aktion === 'restart') {
+    try {
+      const res = await fetch(`/api/arsenals/${id}/command`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'restart' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (ziel) ziel.textContent = res.ok
+        ? (data.output ?? 'Neustart läuft.')
+        : (res.status === 409 ? 'Arsenal ist nicht verbunden.' : (data.error ?? 'Fehlgeschlagen'));
+      setTimeout(loadArsenals, 6000);
+    } catch {
+      if (ziel) ziel.textContent = 'Befehl nicht abgesetzt.';
+    }
+    return;
+  }
   try {
     const res = await fetch(`/api/arsenals/${id}/command`, {
       method: 'POST',

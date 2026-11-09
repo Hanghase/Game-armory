@@ -103,12 +103,20 @@ test('SERVICE_RE erlaubt nur harmlose Unit-Namen', () => {
   }
 });
 
-test('fehlender Dienst bei start/stop/restart wird abgelehnt', () => {
-  for (const action of ['start', 'stop', 'restart']) {
+test('fehlender Dienst bei start/stop wird abgelehnt', () => {
+  // restart steht hier NICHT mehr (2026-11-09): am Arsenal bedeutet es
+  // "starte den Agenten selbst neu" und braucht darum keinen Dienstnamen.
+  // Ein restart MIT unbrauchbarem Dienstnamen bleibt abgelehnt - das prueft
+  // der zweite Teil.
+  for (const action of ['start', 'stop']) {
     for (const service of [undefined, null, '', 0]) {
       const r = validateCommand({ type: 'command', action, service });
       assert.equal(r.ok, false, `${action} ohne Dienst akzeptiert`);
     }
+  }
+  for (const service of ['', 0, 'a;b']) {
+    const r = validateCommand({ type: 'command', action: 'restart', service });
+    assert.equal(r.ok, false, `restart mit unbrauchbarem Dienst akzeptiert: ${JSON.stringify(service)}`);
   }
 });
 

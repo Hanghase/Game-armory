@@ -105,6 +105,29 @@ async function fuehreAus({ action, service }) {
     };
   }
 
+  // restart OHNE Dienst meint das ARSENAL SELBST: der Agent haengt, starte
+  // ihn neu. Nicht "Dienst X auf diesem Rechner".
+  //
+  // Die Antwort muss VOR dem Neustart raus - dieselbe Lehre wie beim Update:
+  // ein erfolgreicher Vorgang, der beim Aufrufer als Timeout ankommt, ist
+  // schlimmer als ein Fehler. Darum in eigener Unit, leicht verzoegert, und
+  // sofort antworten.
+  if (action === 'restart' && !service) {
+    const einheit = `arsenal-restart-${Date.now()}`;
+    execFileP('/usr/bin/systemd-run', [
+      '--unit', einheit, '--collect', '--quiet',
+      '--on-active=2',
+      '--description', 'Arsenal: Agent neu starten',
+      '/usr/bin/systemctl', 'restart', 'armory-arsenal',
+    ], { timeout: 15000 }).catch((err) => log(`Neustart nicht angemeldet: ${err.message}`));
+    return {
+      ok: true,
+      action,
+      service: null,
+      output: 'Neustart angestoßen - der Agent ist in wenigen Sekunden wieder da.',
+    };
+  }
+
   // status OHNE Dienst fragt "was laeuft hier" - dafuer braucht systemctl
   // eine Liste statt is-active ohne Argument. is-active ohne Unit faellt mit
   // "Too few arguments" aus, und das ist nicht die Antwort auf die Frage.

@@ -3,6 +3,40 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.21] - 2026-11-09
+
+### Neu
+
+- **Neustart-Knopf am Arsenal.** (Felix: "den restart button fand ich
+  eigentlich echt gut".) Er meint NICHT das Neustarten von Diensten auf dem
+  Arsenal - das bleibt Swords-Sache. Er meint: der Agent haengt, ich will ihn
+  von hier aus wecken, ohne SSH.
+
+  Die Aktion heisst weiter `restart`, ihre BEDEUTUNG hat sich geaendert:
+  ohne Dienstnamen = das Arsenal selbst, mit Dienstnamen = Unit darauf.
+  Der Grund steht im Code, damit die naechste Person nicht raten muss.
+
+  Der Agent antwortet VOR dem Neustart und meldet ihn 2 s spaeter in eigener
+  systemd-Unit an - sonst reisst der Neustart die Antwort weg (dieselbe Lehre
+  wie beim Fernupdate eine Stunde vorher).
+
+### Geaendert
+
+- Route bietet jetzt `update` und `restart` an; `start`/`stop` bleiben draussen.
+- `restart` ohne Dienstnamen ist in der Agent-Whitelist erlaubt. Ein `restart`
+  MIT unbrauchbarem Dienstnamen bleibt abgelehnt.
+
+### Getestet
+
+- 3 neue Tests, 2 alte auf die neue Bedeutung gezogen. 288 gesamt.
+- Mutationen: restart verlangt wieder einen Dienst -> Whitelist-Test rot.
+  Neustart-Knopf entfernt -> zwei Tests rot. `start` statt `restart`
+  angeboten -> Start/Stop-Verbots-Test rot.
+- **Live auf der VM:** `restart` -> Antwort sofort, Agent nach 12 s wieder da.
+  Im Log belegt: Befehl, SIGTERM, neue PID 2172 statt 2138, "startet (ID 6)",
+  verbunden. Danach `update` -> `{"gestartet":false,"grund":"schon-aktuell"}`,
+  kein sinnloser Neustart.
+
 ## [1.4.2] - 2026-11-09
 
 ### Neu
