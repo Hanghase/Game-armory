@@ -346,3 +346,45 @@ test('einsetzen steht in BEIDEN Aktionslisten des Agenten', async () => {
   assert.ok(OHNE_DIENST.includes('einsetzen'),
     'OHNE_DIENST kennt einsetzen nicht - es wuerde ein Dienstname verlangt');
 });
+
+test('setzeEin benutzt die Auftragsliste so, wie es sie gibt', async () => {
+  // Live am 2026-11-09: der Agent loggte "Befehl: einsetzen" und danach NICHTS.
+  // Kein Fortschritt, kein Abbruch, keine Meldung an die Armory - der Request
+  // war mit ok:true beantwortet, die Arbeit passierte nie.
+  //
+  // Ursache: ich hatte auftraege.starte(id, art) geschrieben. Die Liste hat
+  // aber nur anlegen({ art, titel }), setzeFortschritt(id, …) und beende(id, …).
+  // starte() gibt es nicht, der Aufruf warf, und der Fehler verschwand im
+  // catch - der catch rief selbst wieder auftraege.beende(auftrag.id, …), wo
+  // auftrag nie zugewiesen wurde.
+  //
+  // Ein Test, der die Route ausfuehrt, haette das sofort gezeigt. Ohne echten
+  // Agenten geht hier der Vergleich mit der echten Liste.
+  const { erstelleAuftragsliste } = await import('../app/arsenalJobs.js');
+  const liste = erstelleAuftragsliste();
+  for (const name of ['anlegen', 'setzeFortschritt', 'beende']) {
+    assert.equal(typeof liste[name], 'function', `Auftragsliste hat kein ${name}`);
+  }
+  assert.equal(liste.starte, undefined, 'Auftragsliste hat doch ein starte() - Test anpassen');
+
+  const run = await readFile(new URL('../agent/run.js', import.meta.url), 'utf8');
+  const j = run.indexOf('async function setzeEin');
+  const rumpf = run.slice(j, j + 4000);
+  const ohneKommentar = rumpf.split('\n').filter((z) => !z.trim().startsWith('//')).join('\n');
+  assert.doesNotMatch(ohneKommentar, /auftraege\.starte\(/, 'setzeEin ruft auftraege.starte() - das gibt es nicht');
+  assert.match(ohneKommentar, /auftraege\.anlegen\(\{/, 'setzeEin legt keinen Auftrag an');
+});
+
+test('setzeEin faengt Fehler, ohne selbst zu werfen', async () => {
+  // Der catch rief auftraege.beende(auftrag.id, …) - mit auftrag ausserhalb
+  // des try deklariert, im catch also erreichbar. Wird die Deklaration aber je
+  // nach innen gezogen, wirft der catch erneut und der Fehler ist stumm.
+  const run = await readFile(new URL('../agent/run.js', import.meta.url), 'utf8');
+  const j = run.indexOf('async function setzeEin');
+  const rumpf = run.slice(j, j + 4000);
+  assert.match(rumpf, /catch \(err\)/, 'kein catch in setzeEin');
+  // Im catch darf nicht auf eine im try deklarierte Variable zugegriffen werden.
+  const iCatch = rumpf.indexOf('catch (err)');
+  const catchBlock = rumpf.slice(iCatch, iCatch + 800);
+  assert.match(catchBlock, /sende\(\{/, 'der catch meldet nichts an die Armory');
+});

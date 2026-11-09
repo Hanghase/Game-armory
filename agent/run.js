@@ -444,7 +444,10 @@ async function setzeEin(msg) {
     return;
   }
 
-  const auftrag = auftraege.starte(p.swordId, 'einsetzen');
+  // anlegen({ art, titel }) - NICHT starte(id, art). Die Liste hat kein
+  // starte(); live am 2026-11-09: der Agent loggte "Befehl: einsetzen" und
+  // danach nichts mehr, weil der Aufruf warf und der catch ihn verschluckte.
+  const auftrag = auftraege.anlegen({ art: 'einsetzen', titel: p.swordId });
   planeHeartbeat(ladeConfig());
 
   try {
