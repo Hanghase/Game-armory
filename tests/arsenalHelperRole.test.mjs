@@ -40,8 +40,10 @@ test('die Pfadliste steht NUR EINMAL im Code', () => {
   // vergisst die andere. Genau das war vor 1.5.4 der Fall.
   const treffer = quelle.match(/\/opt\/game-armory\/data\/uploads\/\*/g) ?? [];
   assert.equal(treffer.length, 1, `Pfadliste steht ${treffer.length}x im Code statt 1x`);
-  const arsenal = quelle.match(/\/var\/lib\/armory-arsenal\/packs\//g) ?? [];
-  assert.equal(arsenal.length, 1, `Arsenal-Pfad steht ${arsenal.length}x statt 1x`);
+  // Der QUELL-Pfad (gezogene ZIP) steht genau einmal - in ist_archiv_quelle.
+  // Das ZIEL (/packs/entpackt) ist etwas anderes und darf danebenstehen.
+  const quellePfad = quelle.match(/\/var\/lib\/armory-arsenal\/packs\/\*/g) ?? [];
+  assert.equal(quellePfad.length, 1, `Arsenal-Quellpfad steht ${quellePfad.length}x statt 1x`);
 });
 
 test('beide Entpacker benutzen die Funktion', () => {
@@ -122,4 +124,34 @@ test('entpackt wird als der Instanz-User, nicht als root', () => {
   const rumpf = quelle.slice(i, quelle.indexOf('\n}', i));
   const aufrufe = rumpf.match(/sudo -u "\$als_user"/g) ?? [];
   assert.equal(aufrufe.length, 2, `sudo -u fehlt bei einem der beiden Wege (${aufrufe.length}/2)`);
+});
+
+// --- Das Pack-Ziel ist kein Game-Root -----------------------------------
+// 1.5.81 scheiterte live an "Ziel ausserhalb der Roots:
+// /var/lib/armory-arsenal/packs/entpackt" - der Helfer prueft korrekt, nur
+// kannte er das Verzeichnis nicht.
+//
+// Der naheliegende Fix (in ALLOWED_ROOTS eintragen) waere falsch: dann duerfte
+// mkdir-tree, chown-tree und backup-tar ploetzlich dort arbeiten. Das Ziel
+// bekommt einen eigenen Zweig, gebunden an die Arsenal-Rolle.
+
+test('das Pack-Ziel steht NICHT in ALLOWED_ROOTS', () => {
+  const m = /^ALLOWED_ROOTS="([^"]*)"/m.exec(quelle);
+  assert.ok(m, 'ALLOWED_ROOTS nicht gefunden');
+  assert.doesNotMatch(m[1], /armory-arsenal/, 'Pack-Ziel wurde zum Game-Root gemacht');
+});
+
+test('das Pack-Ziel hat einen eigenen Zweig mit Rollenpruefung', () => {
+  const i = quelle.indexOf('/var/lib/armory-arsenal/packs/entpackt)');
+  assert.ok(i > 0, 'kein eigener Zweig fuer das Pack-Ziel');
+  const rumpf = quelle.slice(i, i + 400);
+  assert.match(rumpf, /ARMORY_ROLLE:-\}/, 'Pack-Ziel ohne Rollenpruefung');
+  assert.match(rumpf, /== "arsenal"/, 'Pack-Ziel prueft die falsche Rolle');
+});
+
+test('extract-pack benutzt das Zielargument', () => {
+  const i = quelle.match(/^  extract-pack\)$/m).index;
+  const ende = quelle.slice(i + 1).search(/^  [a-z-]+\)$/m);
+  const rumpf = quelle.slice(i, ende > 0 ? i + 1 + ende : i + 3000);
+  assert.match(rumpf, /mktemp -d "\$eltern\/armory-pack/, 'mktemp nutzt das Zielargument nicht');
 });

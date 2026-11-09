@@ -3,6 +3,31 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.82] - 2026-11-09
+
+### Fehler: das Pack-Ziel war dem Helfer unbekannt
+
+Nach 1.5.81 live:
+
+```
+install atm11: fehlgeschlagen - Ziel ausserhalb der Roots:
+/var/lib/armory-arsenal/packs/entpackt
+```
+
+Der Helfer prueft korrekt - er kannte das Verzeichnis nur nicht. Der
+naheliegende Fix waere gewesen, es in `ALLOWED_ROOTS` einzutragen. **Das waere
+falsch:** dann duerften `mkdir-tree`, `chown-tree`, `backup-tar` und
+`prune-backups` ploetzlich dort arbeiten - eine Tuer, die niemand braucht.
+
+Statt dessen: eigener Zweig im `extract-pack`, gebunden an
+`ARMORY_ROLLE=arsenal`. Auf einer Armory bleibt der Pfad gesperrt.
+
+### Getestet
+
+3 neue Tests, 414 gesamt. Ein Test prueft ausdruecklich, dass das Pack-Ziel
+NICHT in `ALLOWED_ROOTS` steht - er faengt genau den naheliegenden falschen
+Fix. Eine Mutation, die es dort eintraegt, wird rot.
+
 ## [1.5.81] - 2026-11-09
 
 ### Fehler: das entpackte Pack lag in einem privaten `/tmp`

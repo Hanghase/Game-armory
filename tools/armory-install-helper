@@ -322,7 +322,15 @@ case "$step" in
     eltern="${3:-/tmp}"
     if [[ "$eltern" != "/tmp" ]]; then
       valid_path "$eltern" || { echo "Ungueltiges Ziel: $eltern" >&2; exit 2; }
-      path_in_allowed_root "$eltern" || { echo "Ziel ausserhalb der Roots: $eltern" >&2; exit 3; }
+      # EIGENER Zweig, nicht ALLOWED_ROOTS: das Pack-Ziel ist kein Game-Root.
+      # Wuerde ich es dort eintragen, duerfte mkdir-tree/chown-tree/backup-tar
+      # ploetzlich dort arbeiten - eine Tuer, die niemand braucht.
+      case "$eltern" in
+        /var/lib/armory-arsenal/packs/entpackt)
+          [[ "${ARMORY_ROLLE:-}" == "arsenal" ]] || { echo "Pack-Ziel nur auf einem Arsenal: $eltern" >&2; exit 3; } ;;
+        *)
+          path_in_allowed_root "$eltern" || { echo "Ziel ausserhalb der Roots: $eltern" >&2; exit 3; } ;;
+      esac
       reject_symlink_path "$eltern"
     fi
     tmp_root="$(mktemp -d "$eltern/armory-pack-XXXXXX")"
