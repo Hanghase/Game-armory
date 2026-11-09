@@ -30,6 +30,8 @@ import {
   nextBackoff,
   HEARTBEAT_MS,
   validatePull,
+  validateInstall,
+  PACK_HELFER,
 } from './logic.js';
 import { startePull, nimmStueck, beendePull, brichAb } from './transferRun.js';
 
@@ -294,6 +296,69 @@ async function fuehreAus({ action, service }) {
     planeHeartbeat(ladeConfig());
   }
 
+  // --- Entpacken nach dem Ziehen ---------------------------------------------
+  //
+  // Das Arsenal hat die ZIP, jetzt entpacken. Bewusst GETRENNT vom Ziehen:
+  // erst liegt die Datei vollstaendig und geprueft da, dann wird sie benutzt.
+  // Ein Entpacken waehrend des Ziehens haette eine halbe ZIP entpackt, und
+  // der Fehler waere spaeter nicht mehr zuzuordnen.
+  //
+  // Der Helfer laeuft als root. Er bekommt NUR:
+  //   - den Namen (validateInstall: keine Pfade, keine Sonderzeichen)
+  //   - den Pfad der gezogenen Datei, den WIR festlegen
+  // Nichts davon kommt ungeprueft aus dem Netz.
+
+  async function entpackeDatei(msg) {
+    const p = validateInstall(msg);
+    if (!p.ok) {
+      log(`install abgelehnt: ${p.reason}`);
+      sende({ type: 'install-abbruch', id: msg?.pullId ?? null, grund: p.reason });
+      return;
+    }
+
+    // Die Datei muss aus UNSEREM Pack-Ordner kommen. Ein Pfad aus dem Befehl
+    // existiert hier gar nicht - der Name wird aus dem pull nachgeschlagen.
+    const ziel = `${ZIEL_WURZEL}/${p.pullId}.zip`;
+
+    // Auftrag anlegen, damit der Fortschritt im Lebenszeichen mitreist.
+    const auftrag = auftraege.anlegen({ art: 'install', titel: p.swordId });
+    auftraege.setzeFortschritt(auftrag.id, { prozent: 10, meldung: 'entpacke' });
+    planeHeartbeat(ladeConfig());
+
+    try {
+      // Feste Argumentfolge, keine Shell. execFile mit Array - ein Name mit
+      // Leerzeichen koennte sonst ein zweites Argument werden.
+      const { stdout } = await execFileP(PACK_HELFER, ['extract-pack', p.swordId, ziel], {
+        timeout: 300_000,
+        maxBuffer: 256 * 1024,
+      });
+
+      // Der Helfer gibt "extracted <pfad>" aus. Kein Pfad? Dann ist etwas
+      // schiefgegangen, auch wenn der Exit-Code 0 war.
+      const m = /^extracted\s+(\S+)$/m.exec(String(stdout));
+      if (!m) {
+        auftraege.beende(auftrag.id, { erfolg: false, fehler: 'helfer-ohne-pfad' });
+        sende({ type: 'install-abbruch', id: p.pullId, grund: 'helfer-ohne-pfad' });
+        log(`install ${p.swordId}: Helfer lieferte keinen Pfad`);
+        planeHeartbeat(ladeConfig());
+        return;
+      }
+
+      auftraege.setzeFortschritt(auftrag.id, { prozent: 100, meldung: 'entpackt' });
+      auftraege.beende(auftrag.id, { erfolg: true, meldung: 'entpackt' });
+      log(`install ${p.swordId}: entpackt nach ${m[1]}`);
+      sende({ type: 'install-fertig', id: p.pullId, swordId: p.swordId, pfad: m[1] });
+    } catch (err) {
+      // Der Helfer gibt seinen Grund auf stderr aus. Nur die erste Zeile,
+      // gekuerzt - der rohe Inhalt gehoert nicht ungefiltert ins Panel.
+      const grund = String(err.stderr ?? err.message ?? err).split('\n')[0].slice(0, 200);
+      auftraege.beende(auftrag.id, { erfolg: false, fehler: grund });
+      log(`install ${p.swordId}: fehlgeschlagen - ${grund}`);
+      sende({ type: 'install-abbruch', id: p.pullId, grund });
+    }
+    planeHeartbeat(ladeConfig());
+  }
+
 // --- Verbindung ------------------------------------------------------------
 
 let ws = null;
@@ -367,6 +432,13 @@ function verbinde(cfg) {
     // pull hat eine eigene Pruefung: hier steht ein PFAD drin.
     if (msg && msg.type === 'pull') {
       await beginnePull(msg);
+      return;
+    }
+
+    // install entpackt eine gezogene Datei. Eigene Pruefung, weil hier ein
+    // NAME an einen root-Helfer geht.
+    if (msg && msg.type === 'install') {
+      await entpackeDatei(msg);
       return;
     }
 

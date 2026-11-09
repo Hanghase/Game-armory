@@ -176,3 +176,49 @@ export function validatePull(msg) {
     auftragId: typeof msg.auftragId === 'string' ? msg.auftragId : null,
   };
 }
+
+// --- Entpacken nach dem Ziehen --------------------------------------------
+//
+// Das Arsenal hat die ZIP. Jetzt entpacken - aber NICHT "irgendwohin".
+//
+// Der Helfer armory-install-helper laeuft als root und kann Dinge, die der
+// Agent nicht koennen soll (useradd, chown, systemd-Units). Ihn mit einem
+// Pfad aus dem Netz zu fuettern waere der direkte Weg zu root. Darum wird
+// hier geprueft: nur Dateien aus UNSEREM Pack-Ordner, nur ein Name ohne Pfad.
+//
+// Der Helfer selbst prueft zusaetzlich (er ist die letzte Instanz), aber der
+// Agent prueft zuerst - wer die Armory uebernimmt, kommt so nicht automatisch
+// an root auf allen Arsenalen.
+
+export const PACK_HELFER = '/usr/local/bin/armory-install-helper';
+
+// Wie ein Sword heissen darf. Gleiche Regel wie beim Helfer: mindestens zwei
+// Zeichen, keine Sonderzeichen. Ein Name ist auch ein Systembenutzer.
+export const SWORD_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
+
+export function validateInstall(msg) {
+  if (!msg || typeof msg !== 'object') return { ok: false, reason: 'bad-message' };
+  if (msg.type !== 'install') return { ok: false, reason: 'nicht-install' };
+
+  // Welche gezogene Datei? Die Kennung kommt aus dem pull, den WIR gemacht
+  // haben. Ein Dateiname aus dem Befehl waere ein Pfad.
+  if (typeof msg.pullId !== 'string' || !/^[a-f0-9]{8,64}$/.test(msg.pullId)) {
+    return { ok: false, reason: 'bad-pull' };
+  }
+
+  // Der Name des Swords - wird zum Systembenutzer und zum Ordner.
+  if (typeof msg.swordId !== 'string' || !SWORD_ID_RE.test(msg.swordId)) {
+    return { ok: false, reason: 'bad-sword' };
+  }
+  // Die Pruefung oben ist bereits vollstaendig: [a-z0-9-] laesst weder '/'
+  // noch '.' durch, damit auch kein '..'. Eine zweite Schranke hier waere
+  // toter Code - und ein Test dafuer waere ein Test, der nie rot werden kann.
+  //
+  // Das ist ABSICHTLICH so und wurde am 2026-11-09 nachgemessen: die Mutation
+  // "Zusatzpruefung entfernen" blieb gruen, weil sie nie gegriffen hat. Wer
+  // die Regex spaeter lockert, muss hier wieder eine Schranke einziehen -
+  // darum steht der Hinweis hier und nicht nur im Kopf.
+
+
+  return { ok: true, pullId: msg.pullId, swordId: msg.swordId };
+}

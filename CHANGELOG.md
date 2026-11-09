@@ -3,6 +3,53 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.4] - 2026-11-09
+
+### Neu - der `install`-Befehl (Entpacken), aber noch nicht benutzbar
+
+Der Agent versteht jetzt `{ type:'install', pullId, swordId }` und ruft
+`armory-install-helper extract-pack` mit **festen Argumenten** auf - keine
+Shell, kein Pfad aus dem Netz, Name gegen `^[a-z0-9][a-z0-9-]{1,31}$`.
+
+**Der Weg ist absichtlich NICHT freigegeben.** Beim Live-Versuch zeigte sich:
+
+```
+ZIP ausserhalb erlaubter Pfade
+```
+
+Der Helfer akzeptiert nur `/tmp/*` und `/opt/game-armory/data/uploads/*`.
+Der Pack-Ordner des Arsenals (`/var/lib/armory-arsenal/packs`) steht nicht
+darin - und `/opt/game-armory` gibt es auf einem Arsenal gar nicht. Der
+Helfer ist fuer **Swords auf der Armory** gebaut, nicht fuer ein Arsenal.
+
+Haette ich die Pfadliste einfach erweitert, waere eine echte Schranke
+gefallen. Darum steht hier die Diagnose statt eines Schnellschusses.
+
+### Was ein Sword auf einem Arsenal braucht
+
+| Schritt | Kann der Helfer es? |
+|---|---|
+| Systembenutzer anlegen | ja (`useradd`) |
+| Ordner anlegen | ja (`mkdir-tree`) |
+| ZIP entpacken | ja, **aber** Pfad nicht erlaubt |
+| systemd-Unit schreiben | ja (`write-unit`) |
+| Rechte setzen | ja (`chown-tree`) |
+
+Was fehlt, ist nicht der Helfer, sondern **die Reihenfolge**. Die macht heute
+`app/installer.js` (1727 Zeilen) - und das laeuft auf der Armory, nicht auf
+dem Arsenal. Ein Arsenal hat diesen Code nicht.
+
+### Getestet
+
+- 10 neue Tests fuer die Befehlspruefung, 378 gesamt.
+- 5 Mutationen, 4 gefangen. Die fuenfte deckte auf, dass eine
+  Zusatzpruefung (`includes('/')`) **toter Code** war - die Regex laesst
+  weder `/` noch `.` durch. Der Test dazu waere nie rot geworden. Toter Code
+  durch einen Hinweis ersetzt, damit niemand ihn fuer eine Schranke haelt.
+- Eine zweite Luecke: der Test fuer den Verteiler fehlte ganz. Ohne ihn
+  haette `install` hinter `validateCommand` landen koennen - Funktion gruen,
+  Aufrufweg tot.
+
 ## [1.5.3] - 2026-11-09
 
 ### Behoben - dasselbe Stueck wurde zweimal geschickt
