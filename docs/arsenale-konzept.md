@@ -1,22 +1,21 @@
 # Konzept: mehrere Arsenale, eine Armory
 
-Stand 2026-11-09, **Entwurf**. Nichts gebaut. Ergebnis von zwei Gesprächen
-mit Felix (2026-11-08 und 2026-11-09).
+Stand 2026-11-09, **Entwurf**. Nichts gebaut.
 
-Alle Abschnitte sind mit "geklärt" markiert, wo eine Entscheidung gefallen
-ist - und mit "Vorschlag", wo ich eine Empfehlung gebe, die noch nicht
-abgesegnet ist.
+Dieses Dokument beschreibt, wie eine Armory auf mehreren Maschinen laufen
+kann. Die Abschnitte sind mit **entschieden** markiert, wo eine Richtung
+feststeht, und mit **zu klären**, wo Optionen offen sind.
 
-## Namen (geklärt 2026-11-09)
+## Namen
 
 Die Begriffe folgen der Waffenkammer-Analogie und dürfen sich **nicht**
 verwechseln lassen:
 
 ```
-Armory      das Ganze (was ein Kunde hat)      = Zeughaus
+Armory      das Ganze (was ein Kunde hat)       = Zeughaus
 Rack        das Regal, eine Schiene             = Rack
 Sword       der Server im Regal                 = Sword
-Arsenal     eine Maschine, die Racks traegt     = Zeughaus (engl. Bedeutung)
+Arsenal     eine Maschine, die Racks trägt      = Zeughaus (engl. Bedeutung)
 ```
 
 **Warum "Arsenal" und nicht "Knoten":** "Knoten" ist Netzwerkdeutsch und passt
@@ -28,9 +27,8 @@ genau *arsenal / armoury / armory*. Armory und Arsenal sind also **dieselbe
 Sache in zwei Sprachen** - kein Teil vom Ganzen, sondern die deutsche
 Entsprechung. Deshalb passt der Name.
 
-**Eine Falle:** "Zeughaus" wäre damit doppelt belegt (Armory UND Arsenal). Im
-Panel und in der Doku bleiben wir deshalb bei **Armory** und **Arsenal** -
-zwei Wörter, nie verwechselt, beide anschlussfähig.
+**Eine Falle:** "Zeughaus" wäre damit doppelt belegt (Armory UND Arsenal). Im Panel und in der Doku bleibt es deshalb bei **Armory** und **Arsenal**:
+zwei Wörter, nie verwechselt.
 
 Konsequenz für Befehle und Bezeichner:
 
@@ -54,7 +52,7 @@ anklickbar bleibt.
 ## Warum ein Arsenal-Agent statt SSH
 
 Die bisher diskutierte Alternative (Panel ruft per SSH den bewährten Helfer
-auf das Arsenal) hat Felix verworfen: er will Verwaltung (Benutzer, Rechte,
+auf das Arsenal) wurde verworfen: gewünscht ist Verwaltung (Benutzer, Rechte,
 Racks) zentral, und dafür braucht es einen Agenten, der auch Zustand kennt.
 
 Der Preis ist eine Vertrauensfrage: wer das Haupt-Panel übernimmt, käme an
@@ -84,7 +82,7 @@ Panel sichtbar.
 
 ## Authentifizierung je Arsenal
 
-Felix' Idee: IP-Adresse, Route, Passwort und ein Schlüssel wie bei 2FA.
+Vorgesehen: IP-Adresse, Route, Passwort und ein Schlüssel wie bei 2FA.
 
 Einwände, die in die Umsetzung gehören:
 
@@ -120,7 +118,7 @@ bleibt.
 
 ## Datenmodell: eine Armory = ein Kunde
 
-Geklärt am 2026-11-09 (Felix): **eine Armory gehört einem Kunden.** Man hofft
+**Entschieden:** eine Armory gehört einem Kunden. Man hofft
 auf mehrere Kunden, aber **die Armorys reden nicht miteinander.**
 
 Folgen, die das vereinfachen:
@@ -133,48 +131,45 @@ Folgen, die das vereinfachen:
 
 ## Installation: Main oder Arsenal
 
-Geklärt am 2026-11-09: der Installer fragt beim Start, **was** installiert
-wird:
+Der Installer fragt beim Start, **was** installiert wird:
 
 ```
 Als Main installieren   (Panel, Benutzer, Racks, Arsenalverwaltung)
 Als Arsenal installieren (Agent, nimmt Befehle der Main an)
 ```
 
-Warum das gut ist: es erfindet nichts Neues. Der bestehende Installer bekommt
-einen Schalter, statt dass es einen zweiten Installer gibt. Ein Arsenal hat
-zudem **keine** Benutzerverwaltung und **kein** Web-Panel — er ist nur
-ausführende Seite.
+Es gibt weiterhin nur einen Installer; er bekommt einen Schalter statt einer
+zweiten Variante. Ein Arsenal hat **keine** Benutzerverwaltung und **kein**
+Web-Panel — es ist nur die ausführende Seite.
 
 ## Notfall am Arsenal: repair und re-pair
 
-Geklärt am 2026-11-09. Ein Arsenal hat **kein Web-Interface** — aber ein lokales
-Kommando, das **ohne die Main** funktioniert. Ein Notausgang, der nach Hause
-telefonieren müsste, wäre im Notfall wertlos.
+Ein Arsenal hat **kein Web-Interface**, aber ein lokales Kommando, das **ohne
+die Main** funktioniert. Ein Notausgang, der nach Hause telefonieren müsste,
+wäre im Notfall wertlos.
 
 ```
-armory-node status    Agent laeuft? Swords oben? Letztes Lebenszeichen?
-armory-node repair    Neustart, Dienst neu schreiben, Rechte pruefen
-armory-node re-pair   Neu mit der Main koppeln (neuer Kopplungscode)
+arsenal status     Agent läuft? Swords oben? Letztes Lebenszeichen?
+arsenal repair     Neustart, Dienst neu schreiben, Rechte prüfen
+arsenal re-pair    Neu mit der Main koppeln (neuer Kopplungscode)
 ```
 
-**`repair` und `re-pair` sind absichtlich aehnlich** (Felix' Formulierung: der
-"re-pair"-Wortwitz) — es sind die zwei Notfaelle, die man in derselben Lage
-braucht: das Arsenal ist kaputt, ODER es kennt die Main nicht mehr.
+**`repair` und `re-pair` sind absichtlich ähnlich.** Es sind die zwei Notfälle
+derselben Lage: das Arsenal ist kaputt, oder es kennt die Main nicht mehr.
 
-Der Haken: ein Buchstabe Unterschied heisst Vertipper, und dann repariert man,
+Der Haken: ein Buchstabe Unterschied heißt Vertipper, und dann repariert man,
 wo man neu koppeln wollte. Deshalb:
 
-- `re-pair` fragt nach einer Bestaetigung und **zeigt vorher**, welche Main
+- `re-pair` fragt nach einer Bestätigung und **zeigt vorher**, welche Main
   gerade eingetragen ist.
 - `repair` fasst die Kopplung **nicht** an. Das muss ein eigener Test
   festhalten, nicht nur ein Kommentar.
-- Beide koennen nichts, was der Agent nicht auch koennte. Sie sind ein
+- Beide können nichts, was der Agent nicht auch könnte. Sie sind ein
   Werkzeug, kein zweiter Weg mit eigenen Rechten.
 
 ## Rechte: Arsenale im Konto
 
-Geklärt am 2026-11-09 (Felix): die Arsenalverwaltung liegt im **Konto- und
+**Entschieden:** die Arsenalverwaltung liegt im **Konto- und
 Verwaltungs-Interface** der Armory. Standardmäßig **nur Superuser**.
 
 Umgesetzt wird das als **Recht**, nicht als fest verdrahteter Rang — sonst
@@ -203,11 +198,10 @@ sich selbst Rechte geben.
 
 ## Version und Fernupdate
 
-Geklärt am 2026-11-09 (Felix): Arsenale müssen **aus der Ferne updatebar** sein.
+**Entschieden:** Arsenale müssen aus der Ferne updatebar sein.
 
-Warum das nicht optional ist: bei zehn Maschinen fährt niemand regelmäßig per
-SSH durch. Ohne Fernupdate bleiben Stände liegen — genau das Problem, das der
-Arsenalverbund lösen sollte.
+Bei zehn Maschinen fährt niemand regelmäßig per SSH durch. Ohne Fernupdate
+bleiben Stände liegen.
 
 Der Weg ist schon da: `armory-self-update` macht das heute fürs Panel —
 Tag prüfen, vorher sichern, wechseln, bei Fehler zurückrollen. Das Arsenal
@@ -217,8 +211,8 @@ bekommt dasselbe, ausgelöst durch die Main.
 Geht ein Update schief, muss das Arsenal von selbst auf den alten Stand
 zurück, sonst steht man mit zehn Arsenalen da, von denen drei nicht mehr
 antworten — und ohne Web-Interface kommt man nur per SSH dran. Das Arsenal
-sichert sich vor dem Update selbst und prüft nach dem Neustart, ob er
-antwortet; wenn nicht, rollt er zurück.
+sichert sich vor dem Update selbst und prüft nach dem Neustart, ob es
+antwortet; wenn nicht, rollt es zurück.
 
 **Version muss nicht gleich sein, aber sichtbar.** Das Arsenal meldet seine
 Version im Lebenszeichen. Dann weiß die Main sofort: "dieses Arsenal ist zu
@@ -227,9 +221,10 @@ auf identische Versionen wäre bei zehn Arsenalen nicht durchhaltbar.
 
 ## Offene Fragen
 
-- Namen der Dinge: "Arsenal" und "Armory" sind festgelegt — noch nicht festgelegt.
-- Ob die Arsenale dieselbe Version brauchen wie die Main. Wenn ja, muss der
-  Agent sich selbst aktualisieren können (`armory-self-update` gibt es schon
-  als Muster) — sonst hat man zehn verschiedene Stände.
-- Was ein Arsenal **nicht** darf: keine eigene Benutzerverwaltung, keine
-  eigenen Racks. Sonst entstehen zwei Wahrheiten.
+- Was ein Arsenal anzeigen darf. Werkzeuge und Zustand sind unbestritten;
+  strittig ist, ob Benutzer- und Rechteverwaltung dort sichtbar sein sollen.
+- Ob Arsenale dieselbe Version brauchen wie die Main. Wenn ja, muss der Agent
+  sich selbst aktualisieren können — sonst hat man zehn verschiedene Stände.
+  (Ein Muster dafür existiert bereits: `armory-self-update`.)
+- Ob Racks auf einem Arsenal angelegt werden dürfen. Wenn ja, entstehen zwei
+  Wahrheiten, die abgeglichen werden müssen.
