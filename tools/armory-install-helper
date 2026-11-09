@@ -30,6 +30,66 @@ valid_id() { [[ "${1:-}" =~ ^[a-z0-9][a-z0-9_-]{1,31}$ ]]; }
 valid_service() { [[ "${1:-}" =~ ^[a-zA-Z0-9@._-]+\.service$ ]]; }
 valid_user() { valid_id "${1:-}"; }
 valid_path() { [[ "${1:-}" == /* ]] && [[ "$1" != *".."* ]] && [[ "$1" != *$'\n'* ]]; }
+
+# Gepruefte Quelle fuer ein zu entpackendes Archiv.
+#
+# Bis 1.5.3 stand die Liste zweimal im Code (extract-pack, extract-tarball).
+# Zwei Stellen, die dasselbe pruefen, sind eine Falle: wer eine aendert,
+# vergisst die andere. Darum hier EINE Funktion.
+#
+# Ein Arsenal hat kein /opt/game-armory. Dort liegt das gezogene Archiv in
+# /var/lib/armory-arsenal/packs. Diesen Pfad gibt es NUR auf einem Arsenal
+# (ARMORY_ROLLE=arsenal in der Unit). Auf der Armory bleibt die Liste exakt
+# wie vorher - eine Armory darf nicht ploetzlich aus dem Arsenal-Pfad
+# entpacken, nur weil beide Rollen dasselbe Werkzeug benutzen.
+# Entpackt ein ZIP als angegebener Benutzer nach <ziel>.
+#
+# Auf der Armory gibt es 'unzip', auf einem minimalen Arsenal nicht (VM-Debian
+# ohne Paket). Statt auf JEDEM Kundenserver ein Paket nachzuinstallieren, gibt
+# es eine Rueckfallebene ueber python3 - das ist auf einem Debian-System mit
+# systemd-node praktisch immer vorhanden.
+#
+# Warum python3 -m zipfile sicher ist (im Quelltext belegt, zipfile.py
+# _extract_member): '..' und '.' werden aus jedem Pfadanteil ENTFERNT, bevor
+# der Zielpfad zusammengesetzt wird; zusaetzlich laeuft os.path.normpath
+# darueber. Nachgemessen mit einem praeparierten Archiv: '../../etc/boese.txt'
+# landete als <ziel>/etc/boese.txt, '/tmp/absolut.txt' als <ziel>/tmp/... -
+# nichts brach aus.
+#
+# Die Rueckfallebene wird GEMELDET, nicht stillschweigend benutzt: fehlt unzip,
+# steht das im Log. Ein Unterschied zwischen zwei Arsenalen darf nicht
+# unsichtbar bleiben.
+entpacke_zip() {
+  local als_user="$1" quelle="$2" ziel="$3"
+  if command -v unzip >/dev/null 2>&1; then
+    sudo -u "$als_user" unzip -q -o "$quelle" -d "$ziel"
+    return $?
+  fi
+  command -v python3 >/dev/null 2>&1 || {
+    echo "Weder unzip noch python3 vorhanden - kann nicht entpacken" >&2
+    return 127
+  }
+  echo "Hinweis: unzip fehlt, entpacke mit python3 -m zipfile" >&2
+  sudo -u "$als_user" python3 -m zipfile -e "$quelle" "$ziel"
+}
+
+ist_archiv_quelle() {
+  local f="${1:-}"
+  [[ -n "$f" ]] || return 1
+  case "$f" in
+    /tmp/*|/opt/game-armory/data/uploads/*) return 0 ;;
+    /var/lib/armory-arsenal/packs/*)
+      # Nur auf einem Arsenal. ARMORY_ROLLE setzt die Unit des Agenten;
+      # fehlt sie, ist es eine Armory und der Pfad bleibt gesperrt.
+      [[ "${ARMORY_ROLLE:-}" == "arsenal" ]] || return 1
+      # Der Ordner selbst darf kein Symlink sein - sonst zeigt der erlaubte
+      # Praefix auf ein Ziel ausserhalb.
+      [[ -d /var/lib/armory-arsenal/packs && ! -L /var/lib/armory-arsenal/packs ]] || return 1
+      return 0
+      ;;
+  esac
+  return 1
+}
 # Ein Pack-Eintragsname darf KEIN Pfad sein: kein '/', kein '..', kein '.' als
 # Ganzes, kein Leerzeichen/Zeilenumbruch. Verhindert, dass remove-tree/replace-pack
 # aus dem Instanzordner heraus greifen (z.B. Name '..' -> Parent-Verzeichnis).
@@ -250,7 +310,7 @@ case "$step" in
   extract-pack)
     id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
     zip="${2:-}"
-    case "$zip" in /tmp/*|/opt/game-armory/data/uploads/*) ;; *) echo "ZIP ausserhalb erlaubter Pfade: $zip" >&2; exit 2 ;; esac
+    ist_archiv_quelle "$zip" || { echo "ZIP ausserhalb erlaubter Pfade: $zip" >&2; exit 2; }
     [[ -r "$zip" ]] || { echo "ZIP nicht lesbar: $zip" >&2; exit 4; }
     tmp_root="$(mktemp -d /tmp/armory-pack-XXXXXX)"
     # Der Helfer laeuft als root: er liest das ZIP (das kann in einem 0700-
@@ -270,7 +330,7 @@ case "$step" in
     # Wurzelverzeichnis das Durchquerungsrecht (o+x) ergaenzen. Der Inhalt bleibt
     # Eigentum des Instanz-Users und wird von aussen weder les- noch schreibbar.
     chmod o+x "$tmp_root"
-    if sudo -u "$id" unzip -q -o "$tmp_zip" -d "$tmp_root"; then
+    if entpacke_zip "$id" "$tmp_zip" "$tmp_root"; then
       rm -f "$tmp_zip"
       # Die Armory ('armory') muss den entpackten Baum auch LISTEN koennen
       # (readdir auf der Wurzel + den Unterordnern). o+x allein erlaubt nur
@@ -296,7 +356,7 @@ case "$step" in
   extract-tarball)
     id="${1:-}"; valid_id "$id" || { echo "Ungueltige ID" >&2; exit 2; }
     tb="${2:-}"
-    case "$tb" in /tmp/*|/opt/game-armory/data/uploads/*) ;; *) echo "Tarball ausserhalb erlaubter Pfade: $tb" >&2; exit 2 ;; esac
+    ist_archiv_quelle "$tb" || { echo "Tarball ausserhalb erlaubter Pfade: $tb" >&2; exit 2; }
     [[ -r "$tb" ]] || { echo "Tarball nicht lesbar: $tb" >&2; exit 4; }
     tmp_root="$(mktemp -d /tmp/armory-tarball-XXXXXX)"
     tmp_tb="$tmp_root/.pack.tar"

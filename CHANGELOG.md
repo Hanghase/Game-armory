@@ -3,6 +3,63 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.5] - 2026-11-09
+
+### Der Install-Weg ist FREI - mit Rollenschranke
+
+`1.5.4` endete mit "ZIP ausserhalb erlaubter Pfade". Die Ursache war nicht
+der Helfer, sondern der Pfad: `/var/lib/armory-arsenal/packs` stand nicht in
+seiner Liste, weil er fuer Swords auf der **Armory** gebaut ist.
+
+**Die Loesung oeffnet nichts fuer alle.** Der Arsenal-Pfad ist an
+`ARMORY_ROLLE=arsenal` gebunden. Fehlt die Variable, gilt Armory - und der
+Pfad bleibt gesperrt. Eine fehlende Kennzeichnung darf keine Tuer oeffnen.
+
+Ausserdem:
+
+- Die Pfadliste stand **zweimal** im Code (`extract-pack`, `extract-tarball`).
+  Jetzt eine Funktion `ist_archiv_quelle()` - zwei Kopien derselben Pruefung
+  sind eine Falle, wer eine aendert vergisst die andere.
+- Der Pack-Ordner darf kein Symlink sein (sonst zeigt der erlaubte Praefix
+  auf ein Ziel ausserhalb).
+- Vorlage `agent/arsenal-rolle.conf` liegt im Repo; die Unit-Setzung geht
+  damit nicht mehr verloren.
+
+### Zweiter Befund: `unzip` fehlt auf dem Arsenal
+
+Die Armory hat es, ein minimales Debian nicht. Statt auf jedem Kundenserver
+ein Paket nachzuinstallieren: Rueckfallebene ueber `python3 -m zipfile`.
+
+Nachgelesen im Quelltext (`zipfile.py`, `_extract_member`): `..` und `.`
+werden aus jedem Pfadanteil entfernt, **bevor** der Zielpfad zusammengesetzt
+wird; danach `os.path.normpath`. Nachgemessen mit einem praeparierten Archiv -
+`../../etc/boese.txt` landete als `<ziel>/etc/boese.txt`, nichts brach aus.
+
+Der Wechsel wird **gemeldet**, nicht stillschweigend benutzt:
+
+```
+Hinweis: unzip fehlt, entpacke mit python3 -m zipfile
+```
+
+Fehlen beide Werkzeuge, bricht es mit eigenem Code 127 ab.
+
+### Live gemessen
+
+| Pruefung | Ergebnis |
+|---|---|
+| Ohne Rolle auf Arsenal-Pfad | Exit **2** (gesperrt) |
+| Mit Rolle auf Arsenal-Pfad | Exit 1 (frei, nur Benutzer fehlte) |
+| Mit Rolle auf `/etc/passwd` | Exit **2** (gesperrt) |
+| `useradd` | `useradd ok atm11` |
+| `extract-pack` | `unzip: command not found` -> python3 noetig geworden |
+
+### Getestet
+
+11 Tests fuer Helfer und Rolle, 389 gesamt. 9 Mutationen, alle 9 gefangen:
+Rolle entfernt, Vorgabe auf arsenal gedreht, Symlink-Pruefung weg,
+Tarball-Pruefung weg, Pfadliste verdoppelt, unzip-Zweig weg, Meldung weg,
+Abbruch ohne Werkzeuge weg, als root statt Instanz-User entpackt.
+
 ## [1.5.4] - 2026-11-09
 
 ### Neu - der `install`-Befehl (Entpacken), aber noch nicht benutzbar
