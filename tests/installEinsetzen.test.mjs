@@ -388,3 +388,57 @@ test('setzeEin faengt Fehler, ohne selbst zu werfen', async () => {
   const catchBlock = rumpf.slice(iCatch, iCatch + 800);
   assert.match(catchBlock, /sende\(\{/, 'der catch meldet nichts an die Armory');
 });
+
+// --- Die Armory muss die Felder auch MITSCHICKEN ------------------------
+// Live am 2026-11-09: der Agent loggte "Befehl: einsetzen" und tat nichts.
+// Ursache: frageArsenal() baut die Nachricht fest und nahm nur action,
+// service, pullId und swordId mit. quelle, teile und arbeitsVerzeichnis
+// fielen unter den Tisch - der Agent bekam type:'command' ohne diese Felder,
+// fiel durch den einsetzen-Zweig (der auf msg.type prueft) und landete in
+// validateCommand. Dort ist 'einsetzen' inzwischen erlaubt, also lief er als
+// Dienstbefehl ins Leere.
+//
+// Zwei richtig gebaute Seiten, die verschiedene Nachrichtenformate erwarten.
+// Kein Test konnte das sehen, weil beide Seiten fuer sich stimmten.
+
+const socketQuelle = await readFile(new URL('../app/arsenalSocket.js', import.meta.url), 'utf8');
+
+test('frageArsenal schickt quelle, teile und arbeitsVerzeichnis mit', () => {
+  const i = socketQuelle.indexOf('export function frageArsenal');
+  assert.ok(i > 0, 'frageArsenal fehlt');
+  const rumpf = socketQuelle.slice(i, i + 2500);
+  const ohneKommentar = rumpf.split('\n').filter((z) => !z.trim().startsWith('//')).join('\n');
+  for (const feld of ['quelle', 'teile', 'arbeitsVerzeichnis']) {
+    assert.match(ohneKommentar, new RegExp(feld), `${feld} wird nicht mitgeschickt`);
+  }
+});
+
+test('einsetzen wird als eigener Nachrichtentyp geschickt, nicht als command', () => {
+  // Der Agent prueft msg.type === 'einsetzen'. Kaeme type:'command', landet der
+  // Auftrag in der Dienstbefehl-Pruefung - und dort fehlt jedes Feld.
+  const i = socketQuelle.indexOf('export function frageArsenal');
+  const rumpf = socketQuelle.slice(i, i + 2500);
+  const ohneKommentar = rumpf.split('\n').filter((z) => !z.trim().startsWith('//')).join('\n');
+  assert.match(
+    ohneKommentar,
+    /type:\s*action\s*===\s*'einsetzen'\s*\?\s*'einsetzen'\s*:\s*'command'|type:\s*'einsetzen'/,
+    'einsetzen geht als type:command raus - der Agent findet den Zweig nicht',
+  );
+});
+
+test('einsetzen-fertig und -abbruch loesen das Warten der Armory auf', () => {
+  // Der Agent meldet einsetzen unter EIGENEN Typen (einsetzen-fertig /
+  // einsetzen-abbruch), nicht als type:'result'. Ohne diesen Zweig wartet
+  // frageArsenal bis zum Timeout und meldet "Arsenal antwortet nicht" -
+  // obwohl die Arbeit laengst fertig ist.
+  const i = socketQuelle.indexOf('export function verarbeiteNachricht');
+  assert.ok(i > 0, 'verarbeiteNachricht fehlt');
+  const rumpf = socketQuelle.slice(i, i + 4000);
+  const ohneKommentar = rumpf.split('\n').filter((z) => !z.trim().startsWith('//')).join('\n');
+  assert.match(ohneKommentar, /einsetzen-fertig/, 'einsetzen-fertig wird nicht verarbeitet');
+  assert.match(ohneKommentar, /einsetzen-abbruch/, 'einsetzen-abbruch wird nicht verarbeitet');
+  // Und es muss auf die Wartenden zugreifen, nicht nur loggen.
+  const j = ohneKommentar.indexOf('einsetzen-fertig');
+  const block = ohneKommentar.slice(Math.max(0, j - 400), j + 900);
+  assert.match(block, /wartend\.get|wartend\.delete/, 'die Nachricht erreicht die Wartenden nicht');
+});

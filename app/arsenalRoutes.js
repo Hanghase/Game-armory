@@ -220,12 +220,16 @@ arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async
       const status = ergebnis.error === 'timeout' ? 504 : 502;
       return res.status(status).json({ error: 'Arsenal antwortet nicht', grund: ergebnis.error });
     }
+    // ergebnis.sicherung kommt vom Arsenal: der Pfad, unter dem die alte Welt
+    // liegt. Er gehoert ins Panel - ohne ihn weiss niemand, wo der Rueckweg
+    // ist. Bei Mißerfolg wird er trotzdem geliefert, denn DANN braucht man ihn.
     return res.json({
       ok: true,
       action: 'einsetzen',
       swordId: p.swordId,
       teile: p.teile,
       arbeitsVerzeichnis: p.arbeitsVerzeichnis,
+      sicherung: ergebnis.sicherung ?? null,
     });
   }
 

@@ -103,7 +103,7 @@ export function sendeBefehl(arsenalId, nachricht) {
 
 // Schickt einen Befehl und liefert die Antwort (Promise).
 // Wird fuer die Routen gebraucht: der Klick im Panel soll ein Ergebnis haben.
-export function frageArsenal(arsenalId, { action, service, pullId, swordId }) {
+export function frageArsenal(arsenalId, { action, service, pullId, swordId, quelle, teile, arbeitsVerzeichnis }) {
   const ws = leitungen.get(arsenalId);
   if (!ws) return Promise.resolve({ ok: false, error: 'arsenal-offline' });
 
@@ -111,14 +111,34 @@ export function frageArsenal(arsenalId, { action, service, pullId, swordId }) {
   // install traegt pullId + swordId statt eines Dienstnamens. Beide Felder
   // werden NUR gesetzt, wenn sie da sind - ein undefined wuerde als
   // JSON-Schluessel mit null ankommen und beim Agenten 'bad-pull' ergeben.
-  const payload = {
-    type: 'command',
-    action,
-    ref,
-    ...(service ? { service } : {}),
-    ...(pullId ? { pullId } : {}),
-    ...(swordId ? { swordId } : {}),
-  };
+  // Jede Aktion traegt ANDERE Felder. Wichtig: einsetzen ist ein EIGENER
+  // Nachrichtentyp, kein 'command'.
+  //
+  // Live am 2026-11-09: hier stand fest type:'command' und nahm nur action,
+  // service, pullId, swordId mit. einsetzen ging damit als Dienstbefehl raus,
+  // ohne quelle/teile/arbeitsVerzeichnis. Der Agent loggte "Befehl:
+  // einsetzen" und tat nichts - die Nachricht fiel durch seinen
+  // einsetzen-Zweig (der auf msg.type prueft) in validateCommand.
+  //
+  // Felder werden nur gesetzt, wenn sie da sind: ein undefined kaeme als null
+  // an und ergaebe beim Agenten ein falsches 'bad-...'.
+  const payload = action === 'einsetzen'
+    ? {
+      type: 'einsetzen',
+      id: ref,
+      swordId,
+      quelle,
+      arbeitsVerzeichnis,
+      teile,
+    }
+    : {
+      type: 'command',
+      action,
+      ref,
+      ...(service ? { service } : {}),
+      ...(pullId ? { pullId } : {}),
+      ...(swordId ? { swordId } : {}),
+    };
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -193,6 +213,27 @@ export function verarbeiteNachricht(arsenalId, roh) {
     schliesseAb(msg.id, { erfolg: false, grund: String(msg.grund ?? 'unbekannt').slice(0, 60) })
       .then((ergebnis) => { if (ergebnis) meldePullErgebnis(ergebnis); })
       .catch(() => {});
+    return true;
+  }
+
+  // einsetzen meldet sich unter eigenen Typen. Ohne diesen Zweig wartet
+  // frageArsenal() bis zum Timeout ("Arsenal antwortet nicht"), obwohl die
+  // Arbeit fertig ist - und der Nutzer drueckt ein zweites Mal.
+  if (msg?.type === 'einsetzen-fertig' || msg?.type === 'einsetzen-abbruch') {
+    const w = wartend.get(msg.id);
+    if (!w) return false;
+    clearTimeout(w.timer);
+    wartend.delete(msg.id);
+    if (msg.type === 'einsetzen-fertig') {
+      w.resolve({ ok: true, output: msg.teile ?? null, sicherung: msg.sicherung ?? null, error: null });
+    } else {
+      w.resolve({
+        ok: false,
+        output: null,
+        sicherung: msg.sicherung ?? null,
+        error: msg.grund ?? 'einsetzen-fehlgeschlagen',
+      });
+    }
     return true;
   }
 
