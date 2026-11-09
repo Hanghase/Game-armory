@@ -3,6 +3,59 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.0] - 2026-11-09
+
+### Neu - die Sendeseite der Uebertragung
+
+Bisher konnte das Arsenal ziehen, aber niemand schickte. Jetzt die Armory:
+die ZIP liegt als Upload im Panel, das Arsenal zieht sie ueber die offene
+Leitung.
+
+```
+POST /api/arsenals/:id/pull   { uploadId }
+  -> { pullId, gesamt, name }
+```
+
+Drei Dateien, drei Aufgaben:
+
+| Datei | Was |
+|---|---|
+| `app/arsenalTransferRun.js` | Entscheidungen: welches Stueck, wann bremsen, wann haengt es |
+| `app/arsenalTransferSend.js` | Platte und Leitung: lesen, senden, aufraeumen |
+| `app/arsenalSocket.js` | Verteiler: `bereit`, `pull-fertig`, `pull-abbruch` |
+
+### Warum die Route ein Upload ist und kein Pfad
+
+Die Kennung wird ueber `readUpload()` nachgeschlagen - **ein Pfad aus dem
+Request geht nie an das Dateisystem**. Sonst waere `/api/arsenals/:id/pull`
+mit einem `pfad: /etc/passwd` ein Lesegerät fuer jede Datei.
+
+### Verhalten, das bewusst so ist
+
+- **Ohne "bereit" geht nichts raus.** Kein Stueck wird gesendet, bevor das
+  Arsenal nicht selbst angefragt hat. Wer die Armory uebernimmt, kann einem
+  Arsenal nichts hinschieben.
+- **Die Pruefsumme wird VOR dem Senden geprueft.** Eine falsche Summe erst am
+  Arsenal zu merken heisst: 2 GB umsonst uebertragen, und der Fehler sieht
+  nach Netz aus statt nach Platte.
+- **Fenster von 8 Stuecken.** Ohne Deckel schreibt die Schleife die ganze
+  Datei in den Sendepuffer - bei 2 GB ein Speicher-Abschuss auf beiden Seiten.
+- **Ein Sender rechnet mit Offset, nicht mit Stuecknummer.** Bei einer
+  Wiederholung nach Abbruch waere ein Zaehler falsch.
+- **Die Datei bleibt offen**, solange der Pull laeuft. Tausende Stuecke
+  einzeln zu oeffnen ist der Unterschied zwischen 2 Sekunden und 2 Minuten.
+- **Wird die Datei kuerzer**, bricht der Pull ab - statt dass das Arsenal ewig
+  auf Bytes wartet, die nicht mehr kommen.
+
+### Getestet
+
+- 16 neue Tests, 359 gesamt.
+- 9 Mutationen, alle gefangen - nach zwei Testfehlern:
+  1. Der Ausschnitt endete am ersten `});` mitten in der Route
+     (`indexOf('});')` statt bis zum naechsten Routen-Anfang).
+  2. Der 404-Test akzeptierte `if (false) return res.status(404)` - er prueft
+     jetzt, dass der 404 an `!upload` haengt, nicht nur dass er vorkommt.
+
 ## [1.4.25] - 2026-11-09
 
 ### Behoben - ein Fehler, den nur der Live-Lauf zeigte

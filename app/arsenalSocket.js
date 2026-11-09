@@ -17,6 +17,7 @@
 import crypto from 'node:crypto';
 
 import { getArsenal, touchHeartbeat } from './arsenalStore.js';
+import { sendeWeiter, schliesseAb } from './arsenalTransferSend.js';
 import { verifyHeartbeat } from './arsenals.js';
 
 // Offene Leitungen: arsenalId -> ws
@@ -66,6 +67,13 @@ export function registriere(arsenalId, ws) {
 
 export function abmelden(arsenalId) {
   leitungen.delete(arsenalId);
+}
+
+// Die offene Leitung eines Arsenals. Wird fuer das Senden von Stuecken
+// gebraucht (die Stuecke sind binaer, sendeBefehl schickt JSON).
+export function holeLeitung(arsenalId) {
+  const ws = leitungen.get(arsenalId);
+  return ws && ws.readyState === 1 ? ws : null;
 }
 
 export function istVerbunden(arsenalId) {
@@ -138,6 +146,30 @@ export function verarbeiteNachricht(arsenalId, roh) {
     return true;
   }
 
+  // Ein Pull laeuft: "bereit" oeffnet das Fenster, "pull-fertig" beendet ihn,
+  // "pull-abbruch" raeumt auf. Kennung statt ref, weil ein Pull viele
+  // Nachrichten hat - ein ref gilt genau einer Antwort.
+  if (msg?.type === 'bereit' && typeof msg.id === 'string') {
+    // Die Stuecke gehen asynchron raus. Ein blockierendes await hier wuerde
+    // den Nachrichtenempfang anhalten - und das naechste "stand" kaeme nie.
+    sendeWeiter(msg.id).catch(() => {});
+    return true;
+  }
+
+  if (msg?.type === 'pull-fertig' && typeof msg.id === 'string') {
+    schliesseAb(msg.id, { erfolg: true, groesse: Number.isInteger(msg.groesse) ? msg.groesse : null })
+      .then((ergebnis) => { if (ergebnis) meldePullErgebnis(ergebnis); })
+      .catch(() => {});
+    return true;
+  }
+
+  if (msg?.type === 'pull-abbruch' && typeof msg.id === 'string') {
+    schliesseAb(msg.id, { erfolg: false, grund: String(msg.grund ?? 'unbekannt').slice(0, 60) })
+      .then((ergebnis) => { if (ergebnis) meldePullErgebnis(ergebnis); })
+      .catch(() => {});
+    return true;
+  }
+
   if (msg?.type === 'result' && typeof msg.ref === 'string') {
     const w = wartend.get(msg.ref);
     if (!w) return false;
@@ -155,6 +187,23 @@ export function leitungWeg(arsenalId) {
   abmelden(arsenalId);
   // Offene Anfragen koennen nicht mehr beantwortet werden. Sie werden NICHT
   // global abgebrochen - andere Arsenale koennen weiterlaufen.
+}
+
+// Ein Ergebnis eines Pulls melden. Die Route haengt hier eine Funktion ein,
+// damit der Auftrag im Panel auf "fertig" geht - arsenalSocket kennt die
+// Auftragsliste nicht und soll sie nicht kennen.
+let beiPullErgebnisMelder = null;
+
+export function aufPullErgebnis(fn) {
+  beiPullErgebnisMelder = typeof fn === 'function' ? fn : null;
+}
+
+function meldePullErgebnis(ergebnis) {
+  try {
+    beiPullErgebnisMelder?.(ergebnis);
+  } catch {
+    // Ein Fehler im Melder darf den Socket nicht mitreissen.
+  }
 }
 
 export { LEITUNG_STILL_MS, BEFEHL_TIMEOUT_MS };

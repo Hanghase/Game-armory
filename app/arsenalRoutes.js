@@ -28,7 +28,9 @@ import {
   pruneExpiredPairings,
 } from './arsenalStore.js';
 import { arsenalState, formatPairingCode, verifyHeartbeat } from './arsenals.js';
-import { istVerbunden, frageArsenal } from './arsenalSocket.js';
+import { istVerbunden, frageArsenal, holeLeitung } from './arsenalSocket.js';
+import { sendePull } from './arsenalTransferSend.js';
+import { readUpload } from './uploads.js';
 
 export const arsenalRouter = Router();
 
@@ -161,6 +163,67 @@ arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async
     ...(ergebnis.update ? { update: ergebnis.update } : {}),
   });
 });
+
+  // --- Datei auf ein Arsenal ziehen -----------------------------------------
+  //
+  // Der Weg, den Felix gewaehlt hat: die ZIP liegt auf der Armory (per Upload),
+  // das Arsenal ZIEHT sie. Die Armory faengt an, weil das Arsenal sie danach
+  // fragt - "bereit" oeffnet das Fenster, vorher geht nichts raus.
+  //
+  // Warum nicht "Armory schickt von sich aus": wer die Armory uebernimmt,
+  // koennte sonst jedem Arsenal Dateien hinschieben. Der Pull haengt an einer
+  // Anfrage des Arsenals, nicht an einem Befehl der Armory. Das ist derselbe
+  // Gedanke wie beim Handshake: der Agent baut die Verbindung auf, nie umgekehrt.
+  arsenalRouter.post('/arsenals/:id/pull', requirePerm('arsenal.update'), async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Ungültige Arsenal-ID' });
+    }
+    if (!getArsenal(id)) return res.status(404).json({ error: 'Arsenal nicht gefunden' });
+    if (!istVerbunden(id)) {
+      return res.status(409).json({ error: 'Arsenal ist nicht verbunden', grund: 'arsenal-offline' });
+    }
+
+    const { uploadId } = req.body ?? {};
+    if (typeof uploadId !== 'string' || !/^[A-Za-z0-9_-]{4,64}$/.test(uploadId)) {
+      return res.status(400).json({ error: 'Upload-Kennung fehlt oder ist unbrauchbar' });
+    }
+
+    // Der Upload muss EXISTIEREN. Ein Pfad aus dem Request darf hier nicht
+    // zum Dateisystem werden - darum wird ueber die Kennung nachgeschlagen,
+    // nie ueber einen mitgeschickten Pfad.
+    let upload;
+    try {
+      upload = await readUpload(uploadId);
+    } catch {
+      upload = null;
+    }
+    if (!upload) return res.status(404).json({ error: 'Upload nicht gefunden' });
+
+    const leitung = holeLeitung(id);
+    if (!leitung) {
+      return res.status(409).json({ error: 'Arsenal ist nicht verbunden', grund: 'arsenal-offline' });
+    }
+
+    const ergebnis = await sendePull({
+      arsenalId: id,
+      dateiPfad: upload.path,
+      name: upload.originalName,
+      leitung,
+      auftragId: null,
+    });
+
+    if (!ergebnis.ok) {
+      return res.status(422).json({ error: 'Übertragung nicht gestartet', grund: ergebnis.grund });
+    }
+
+    res.json({
+      ok: true,
+      pullId: ergebnis.id,
+      gesamt: ergebnis.gesamt,
+      name: upload.originalName,
+    });
+  });
 
 // --- Lebenszeichen vom Arsenal ---------------------------------------------
 // Absichtlich OHNE Session: das Arsenal hat kein Benutzerkonto in der Armory.
