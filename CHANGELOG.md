@@ -3,6 +3,61 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.1] - 2026-11-09
+
+### Einsetzen lief nicht - vier Fehler, alle erst live gefunden
+
+Nach 1.6.0 antwortete die Route `ok:true`, und **nichts passierte**. Alle 21
+Tests waren gruen. Das ist die Sorte Fehler, die kein Quelltext-Test findet:
+die einzelnen Bausteine stimmten, die Nahtstellen nicht.
+
+**1. Der Router war nicht abgesichert.** Ein Fehler im Handler gab **kein Byte**
+zurueck - kein 500, kein Text, curl stand 20 Sekunden. `installRouter` wird per
+`wrapRouter()` geschuetzt, `arsenalRouter` nicht. Express 4 faengt abgelehnte
+Promises in async-Handlern nicht ab.
+
+**2. `getSwords` war nicht importiert.** Nach dem Fix kam `500 / getSwords is
+not defined`. Die Funktion gibt es, der Import fehlte.
+
+**3. Der Arbeitsordner stand am falschen Ort.** Ich las `schwert.workingDir`;
+die Sword-Datei hat `control.workingDir`. Immer `undefined` - jeder Auftrag
+endete mit `bad-arbeitsverzeichnis` und sah nach einem Eingabefehler aus.
+
+**4. Die Armory schickte die Felder nicht mit.** `frageArsenal()` baute die
+Nachricht fest als `type:'command'` mit nur `action, service, pullId, swordId`.
+`quelle`, `teile` und `arbeitsVerzeichnis` fielen unter den Tisch, und weil
+`einsetzen` inzwischen in der Agenten-Whitelist steht, lief der Auftrag als
+Dienstbefehl ins Leere: Log "Befehl: einsetzen", dann Stille.
+
+Dazu: der Agent meldet unter `einsetzen-fertig` / `einsetzen-abbruch`, die
+Armory wartete aber nur auf `type:'result'` - jeder erfolgreiche Lauf waere in
+einen Timeout gelaufen und haette "Arsenal antwortet nicht" gezeigt.
+
+Und: `auftraege.starte(id, art)` gibt es nicht. Die Liste hat
+`anlegen({ art, titel })`. Der Aufruf warf, der catch verschluckte es.
+
+### Live belegt (Test-VM, echter Weg ueber die Leitung)
+
+```
+alt.jar (ALTE-WELT)  ->  ersetzt durch beispiel.jar
+Sicherung: backups/vor-einsetzen-....tar.gz
+  darin: mods/alt.jar mit "ALTE-WELT", server.properties
+```
+
+Der Agent loggte: angekommen, Pruefung ok, Sicherung angelegt, eingesetzt.
+
+### Was jetzt pruefbar ist
+
+- **jeder** Router wird gewrappt (nicht nur der, an den man denkt)
+- aufgerufene Funktionen in Routern sind importiert
+- der Arbeitsordner kommt aus `control.workingDir`
+- `frageArsenal` schickt `quelle`, `teile`, `arbeitsVerzeichnis`
+- `einsetzen` geht als eigener Nachrichtentyp, nicht als `command`
+- `einsetzen-fertig/-abbruch` loesen das Warten auf
+- `setzeEin` benutzt `anlegen()` statt eines erfundenen `starte()`
+
+453 Tests, alle gruen.
+
 ## [1.6.0] - 2026-11-09
 
 ### Einsetzen: aus dem entpackten Pack wird der Sword im Spielverzeichnis
