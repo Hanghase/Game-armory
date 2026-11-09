@@ -312,7 +312,20 @@ case "$step" in
     zip="${2:-}"
     ist_archiv_quelle "$zip" || { echo "ZIP ausserhalb erlaubter Pfade: $zip" >&2; exit 2; }
     [[ -r "$zip" ]] || { echo "ZIP nicht lesbar: $zip" >&2; exit 4; }
-    tmp_root="$(mktemp -d /tmp/armory-pack-XXXXXX)"
+    # Wo das entpackte Pack liegen soll. Vorgabe /tmp wie bisher (Armory).
+    #
+    # Auf einem Arsenal MUSS hier ein dauerhaftes Verzeichnis stehen: die Unit
+    # hat PrivateTmp=yes, der Agent sieht ein eigenes /tmp, und das verschwindet
+    # mit dem Dienst. Live gemessen am 2026-11-09: "entpackt nach
+    # /tmp/armory-pack-zAiNmD", eine Sekunde spaeter weg - der Sword waere beim
+    # naechsten Neustart verloren gewesen.
+    eltern="${3:-/tmp}"
+    if [[ "$eltern" != "/tmp" ]]; then
+      valid_path "$eltern" || { echo "Ungueltiges Ziel: $eltern" >&2; exit 2; }
+      path_in_allowed_root "$eltern" || { echo "Ziel ausserhalb der Roots: $eltern" >&2; exit 3; }
+      reject_symlink_path "$eltern"
+    fi
+    tmp_root="$(mktemp -d "$eltern/armory-pack-XXXXXX")"
     # Der Helfer laeuft als root: er liest das ZIP (das kann in einem 0700-
     # Verzeichnis der Armory liegen) und legt eine Kopie ins Temp, die dem
     # Instanz-User gehoert. So braucht die Armory keine Rechte zu oeffnen.

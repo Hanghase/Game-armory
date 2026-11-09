@@ -32,6 +32,7 @@ import {
   validatePull,
   validateInstall,
   PACK_HELFER,
+  PACK_ORDNER,
 } from './logic.js';
 import { startePull, nimmStueck, beendePull, brichAb } from './transferRun.js';
 
@@ -379,10 +380,19 @@ async function fuehreAus({ action, service, pullId, swordId }) {
 
       // Feste Argumentfolge, keine Shell. execFile mit Array - ein Name mit
       // Leerzeichen koennte sonst ein zweites Argument werden.
-      const { stdout } = await execFileP(PACK_HELFER, ['extract-pack', p.swordId, ziel], {
-        timeout: 300_000,
-        maxBuffer: 256 * 1024,
-      });
+      // Das Zielverzeichnis ist NICHT /tmp: die Unit hat PrivateTmp=yes, der
+      // Agent sieht ein eigenes /tmp, das mit dem Dienst verschwindet. Live
+      // gemessen am 2026-11-09 - "entpackt nach /tmp/armory-pack-zAiNmD",
+      // eine Sekunde spaeter weg. Der Sword waere beim naechsten Neustart
+      // verloren gewesen, ohne dass es jemand gemerkt haette.
+      //
+      // PACK_ORDNER liegt unter dem Packverzeichnis des Arsenals: dauerhaft,
+      // und der Helfer prueft es als erlaubten Root.
+      const { stdout } = await execFileP(
+        PACK_HELFER,
+        ['extract-pack', p.swordId, ziel, PACK_ORDNER],
+        { timeout: 300_000, maxBuffer: 256 * 1024 },
+      );
 
       // Der Helfer gibt "extracted <pfad>" aus. Kein Pfad? Dann ist etwas
       // schiefgegangen, auch wenn der Exit-Code 0 war.
@@ -397,7 +407,7 @@ async function fuehreAus({ action, service, pullId, swordId }) {
 
       auftraege.setzeFortschritt(auftrag.id, { prozent: 100, meldung: 'entpackt' });
       auftraege.beende(auftrag.id, { erfolg: true, meldung: 'entpackt' });
-      log(`install ${p.swordId}: entpackt nach ${m[1]}`);
+      log(`install ${p.swordId}: entpackt nach ${m[1]} (bleibt bestehen)`);
       // Nach dem Entpacken ist die ZIP verbraucht. Ein zweiter install mit
       // derselben Kennung soll nicht stillschweigend dasselbe entpacken.
       gezogeneDatei.delete(p.pullId);

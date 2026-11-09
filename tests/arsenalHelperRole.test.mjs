@@ -90,7 +90,11 @@ test('entpacke_zip gibt es und nimmt Benutzer, Quelle, Ziel', () => {
 
 test('extract-pack benutzt entpacke_zip statt unzip direkt', () => {
   const i = quelle.match(/^  extract-pack\)$/m).index;
-  const rumpf = quelle.slice(i, i + 1400);
+  // Bis zum naechsten case-Zweig, nicht eine feste Zeichenzahl: ein Kommentar
+  // im Zweig hat das Fenster schon einmal zu kurz gemacht (Ausschnitt zu eng -
+  // dieselbe Falle wie "Ausschnitt zu weit" in AGENTS.md, nur andersherum).
+  const ende = quelle.slice(i + 1).search(/^  [a-z-]+\)$/m);
+  const rumpf = quelle.slice(i, ende > 0 ? i + 1 + ende : i + 3000);
   assert.match(rumpf, /entpacke_zip "\$id"/, 'extract-pack ruft entpacke_zip nicht auf');
   assert.doesNotMatch(rumpf, /unzip -q -o/, 'extract-pack ruft unzip noch direkt auf');
 });

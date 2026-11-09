@@ -3,6 +3,45 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.81] - 2026-11-09
+
+### Fehler: das entpackte Pack lag in einem privaten `/tmp`
+
+Live auf der VM. Der Agent meldete `install atm11: entpackt nach
+/tmp/armory-pack-zAiNmD` - und **eine Sekunde spaeter war der Ordner weg**.
+Der Benutzer war da, die ZIP war da, der Erfolg stand im Log, das Ergebnis
+nicht.
+
+**Ursache:** die Unit hat `PrivateTmp=yes`. Der Agent sieht ein eigenes
+`/tmp`, das mit dem Dienst verschwindet. Beim naechsten Neustart waere der
+entpackte Sword weg gewesen - ohne Fehlermeldung, ohne Hinweis.
+
+Der Helfer war unschuldig: von Hand aufgerufen lag der Ordner da, gehoerte
+`atm11:atm11`, Inhalt vollstaendig.
+
+**Behoben:**
+
+- `extract-pack` nimmt ein Zielverzeichnis als drittes Argument (Vorgabe
+  bleibt `/tmp` fuer die Armory). Geprueft wie jede andere Quelle: nur unter
+  erlaubten Roots, kein Symlink.
+- Der Agent uebergibt `PACK_ORDNER` = `/var/lib/armory-arsenal/packs/entpackt`.
+- Das Log sagt jetzt `(bleibt bestehen)`, damit der Unterschied sichtbar ist.
+
+### Warum das so spaet auffiel
+
+Drei Fehldiagnosen hintereinander: ich hielt den Ordner fuer aufgeraeumt, dann
+fuer einen `tmpfiles`-Effekt, dann fuer ein Rechteproblem. Erst als ich den
+Helfer **von Hand** rief und der Ordner stehenblieb, war klar: der Agent ist
+der Unterschied, nicht der Helfer - und der Unterschied ist `PrivateTmp`.
+
+Merksatz fuer spaeter: **Erfolg im Log ohne Ergebnis auf der Platte ist kein
+Erfolg.** Nachsehen, nicht der Meldung glauben.
+
+### Getestet
+
+2 neue Tests, 411 gesamt. Der Test prueft, dass der Aufruf ein festes
+Packverzeichnis uebergibt und nicht die ZIP-Datei.
+
 ## [1.5.8] - 2026-11-09
 
 ### Fehler: der Benutzer fehlte beim ersten Install

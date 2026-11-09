@@ -148,6 +148,11 @@ export const MAX_PULL_BYTES = 4 * 1024 ** 3; // 4 GiB - groesser ist kein Modpac
 // Ziel ausserhalb waere ein Schreibzugriff irgendwohin.
 export const ZIEL_WURZEL = '/var/lib/armory-arsenal/packs';
 
+// Wohin ein entpacktes Pack kommt. NICHT /tmp: die Unit hat PrivateTmp=yes,
+// das Temp des Agenten verschwindet mit dem Dienst (live gemessen 2026-11-09).
+// Hier bleibt es liegen, und der Helfer kennt den Pfad als erlaubten Root.
+export const PACK_ORDNER = '/var/lib/armory-arsenal/packs/entpackt';
+
 export function validatePull(msg) {
   if (!msg || typeof msg !== 'object') return { ok: false, reason: 'bad-message' };
   if (msg.type !== 'pull') return { ok: false, reason: 'nicht-pull' };

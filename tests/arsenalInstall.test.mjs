@@ -63,9 +63,11 @@ test('der Agent ruft den Helfer mit extract-pack und fester Argumentfolge', () =
   // PACK_HELFER ist eine Konstante, keine Zeichenkette im Aufruf - deshalb
   // ohne schliessendes Anfuehrungszeichen pruefen. Der Punkt ist die feste
   // Argumentfolge als ARRAY (kein Shell-String).
+  // Der Aufruf steht jetzt mehrzeilig (Zielordner als eigenes Argument), darum
+  // ohne Zeilenkopplung pruefen: execFileP(PACK_HELFER, ... 'extract-pack'
   assert.match(
     agentQuelle,
-    /execFileP\(PACK_HELFER,\s*\[\s*'extract-pack'/,
+    /execFileP\(\s*PACK_HELFER,\s*\[\s*'extract-pack'/,
     'extract-pack wird nicht (oder nicht mit festen Argumenten) aufgerufen',
   );
 });
@@ -228,4 +230,32 @@ test('ein bereits vorhandener Benutzer ist kein Fehler', () => {
   const i = agentQuelle.indexOf('async function entpackeDatei');
   const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
   assert.match(rumpf, /user exists|bestand|existiert/i, 'vorhandener Benutzer wird nicht behandelt');
+});
+
+// --- Das entpackte Pack darf NICHT in einem privaten /tmp liegen ---------
+// Live gemessen am 2026-11-09: der Agent meldete "entpackt nach
+// /tmp/armory-pack-zAiNmD", und keine Sekunde spaeter war der Ordner weg.
+// Ursache: die Unit hat PrivateTmp=yes. Der Agent sieht ein EIGENES /tmp,
+// das mit dem Dienst verschwindet - beim naechsten Neustart waere der
+// entpackte Sword weg, ohne dass jemand es merkt.
+//
+// Der Helfer allein ist unschuldig: von Hand aufgerufen liegt der Ordner
+// da und gehoert atm11. Der Fehler ist der ORT.
+
+test('der Agent entpackt unter das Packverzeichnis, nicht nach /tmp', () => {
+  const i = agentQuelle.indexOf('async function entpackeDatei');
+  const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
+  // extract-pack bekommt ein Zielverzeichnis als drittes Argument.
+  const m = /'extract-pack',\s*p\.swordId,\s*ziel,\s*([A-Za-z_]+)/.exec(rumpf);
+  assert.ok(m, 'extract-pack-Aufruf mit Zielordner nicht gefunden');
+  assert.equal(m[1], 'PACK_ORDNER', `falsches Packverzeichnis: ${m[1]}`);
+  assert.doesNotMatch(rumpf, /'extract-pack',\s*p\.swordId,\s*ziel\s*\]/, 'kein Zielordner - landet im privaten /tmp');
+});
+
+test('der Agent warnt, wenn PrivateTmp das Aufraeumen verursacht', () => {
+  // Ein stiller Verlust ist schlimmer als ein Fehler: der Sword laege bis zum
+  // naechsten Neustart da und waere dann weg.
+  const i = agentQuelle.indexOf('async function entpackeDatei');
+  const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
+  assert.match(rumpf, /bestand|liegt|bleibt|dauerhaft/i, 'kein Hinweis, dass der Ordner dauerhaft bleiben muss');
 });
