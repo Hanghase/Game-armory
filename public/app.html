@@ -73,14 +73,17 @@
     .arsenal-list { display: flex; flex-direction: column; gap: 2px; }
     .arsenal-row { display: flex; align-items: center; gap: 10px;
                    padding: 8px 10px; border-radius: 6px;
-                   background: var(--panel2, rgba(255,255,255,0.03)); }
+                   background: var(--card); border: 1px solid var(--border); }
     .arsenal-row .a-name { font-weight: 600; }
     .arsenal-row .a-meta { color: var(--muted); font-size: 12px; margin-left: auto; }
     .a-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
-    .a-dot.a-online  { background: #3fb950; }
-    .a-dot.a-offline { background: #d29922; }
-    .a-dot.a-unknown { background: #6e7681; }
-    .a-dot.a-revoked { background: #f85149; }
+    /* Farben aus dem Theme, nicht fest: im hellen Theme sind --ok/--warn/--red
+       abgedunkelt. Feste Hex-Werte waeren dort zu blass. (2026-11-09: --panel2
+       gab es gar nicht, die Zeile war im hellen Theme unsichtbar.) */
+    .a-dot.a-online  { background: var(--ok); }
+    .a-dot.a-offline { background: var(--warn); }
+    .a-dot.a-unknown { background: var(--muted); }
+    .a-dot.a-revoked { background: var(--red); }
 
     /* Darstellungs-Schalter: Beschriftung oben, zwei Knoepfe darunter.
        Der aktive Knopf bekommt den Akzentrahmen (Klasse .active). */

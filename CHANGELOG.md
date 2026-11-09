@@ -3,6 +3,25 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.72] - 2026-11-09
+
+### Behoben
+
+- **Die Arsenal-Zeilen waren im hellen Theme unsichtbar.** Das CSS benutzte
+  `var(--panel2, ...)` - und `--panel2` gibt es im Theme nicht. Der
+  Fallback-Wert war ein fast transparentes Weiss, das auf hellem Grund
+  verschwindet. Jetzt `var(--card)` mit `var(--border)`, beides vorhanden.
+- **Feste Farbwerte im Arsenal-CSS.** Die Punkte standen auf `#3fb950` u.a.,
+  obwohl das Theme `--ok`/`--warn`/`--red`/`--muted` mitliefert und im hellen
+  Theme abdunkelt. Feste Werte waeren dort zu blass gewesen.
+
+### Tests
+
+- 2 neue Tests: jede im Arsenal-CSS benutzte Theme-Variable muss existieren,
+  und dort darf keine feste Farbe stehen. Gesamt 235.
+- Gegenprobe per Mutation: `--panel2` wieder eingesetzt -> genau der neue Test
+  wird rot.
+
 ## [1.3.71] - 2026-11-09
 
 ### Neu

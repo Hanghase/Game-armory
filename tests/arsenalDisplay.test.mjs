@@ -140,3 +140,44 @@ test('der Kopplungscode wird nie mit dem Schluessel verwechselt', async () => {
   const body = q.slice(start, q.indexOf('\n}', start) + 2);
   assert.ok(!/\.key\b/.test(body), 'renderArsenals griff auf .key zu');
 });
+
+test('das Arsenal-CSS benutzt nur Theme-Variablen, die es wirklich gibt', async () => {
+  // Fehler vom 2026-11-09: die Zeile stand auf var(--panel2), und --panel2
+  // existierte im Theme nicht. Im dunklen Theme fiel das nicht auf, im hellen
+  // war die Zeile unsichtbar. Ein Fallback-Wert verdeckt genau diesen Fehler.
+  const html = await readFile(new URL('../public/app.html', import.meta.url), 'utf8');
+
+  // Alle definierten Variablen einsammeln.
+  const definiert = new Set();
+  for (const m of html.matchAll(/(--[a-z0-9-]+)\s*:/g)) definiert.add(m[1]);
+  assert.ok(definiert.size > 5, 'Theme-Variablen nicht gefunden');
+
+  // Alle benutzten Variablen im Arsenal-CSS pruefen.
+  const start = html.indexOf('.arsenal-list');
+  assert.ok(start > 0, 'Arsenal-CSS fehlt');
+  const block = html.slice(start, start + 1400);
+  const benutzt = [...block.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]);
+  assert.ok(benutzt.length > 0, 'keine Variablen im Arsenal-CSS');
+
+  for (const v of benutzt) {
+    assert.ok(definiert.has(v), `${v} wird benutzt, ist aber im Theme nicht definiert`);
+  }
+});
+
+test('das Arsenal-CSS setzt keine festen Farben', async () => {
+  // Feste Hex-Werte umgehen das helle Theme: --ok ist dort abgedunkelt,
+  // #3fb950 waere zu blass.
+  const html = await readFile(new URL('../public/app.html', import.meta.url), 'utf8');
+  const start = html.indexOf('.arsenal-list');
+  assert.ok(start > 0);
+  // Der Block endet beim naechsten schliessenden Kommentar/naechster Regel
+  // ausserhalb - nicht bei </style>. Sonst sammelt der Ausschnitt das ganze
+  // Theme ein und findet dessen Hex-Werte. (Eigener Fehlversuch 2026-11-09.)
+  const ende = html.indexOf('</style>', start);
+  const block = html.slice(start, Math.min(ende, start + 1400));
+  assert.ok(!/#[0-9a-fA-F]{3,6}/.test(block),
+    'feste Farbwerte im Arsenal-CSS - im hellen Theme stimmen sie nicht');
+  // Gegenprobe: der Ausschnitt muss die Regeln wirklich enthalten, sonst ist
+  // der Test gruen, weil er nichts gelesen hat.
+  assert.match(block, /a-dot\.a-online/, 'Ausschnitt enthielt die Arsenal-Regeln nicht');
+});
