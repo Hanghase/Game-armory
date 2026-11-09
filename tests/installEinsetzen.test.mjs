@@ -254,7 +254,8 @@ test('die Route nimmt den Arbeitsordner NICHT aus dem Request', () => {
   // an einen root-Helfer - die Pruefung saehe nur gut aus.
   const i = routeQuelle.indexOf("if (action === 'einsetzen')");
   const rumpf = routeQuelle.slice(i, i + 2500);
-  assert.match(rumpf, /arbeitsVerzeichnis:\s*schwert\.workingDir/, 'Arbeitsordner kommt nicht aus der Sword-Datei');
+  assert.match(rumpf, /arbeitsVerzeichnis:\s*schwert\.control\?\.workingDir/,
+    'Arbeitsordner kommt nicht aus der Sword-Datei (control.workingDir)');
   assert.doesNotMatch(rumpf, /arbeitsVerzeichnis\s*\}\s*=\s*req\.body/, 'Arbeitsordner kommt aus dem Request');
 });
 
@@ -309,4 +310,39 @@ test('die erlaubte Quelle im Helfer ist genau PACK_ORDNER', async () => {
   const i = helfer.indexOf('replace-pack)');
   const rumpf = helfer.slice(i, i + 2000);
   assert.ok(rumpf.includes(`${ordner}/*`), `Helfer kennt ${ordner} nicht als Quelle`);
+});
+
+test('die Route liest den Arbeitsordner aus control.workingDir', () => {
+  // Live am 2026-11-09 gefunden: der Sword hat kein Feld "workingDir", sondern
+  // "control": { "workingDir": "/opt/minecraft/atm11" }. Meine Route las
+  // schwert.workingDir - immer undefined -, und jeder Auftrag endete mit
+  // "bad-arbeitsverzeichnis", sah aber wie ein Pruefungsfehler des Nutzers aus.
+  const i = routeQuelle.indexOf("if (action === 'einsetzen')");
+  const rumpf = routeQuelle.slice(i, i + 2500);
+  assert.match(
+    rumpf,
+    /schwert\.control\?\.workingDir|schwert\.control\.workingDir/,
+    'der Arbeitsordner kommt nicht aus control.workingDir',
+  );
+  assert.doesNotMatch(
+    rumpf.split('\n').filter((z) => !z.trim().startsWith('//')).join('\n'),
+    /arbeitsVerzeichnis:\s*schwert\.workingDir/,
+    'schwert.workingDir gibt es nicht - der Wert ist immer undefined',
+  );
+});
+
+test('einsetzen steht in BEIDEN Aktionslisten des Agenten', async () => {
+  // Live am 2026-11-09: "bad-action" aus dem Agenten, obwohl die Armory den
+  // Auftrag durchgelassen hatte. Die Armory-Whitelist (arsenalRoutes.js) hatte
+  // 'einsetzen', die Agenten-Whitelist (ALLOWED_ACTIONS in logic.js) nicht.
+  //
+  // Bei einer neuen Aktion sind es VIER Stellen: Armory-Route, Agenten-Liste,
+  // OHNE_DIENST (sonst wird ein Dienstname verlangt) und der Verteiler in
+  // run.js. Diese Pruefung deckt die beiden Listen ab - die anderen beiden
+  // stehen in den Tests weiter oben.
+  const { ALLOWED_ACTIONS, OHNE_DIENST } = await import('../agent/logic.js');
+  assert.ok(ALLOWED_ACTIONS.includes('einsetzen'),
+    'ALLOWED_ACTIONS kennt einsetzen nicht - der Agent antwortet "bad-action"');
+  assert.ok(OHNE_DIENST.includes('einsetzen'),
+    'OHNE_DIENST kennt einsetzen nicht - es wuerde ein Dienstname verlangt');
 });

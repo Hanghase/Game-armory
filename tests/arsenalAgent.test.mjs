@@ -43,9 +43,12 @@ test('die Whitelist ist genau diese fünf Aktionen lang', () => {
   // Versehen.
   // install kam 2026-11-09 dazu: ein gezogenes Paket auf dem Arsenal
   // entpacken. Kein Dienstname, sondern pullId + swordId - eigene Pruefung.
+  //
+  // einsetzen kam am selben Tag dazu (Entpacktes ins Spielverzeichnis setzen,
+  // Sicherung vorher). Bewusst mit aufgenommen statt die Zaehlung zu lockern.
   assert.deepEqual(
     [...ALLOWED_ACTIONS],
-    ['status', 'start', 'stop', 'restart', 'update', 'install'],
+    ['status', 'start', 'stop', 'restart', 'update', 'install', 'einsetzen'],
   );
 });
 

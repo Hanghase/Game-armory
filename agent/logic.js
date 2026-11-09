@@ -31,6 +31,14 @@ export const ALLOWED_ACTIONS = Object.freeze([
     // Ein gezogenes Paket auf diesem Arsenal entpacken. Kein Dienstname,
     // sondern pullId + swordId - eigene Pruefung in validateInstall.
     'install',
+      // Das Entpackte ins Spielverzeichnis setzen, mit Sicherung vorher.
+      // Ebenfalls kein Dienstname; eigene Pruefung in validateEinsetzen.
+      //
+      // Live am 2026-11-09 vergessen: die Armory liess den Auftrag durch,
+      // der Agent antwortete "bad-action", und im Panel sah es nach einem
+      // Netzproblem aus. Bei einer neuen Aktion sind es VIER Stellen - diese
+      // hier ist die zweite.
+      'einsetzen',
 ]);
 
 // Aktionen, die KEINEN Dienstnamen brauchen.
@@ -42,7 +50,7 @@ export const ALLOWED_ACTIONS = Object.freeze([
 // Ein restart MIT Dienstnamen bleibt trotzdem erlaubt: wer bewusst eine Unit
 // auf dem Arsenal neu starten will, soll das koennen (die Route bietet es
 // nicht an, der Weg ueber die Leitung bleibt aber offen).
-export const OHNE_DIENST = Object.freeze(['status', 'update', 'restart', 'install']);
+export const OHNE_DIENST = Object.freeze(['status', 'update', 'restart', 'install', 'einsetzen']);
 
 // Erlaubte Form eines Dienstnamens (systemd-Unit). Keine Punkte am Anfang,
 // keine Leerzeichen, keine Shell-Metazeichen.

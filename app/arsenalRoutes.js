@@ -33,6 +33,8 @@ import { sendePull } from './arsenalTransferSend.js';
 import { readUpload } from './uploads.js';
 // Dieselbe Pruefung wie im Agenten - sonst laufen die zwei Seiten auseinander.
 import { validateInstall, validateEinsetzen } from '../agent/logic.js';
+import { getSwords } from './swords.js';
+import { wrapRouter } from './routeWrap.js';
 
 export const arsenalRouter = Router();
 
@@ -194,7 +196,11 @@ arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async
       type: 'einsetzen',
       swordId,
       quelle,
-      arbeitsVerzeichnis: schwert.workingDir,
+      // Der Pfad steht unter control, nicht oben: swords/atm11.sword.json hat
+      // "control": { "workingDir": "/opt/minecraft/atm11" }. Ein schwert.workingDir
+      // gibt es nicht - live am 2026-11-09 nachgesehen, nachdem jeder Auftrag mit
+      // "bad-arbeitsverzeichnis" endete und wie ein Eingabefehler aussah.
+      arbeitsVerzeichnis: schwert.control?.workingDir,
       teile,
     });
     if (!p.ok) {
@@ -349,3 +355,18 @@ arsenalRouter.post('/arsenal/heartbeat', (req, res) => {
 
   res.json({ ok: true, nextHeartbeatMs: 30_000 });
 });
+
+
+// PRE-RELEASE-AUDIT 2026-11-09: Alle Routen dieses Routers absichern.
+//
+// Live gefunden: ein POST auf /api/arsenals/6/command (action=einsetzen) gab
+// KEIN Byte zurueck - kein 500, kein Fehlertext, die Verbindung blieb offen.
+// Ursache: installRouter wurde gewrappt, arsenalRouter nicht. Express 4 faengt
+// abgelehnte Promises in async-Handlern nicht ab; der Fehler geht an den
+// Prozess und der Client wartet bis zum Timeout.
+//
+// Bewusst HIER am Ende: so ist auch jede spaeter hinzugefuegte Route
+// geschuetzt, ohne dass jemand daran denken muss. Der Test
+// routerFehlerbehandlung.test.mjs prueft ALLE Router-Dateien, damit der
+// naechste Router nicht wieder vergessen wird.
+wrapRouter(arsenalRouter);
