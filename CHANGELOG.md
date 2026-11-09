@@ -3,6 +3,49 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.25] - 2026-11-09
+
+### Behoben - ein Fehler, den nur der Live-Lauf zeigte
+
+**Der Agent verwarf jeden `pull`-Befehl.** Die Leitung sagte "hol diese
+Datei", der Agent antwortete im Log:
+
+```
+Stueck mit unmoeglicher Laenge verworfen (1885676090 bei 192 Bytes)
+```
+
+Die Pruefung im Verteiler lautete:
+
+```js
+if (istBinaer || Buffer.isBuffer(data)) { ... }
+```
+
+**`ws` liefert JEDE Nachricht als Buffer - auch JSON.** `Buffer.isBuffer(data)`
+ist damit immer `true`, und der Zweig fuer Dateistuecke schluckte jede
+Steuernachricht. Der `pull`-Befehl wurde nie gelesen, sondern als Stueck
+interpretiert; die ersten vier Bytes des JSON-Textes (`{"ty`) ergaben als
+Zahl eine Laenge von 1885676090.
+
+Jetzt wird **nur** `istBinaer` geprueft. Das Flag ist die einzige
+verlaessliche Auskunft darueber, ob der Frame binaer war.
+
+### Warum kein Test das gefunden hat
+
+Die Tests prueften die Hilfsfunktionen, nicht den Verteiler - genau die Luecke
+zwischen beidem, wie beim Fall `withReadiness`/`dockerStatus`. Jetzt drei
+Tests, die den **Quelltext des Verteilers** lesen:
+
+- der Stueck-Zweig prueft **nur** `istBinaer` (faengt die Rueckkehr des Fehlers)
+- `pull` wird **vor** `validateCommand` behandelt
+- der Binaer-Zweig steht **vor** dem JSON-Parse
+
+### Getestet
+
+- 16 Tests in dieser Datei, 343 gesamt.
+- 2 weitere Mutationen, beide gefangen: die alte Pruefung
+  `istBinaer || Buffer.isBuffer(data)` wieder eingesetzt, und `pull` hinter
+  `validateCommand` verschoben.
+
 ## [1.4.24] - 2026-11-09
 
 ### Behoben

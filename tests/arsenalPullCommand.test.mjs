@@ -91,3 +91,51 @@ test('etwas, das kein pull ist, wird abgelehnt', () => {
   assert.equal(validatePull(null).ok, false);
   assert.equal(validatePull('pull').ok, false);
 });
+
+// --- Der Verteiler: kommt der pull-Befehl ueberhaupt an? -------------------
+//
+// Der Fehler vom 2026-11-09 auf der VM: der Agent verwarf jeden pull-Befehl
+// als "Stueck mit unmoeglicher Laenge". Ursache: die Pruefung lautete
+// "istBinaer || Buffer.isBuffer(data)" - und 'ws' liefert JEDE Nachricht als
+// Buffer, auch JSON. Buffer.isBuffer ist damit immer true, das Flag war die
+// einzige verlaessliche Auskunft, wurde aber nicht allein benutzt.
+//
+// Der Test prueft deshalb den QUELLTEXT des Verteilers, nicht nur die
+// Hilfsfunktion: die Luecke war genau zwischen beiden.
+
+import { readFile } from 'node:fs/promises';
+
+test('der Verteiler prueft nur istBinaer, nicht Buffer.isBuffer', async () => {
+  const quelle = await readFile(new URL('../agent/run.js', import.meta.url), 'utf8');
+
+  // Der Zweig, der Stuecke behandelt, darf Buffer.isBuffer NICHT als
+  // zusaetzliche Bedingung enthalten - sonst schluckt er jede JSON-Nachricht.
+  const zweig = quelle.match(/if \(([^)]*)\) \{\s*\n\s*await nimmDateistueck/);
+  assert.ok(zweig, 'der Verteiler-Zweig fuer Stuecke wurde nicht gefunden');
+  assert.equal(
+    zweig[1].trim(),
+    'istBinaer',
+    `der Stueck-Zweig prueft "${zweig[1]}" statt nur "istBinaer" - Buffer.isBuffer ist bei 'ws' IMMER true, auch fuer JSON`,
+  );
+});
+
+test('der pull-Befehl wird VOR validateCommand behandelt', async () => {
+  const quelle = await readFile(new URL('../agent/run.js', import.meta.url), 'utf8');
+  const pullStelle = quelle.indexOf("msg.type === 'pull'");
+  const cmdStelle = quelle.indexOf('validateCommand(msg)');
+  assert.ok(pullStelle > 0, 'pull wird im Verteiler nicht behandelt');
+  assert.ok(
+    pullStelle < cmdStelle,
+    'pull wird erst nach validateCommand geprueft - validateCommand kennt pull nicht und lehnt es ab',
+  );
+});
+
+test('der Binaer-Zweig steht VOR dem JSON-Parse', async () => {
+  const quelle = await readFile(new URL('../agent/run.js', import.meta.url), 'utf8');
+  const binaerStelle = quelle.indexOf('await nimmDateistueck');
+  const parseStelle = quelle.indexOf('JSON.parse(String(data))');
+  assert.ok(
+    binaerStelle < parseStelle,
+    'das Stueck wird erst nach dem JSON-Parse behandelt - eine ZIP als JSON zu parsen wirft',
+  );
+});

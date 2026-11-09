@@ -316,7 +316,16 @@ function verbinde(cfg) {
 
     // Binaer = ein Stueck einer Datei, kein JSON. Muss VOR dem JSON-Parse
     // stehen: eine ZIP als JSON zu parsen wirft, und das Stueck waere weg.
-    if (istBinaer || Buffer.isBuffer(data)) {
+    //
+    // NUR istBinaer pruefen, NICHT zusaetzlich Buffer.isBuffer.
+    //
+    // Live auf der VM am 2026-11-09: 'ws' liefert JEDE Nachricht als Buffer,
+    // auch JSON. Buffer.isBuffer(data) ist darum immer true, und die Pruefung
+    // "istBinaer || Buffer.isBuffer(data)" schluckte jede Steuernachricht als
+    // Dateistueck. Der pull-Befehl wurde nie gelesen; der Agent verwarf ihn
+    // als "Stueck mit unmoeglicher Laenge". Das Flag ist die einzige
+    // verlaessliche Auskunft, ob der Frame binaer war.
+    if (istBinaer) {
       await nimmDateistueck(data);
       return;
     }

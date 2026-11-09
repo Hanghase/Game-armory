@@ -1,6 +1,6 @@
 {
   "name": "game-armory",
-  "version": "1.4.24",
+  "version": "1.4.25",
   "license": "AGPL-3.0-only",
   "description": "Game-Armory - Gameserver Control Panel",
   "type": "module",
