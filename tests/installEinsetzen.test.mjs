@@ -271,3 +271,42 @@ test('einsetzen steht in der Aktionsliste der Route', () => {
   assert.ok(m, 'ERLAUBTE_AKTIONEN fehlt');
   assert.match(m[1], /'einsetzen'/, 'einsetzen fehlt in der Whitelist');
 });
+
+// --- Live am 2026-11-09 gefunden: der Helfer lehnt den Pack-Ordner ab ----
+// Der ganze Weg war gebaut, die Pruefung guelte, und dann:
+//   "Quelle muss unter /tmp liegen: /var/lib/armory-arsenal/packs/entpackt/armory-pack-k79c40/mods"
+// replace-pack liess als Quelle NUR /tmp zu, waehrend einsetzen bewusst aus
+// PACK_ORDNER liest (weil der Agent PrivateTmp=yes hat und sein /tmp mit dem
+// Dienst verschwindet). Zwei richtige Entscheidungen, die zusammen nicht
+// funktionieren. Kein Test konnte das sehen - beide Seiten waren fuer sich
+// korrekt.
+
+test('der Helfer erlaubt das Packverzeichnis als Quelle', async () => {
+  // Der Test liest den Helfer im Repo, nicht die installierte Kopie: nur so
+  // faellt eine Aenderung auf, die jemand nur an einer Stelle macht.
+  const helfer = await readFile(new URL('../agent/armory-install-helper', import.meta.url), 'utf8')
+    .catch(() => '');
+  if (!helfer) {
+    // Liegt der Helfer nicht im Repo, ist dieser Test nicht pruefbar. Er darf
+    // dann NICHT stillschweigend gruen sein.
+    assert.fail('armory-install-helper nicht im Repo - Vertrag mit dem Agenten nicht pruefbar');
+  }
+  const i = helfer.indexOf('replace-pack)');
+  assert.ok(i > 0, 'replace-pack fehlt im Helfer');
+  const rumpf = helfer.slice(i, i + 2000);
+  assert.match(
+    rumpf,
+    /\/var\/lib\/armory-arsenal\/packs\/entpackt\/\*/,
+    'replace-pack erlaubt das Packverzeichnis nicht - einsetzen scheitert immer',
+  );
+});
+
+test('die erlaubte Quelle im Helfer ist genau PACK_ORDNER', async () => {
+  // Zwei Stellen, die denselben Pfad kennen: logic.js (PACK_ORDNER) und der
+  // Helfer. Laufen sie auseinander, scheitert jeder Auftrag erst im Betrieb.
+  const { PACK_ORDNER: ordner } = await import('../agent/logic.js');
+  const helfer = await readFile(new URL('../agent/armory-install-helper', import.meta.url), 'utf8');
+  const i = helfer.indexOf('replace-pack)');
+  const rumpf = helfer.slice(i, i + 2000);
+  assert.ok(rumpf.includes(`${ordner}/*`), `Helfer kennt ${ordner} nicht als Quelle`);
+});

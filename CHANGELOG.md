@@ -3,6 +3,85 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.0] - 2026-11-09
+
+### Einsetzen: aus dem entpackten Pack wird der Sword im Spielverzeichnis
+
+Felix: *"ja bitte"* auf die Frage, ob das Einsetzen gebaut werden soll. Bis
+hierher endete der Weg beim Entpacken: das Pack lag unter
+`packs/entpackt/armory-pack-XXXX`, der Sword unter `/opt/minecraft/<id>` bekam
+davon nichts.
+
+**Reihenfolge ist Teil der Sicherheit, nicht Beiwerk:**
+
+1. **Sicherung** (`backup-tar`) der vorhandenen Ordner nach `backups/`
+2. erst dann ersetzen (`replace-pack` je Teil)
+3. melden, mit dem Pfad der Sicherung
+
+Scheitert Schritt 1, wird **nicht** kopiert. Lieber kein Update als eine Welt
+ohne Rueckweg. Auf der Test-VM belegt: Sicherung auf unschreibbarem `backups/`
+-> `ok:false` -> Datei unveraendert ("URALT").
+
+**Was geprueft wird:**
+
+| Feld | Regel |
+|---|---|
+| Quelle | MUSS unter `packs/entpackt/` liegen, kein `..`-Ausbruch |
+| Arbeitsordner | unter `/opt/minecraft`, `/opt/7d2d`, `/opt/teamspeak6`, `/opt/satisfactory` — und **genau eine Ebene** tief (`/opt/minecraft` selbst ist der Elternordner aller Swords) |
+| Teile | Eintraege im Pack, nie Pfade; kein `..`, kein `/`, max. 40 |
+| Sword | wie beim Install (`[a-z0-9-]`, mind. 2 Zeichen) |
+
+Der Arbeitsordner kommt von der Armory (aus der Sword-Datei), **nicht** aus dem
+Request — sonst waere die Route eine Weiterleitung beliebiger Pfade an einen
+root-Helfer.
+
+### Zwei Fehler, die nur live zu finden waren
+
+**1. `cfg.swords` gibt es nicht.** Mein erster `setzeEin` las den Arbeitsordner
+aus `ladeConfig().swords` — `arsenal.json` hat aber nur `id`, `key`, `url`.
+Jeder Auftrag waere mit "unbekannter-sword" abgebrochen. Kein Test wurde rot,
+weil er nur den Quelltext las.
+
+**2. Der Helfer lehnte sein eigenes Packverzeichnis ab.** `replace-pack`
+erlaubte als Quelle nur `/tmp` — `einsetzen` liest aber bewusst aus
+`packages/entpackt/` (der Agent hat `PrivateTmp=yes`, sein `/tmp` verschwindet
+mit dem Dienst). Zwei richtige Entscheidungen, die zusammen nicht funktionieren:
+
+```
+Quelle muss unter /tmp liegen: /var/lib/armory-arsenal/packs/entpackt/armory-pack-k79c40/mods
+```
+
+Der Helfer liegt jetzt **im Repo** (`agent/armory-install-helper`), damit diese
+Absprache pruefbar ist. Vorher war er nur installiert — genau deshalb konnte
+niemand den Widerspruch sehen.
+
+### Schwache Tests, selbst gefunden
+
+- Ein Test prueft `globalThis.__runQuelle` — nie gesetzt, also gruen ohne zu pruefen.
+- Einer prueft nur die **Reihenfolge** im Quelltext, nicht dass ein Sicherungs-
+  fehler wirklich abbricht (Mutation "if (!sich.ok)" -> "if (false && !sich.ok)"
+  blieb gruen).
+- Einer pruefte `'..'` in Teilnamen, aber die uebrigen Regeln schlugen zufaellig
+  schon zu; erst ein Name wie `mods..old` deckte die Luecke.
+- Ein Arbeitsordner **unter** dem Sword (`/opt/minecraft/atm11/mods`) wurde
+  durchgelassen — kein Test schickte so einen Pfad.
+
+### Getestet
+
+**Live auf der Test-VM, echter Weg:** alter Inhalt `ALTE-WELT-DATEI`, Sicherung
+angelegt, `replace-pack` ersetzt `mods/` durch `beispiel.jar`, und in der
+Sicherung liegt nachweislich `mods/alt.jar` mit `ALTE-WELT-DATEI`. Nicht
+ersetzte Dateien (`server.properties`) blieben unberuehrt.
+
+20 neue Tests, 443 gesamt. 13 Mutationen, alle gefangen.
+
+### Panel
+
+Knopf **Einsetzen** in der Arsenal-Zeile, Felder *Quellordner* und *Teile*.
+Keine Rueckfrage "wirklich ueberschreiben?" — die Sicherung ist der Rueckweg,
+und eine Rueckfrage, die immer mit Ja beantwortet wird, erzieht dazu, sie
+wegzuklicken.
+
 ## [1.5.84] - 2026-11-09
 
 ### Die Sword-Karte zeigt, auf welchem Arsenal der Sword liegt
