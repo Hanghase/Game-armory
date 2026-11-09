@@ -3,6 +3,41 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.84] - 2026-11-09
+
+### Die Sword-Karte zeigt, auf welchem Arsenal der Sword liegt
+
+Felix: *"aktuell sehe ich in der Sword übersicht nicht ob ein Sword auf einem
+Arsenal liegt"*. Berechtigt - bis hierher konnte sie es auch nicht: **ein
+Sword kannte gar kein Arsenal**. Alle lagen lokal auf der Armory.
+
+Jetzt:
+
+- **Loader** liest `arsenal` aus der Sword-Datei und prueft es: nur eine
+  positive ganze Zahl gilt. Alles andere wird mit Hinweis verworfen. Fehlt
+  das Feld, bleibt der Sword **lokal** - bewusst ohne `arsenal: 0` und ohne
+  `unbekannt`. Beides waere eine Angabe, die niemand gemacht hat.
+- **Karte** zeigt neben der Version ein ruhiges blaues Abzeichen
+  `Arsenal: Main` (Name) bzw. `Arsenal #6` (Kennung, wenn die Liste nicht
+  abrufbar ist). Blau, nicht rot: es ist ein Ort, keine Warnung.
+- **Namen** werden vor dem Zeichnen geladen, damit beim ersten Bild nicht
+  "Arsenal #6" steht.
+
+### Zwei schwache Tests, beide selbst gefunden
+
+**1. Ein Test war grün ohne zu prüfen.** Er las `public/style.css` - die es
+nicht gibt (das CSS steht inline in `app.html`). Wegen `if (!css) return` war
+er bei fehlender Datei automatisch bestanden. Jetzt liest er `app.html`.
+
+**2. Ein Test war zu weich.** "Lokaler Sword zeigt kein Abzeichen" suchte nur
+irgendein `arsenal` im Ausschnitt. Die Mutation `${sword.arsenal ? ...}` ->
+`${true ? ...}` blieb damit grün - und haette an allen 15 lokalen Karten ein
+leeres Abzeichen erzeugt. Jetzt prueft der Test die genaue Bedingung.
+
+### Getestet
+
+8 neue Tests, 423 gesamt. 5 Mutationen, 5 gefangen (nach der Haertung).
+
 ## [1.5.83] - 2026-11-09
 
 ### Fehler: `mktemp` legt keine Elternordner an

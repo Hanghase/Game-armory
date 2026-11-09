@@ -140,6 +140,25 @@ export async function loadSwords() {
       // EULA-Schritt aus dem Rack ableiten (einheitliche Quelle). So weiss
       // das Frontend pro Sword, ob der EULA-Button ueberhaupt sinnvoll ist.
       sword.eula = rack?.eula ?? 'none';
+      // Auf welchem Arsenal liegt dieser Sword?
+      //
+      // Fehlt das Feld, liegt er LOKAL auf der Armory - das ist der Normalfall
+      // und die Vorgabe. Ich setze bewusst kein 'arsenal: 0' und kein
+      // 'unbekannt': beides waere eine Angabe, die niemand gemacht hat, und die
+      // Anzeige wuerde einen Unterschied behaupten, den es nicht gibt.
+      //
+      // Das Feld kommt aus der Sword-Datei (gesetzt beim install auf einem
+      // Arsenal). Es wird NICHT aus der Rack hergeleitet: dasselbe Rack kann
+      // auf mehreren Arsenalen laufen.
+      if (sword.arsenal !== undefined && sword.arsenal !== null) {
+        // Nur eine Zahl ist eine Arsenal-Kennung. Ein Name hier waere eine
+        // zweite Wahrheit, die auseinanderlaufen kann - die ID ist stabil.
+        if (!Number.isInteger(sword.arsenal) || sword.arsenal <= 0) {
+          fileWarnings.push(`arsenal "${String(sword.arsenal)}" ist keine Kennung - ignoriert`);
+          delete sword.arsenal;
+        }
+      }
+
       swords.push(sword);
       for (const w of fileWarnings) {
         warnings.push({ file, message: w });

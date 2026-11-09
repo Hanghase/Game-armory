@@ -242,6 +242,36 @@
       return Math.floor(s / 3600) + ' h ' + Math.floor((s % 3600) / 60) + ' min';
     }
 
+// Namen der Arsenale fuer die Sword-Karten.
+//
+// Ein Sword traegt nur die ID (stabil, eindeutig). Der Name steht in der
+// Arsenalliste der Armory. Ohne diesen Speicher muesste die Karte "Arsenal 6"
+// zeigen - eine Zahl, die niemand einordnet.
+//
+// Absichtlich weich: faellt die Liste aus (Rechte, Netz), bleibt die Karte bei
+// der Zahl statt gar nichts zu zeigen. Ein fehlender Name ist ein
+// Schoenheitsfehler, ein fehlender Hinweis waere ein Sachfehler: dann wuesste
+// niemand, dass der Sword auf einer anderen Maschine liegt.
+const arsenalNamen = new Map();
+
+async function ladeArsenalNamen() {
+  try {
+    const res = await fetch('/api/arsenals', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    arsenalNamen.clear();
+    for (const a of data.arsenals ?? []) arsenalNamen.set(Number(a.id), a.name);
+  } catch {
+    // Siehe oben: der Hinweis bleibt, nur der Name fehlt.
+  }
+}
+
+// "Arsenal: Main" - Name wenn bekannt, sonst die Kennung.
+function arsenalLabel(id) {
+  const name = arsenalNamen.get(Number(id));
+  return name ? `Arsenal: ${name}` : `Arsenal #${id}`;
+}
+
     function renderSwords(swords) {
       const swordsEl = document.getElementById('swords');
       swordsEl.innerHTML = '';
@@ -253,7 +283,7 @@
         const card = document.createElement('div');
         card.className = 'card';
         card.innerHTML = `
-          <h2>${sword.name} <span class="ver ${sword.versionState ? 'v-' + esc(sword.versionState) : 'v-unknown'}" title="${esc(versionTooltip(sword))}">v${esc(sword.installedVersion ?? '—')}${versionHint(sword)}</span></h2>
+          <h2>${sword.name} <span class="ver ${sword.versionState ? 'v-' + esc(sword.versionState) : 'v-unknown'}" title="${esc(versionTooltip(sword))}">v${esc(sword.installedVersion ?? '—')}${versionHint(sword)}</span>${sword.arsenal ? ` <span class="badge arsenal" title="Dieser Sword läuft nicht auf dieser Armory, sondern auf einem angeschlossenen Arsenal">${esc(arsenalLabel(sword.arsenal))}</span>` : ''}</h2>
           <div class="desc">${sword.description ?? ''}</div>
           <span class="badge ${sword.tier === 'premium' ? 'premium' : ''}">${sword.tier}</span>
           <div class="state"><span class="dot unknown"></span><span class="label">…</span><span class="meta"></span></div>
@@ -2111,6 +2141,9 @@
     });
 
     async function reloadSwords() {
+      // Namen mitladen, BEVOR gezeichnet wird: sonst steht beim ersten Bild
+      // "Arsenal #6" und erst beim naechsten Neuladen der Name.
+      await ladeArsenalNamen();
       const { data: swords } = await api('/api/swords');
       allSwords = Array.isArray(swords) ? swords : [];
       if (document.getElementById('rackList')) renderSidebar();
