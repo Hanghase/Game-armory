@@ -3,6 +3,62 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.23] - 2026-11-09
+
+### Neu
+
+- **Das Arsenal ZIEHT Dateien.** Die Empfangsseite der Uebertragung steht:
+  Stuecke annehmen, schreiben, Pruefsumme, umbenennen. Nicht die Armory
+  schiebt - wer zieht, bestimmt das Tempo, und am Arsenal bleibt kein Port
+  offen.
+
+  ```
+  agent/transfer.js       Entscheidungen: welches Stueck passt, wann fertig,
+                          stimmt die Pruefsumme (15 Tests)
+  agent/transferRun.js    Platte und Strom: schreiben, pruefen, aufraeumen
+  ```
+
+- **Geschrieben wird in eine .teil-Datei**, umbenannt erst nach der
+  Pruefsumme. Eine halb geschriebene ZIP unter dem echten Namen sieht wie
+  eine fertige aus - und wird irgendwann installiert.
+
+### Verhalten, das bewusst so ist
+
+- **Ein Stueck an falscher Stelle wird abgelehnt, nicht geschrieben.** Sonst
+  legt ein verspaetetes Stueck Muell mitten in eine Datei, die schon fast
+  fertig war.
+- **Ein doppeltes Stueck wird erkannt**, nicht doppelt gezaehlt. Bei einer
+  wackeligen Leitung kommt eines schon mal zweimal.
+- **99 % ist nicht fertig.** Exakt am Ende, sonst nichts.
+- **Falsche Pruefsumme loescht die Datei** - sie bleibt nicht als Einladung
+  liegen.
+- **Ein Abbruch raeumt die .teil-Datei weg.** Sonst sammeln sich halbe
+  Downloads auf der Platte.
+
+### Getestet
+
+- 15 neue Tests. 327 gesamt.
+- 11 Mutationen, alle gefangen: Luecke erlauben, doppelt zaehlen, fertig ab
+  99 %, Pruefsumme immer akzeptieren, ueber das Ende lesen, fehlende Datei
+  als gueltig, kaputte Datei liegen lassen, Pruefsumme nicht pruefen, kein
+  Aufraeumen, falsches Stueck schreiben, unvollstaendig durchwinken.
+- **Live ueber eine echte WebSocket-Leitung** (Pruefstand, 2 MB in 32
+  Stuecken): 100 % uebertragen, Pruefsumme stimmt, Datei Byte fuer Byte
+  identisch mit dem Original.
+
+### Zwei Fehler, die nur der echte Durchlauf zeigte
+
+Beide im Pruefstand, nicht im Produktivcode - aber sie haetten den
+Produktivcode stumm gemacht:
+
+1. **Deadlock nach dem ersten Stueck.** Der Sender schickte eines und wartete
+   auf eine Quittung; die Quittung kam erst ab 512 KiB. Bei kleinen Dateien
+   waere das NIE aufgefallen. Jetzt wird jedes Stueck quittiert.
+2. **Die Datei wurde nie umbenannt.** 2 MB kamen an, Inhalt Byte fuer Byte
+   identisch, aber der Abschluss hing an einem `close`-Ereignis, das nie kam.
+   Eine perfekte .teil-Datei liegt jetzt nicht mehr herum: der Abschluss
+   haengt an der Vollstaendigkeit, nicht am Verbindungsende.
+
 ## [1.4.22] - 2026-11-09
 
 ### Neu
