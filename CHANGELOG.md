@@ -3,6 +3,20 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.3] - 2026-11-09
+
+### `1.6.0` ist im CHANGELOG als nicht lauffaehig markiert
+
+Kein Code. Nur eine ehrliche Zeile an der Stelle, wo jemand nachliest, bevor er
+zurueckrollt.
+
+`1.6.0` meldete Erfolg und tat nichts - vier Nahtstellen-Fehler im Aufrufweg,
+in [1.6.1] behoben. Ein Stand, der stillschweigend nichts tut, ist schlimmer als
+einer, der scheitert: man merkt es erst im Spiel.
+
+Der Tag bleibt, wie er ist (gepusht, Historie nicht umschreiben). Aber wer
+`v1.6.0` auscheckt, liest jetzt vorher, dass er das nicht will.
+
 ## [1.6.2] - 2026-11-09
 
 ### Die Versionsregel wird jetzt geprueft, nicht nur aufgeschrieben
@@ -110,6 +124,16 @@ Der Agent loggte: angekommen, Pruefung ok, Sicherung angelegt, eingesetzt.
 453 Tests, alle gruen.
 
 ## [1.6.0] - 2026-11-09
+
+> **Dieser Stand lief nicht.** Die Faehigkeit war gebaut, die Tests gruen, die
+> Route antwortete `ok:true` - im Spielverzeichnis passierte nichts. Vier
+> Nahtstellen-Fehler machten den Aufrufweg unbrauchbar; sie sind in
+> [1.6.1] behoben. Wer auf `v1.6.0` zurueckrollt, rollt auf einen Stand, in dem
+> "Einsetzen" **nichts tut, aber Erfolg meldet** - schlimmer als ein Fehler.
+>
+> Diese Markierung steht hier, weil mir `1.6.0` als "fertig" durchging, bevor
+> der Weg je gegangen war. Nicht rueckwirkend umbenannt (der Tag ist gepusht),
+> aber ehrlich markiert.
 
 ### Einsetzen: aus dem entpackten Pack wird der Sword im Spielverzeichnis
 
