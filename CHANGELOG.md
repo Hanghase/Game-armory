@@ -3,6 +3,65 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.0] - 2026-11-09
+
+### Neu
+
+- **Der Arsenal-Agent.** Ein Programm, das auf der FREMDEN Maschine laeuft,
+  sich bei der Armory meldet und Befehle ueber dieselbe Leitung annimmt. Damit
+  ist die Kopplung kein Versprechen mehr, sondern laeuft.
+
+  ```
+  agent/run.js     das Programm (Verbindung, Herzschlag, Ausfuehrung)
+  agent/logic.js   Pruefung und Entscheidungen (ohne Netz, ohne Prozesse)
+  ```
+
+  Die Trennung ist Absicht: die Sicherheitspruefung muss ohne WebSocket und
+  ohne systemctl testbar sein.
+
+- **Die Armory nimmt die Verbindung an** (`app/arsenalSocket.js`) und schickt
+  Befehle durch: `POST /api/arsenals/:id/command` mit `status|start|stop|restart`.
+
+### Sicherheit
+
+- **Zwei Seiten pruefen, nicht eine.** Die Route prueft die Aktion, der Agent
+  prueft sie nochmal gegen seine eigene Whitelist. Wer die Armory uebernimmt,
+  kommt so nicht automatisch an alle Arsenale.
+- **Keine Shell.** `execFile` mit fester Aktionsliste und geprueftem
+  Dienstnamen. Der Dienstname muss `^[a-zA-Z0-9][a-zA-Z0-9@._-]*$` erfuellen;
+  zusaetzlich wird `/` und `..` abgelehnt.
+- **Der Schluessel geht als Header, nicht in der URL** - URLs landen in Logs.
+- **Verbindung ueber den Schluessel, nicht ueber die IP.** Unbekannte ID und
+  falscher Schluessel antworten identisch, damit geratene IDs nichts verraten.
+- **Neuverbindung mit wachsender Wartezeit** (1s, 2s, 4s ... max 60s): ein
+  Agent, der im Sekundentakt verbindet, legt die Armory lahm.
+- **Stille Leitung wird erkannt.** Ohne Nachricht nach 75 s wird neu verbunden;
+  eine tote TCP-Verbindung kann bestehen bleiben, ohne dass `close` kommt.
+
+### Behoben
+
+- **Zwei WebSocket-Pfade am selben Server gingen nicht.** Mit
+  `new WebSocketServer({ server, path })` zweimal nimmt der erste JEDER
+  Upgrade-Request an, der zweite antwortet nie - live gemessen: `/ws/logs`
+  101, `/ws/arsenal` 400. Jetzt `noServer` plus ein Verteiler nach Pfad.
+- **`status` ohne Dienstname fragte `systemctl is-active` ohne Argument** und
+  bekam "Too few arguments". Jetzt `list-units --state=running`.
+
+### Getestet
+
+- 32 neue Tests (18 Agent-Logik, 14 Socket). Gesamt 267.
+- Jede Schutzfunktion per Mutation gegengeprueft: Whitelist geoeffnet,
+  Dienst-Regex aufgeweicht, `type`-Pruefung entfernt, Schluessel nicht
+  geprueft, alte Leitung nicht geschlossen, Befehl an irgendeine Leitung
+  statt an die richtige - jede macht genau die zugehoerigen Tests rot.
+- **Live auf der Test-VM (Debian 13, QEMU):** Agent als systemd-Dienst
+  installiert, verbunden, Lebenszeichen alle 30 s. Nach einem Neustart des
+  Panels hat sich der Agent selbst wieder verbunden (2 s Wartezeit).
+  `status` -> `inactive` -> `start` -> `active` -> `stop` -> `inactive`,
+  alles durch die Leitung. Zwei Injection-Versuche
+  (`ssh; touch /tmp/PWNED` und `$(id)`) wurden vom Agenten mit `bad-service`
+  abgelehnt; `/tmp/PWNED` existiert nicht.
+
 ## [1.3.72] - 2026-11-09
 
 ### Behoben

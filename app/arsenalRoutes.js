@@ -28,6 +28,7 @@ import {
   pruneExpiredPairings,
 } from './arsenalStore.js';
 import { arsenalState, formatPairingCode, verifyHeartbeat } from './arsenals.js';
+import { istVerbunden, frageArsenal } from './arsenalSocket.js';
 
 export const arsenalRouter = Router();
 
@@ -100,6 +101,43 @@ arsenalRouter.post('/arsenals/:id/revoke', requirePerm('arsenal.delete'), (req, 
   const changed = revokeArsenal(id);
   if (!changed) return res.status(409).json({ error: 'Arsenal war bereits gesperrt' });
   res.json({ ok: true });
+});
+
+// --- Befehl an ein Arsenal ---------------------------------------------------
+// Schickt start/stop/restart/status durch die OFFENE Leitung und wartet auf
+// die Antwort. Das Arsenal prueft den Befehl nochmal selbst gegen seine eigene
+// Whitelist - hier wird nicht blind weitergereicht.
+//
+// Die Aktionen sind bewusst dieselben vier wie im Agenten. Was hier nicht
+// steht, kann auch nicht durchgehen.
+const ERLAUBTE_AKTIONEN = ['status', 'start', 'stop', 'restart'];
+
+arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'Ungültige Arsenal-ID' });
+  }
+  if (!getArsenal(id)) return res.status(404).json({ error: 'Arsenal nicht gefunden' });
+
+  const { action, service } = req.body ?? {};
+  if (!ERLAUBTE_AKTIONEN.includes(action)) {
+    return res.status(400).json({ error: 'Unbekannte Aktion' });
+  }
+  if (action !== 'status' && (typeof service !== 'string' || service.length === 0)) {
+    return res.status(400).json({ error: 'Dienst fehlt' });
+  }
+
+  if (!istVerbunden(id)) {
+    // Ehrlich sagen statt in einen Timeout laufen zu lassen.
+    return res.status(409).json({ error: 'Arsenal ist nicht verbunden', error2: 'arsenal-offline' });
+  }
+
+  const ergebnis = await frageArsenal(id, { action, service });
+  if (ergebnis.ok === false && ergebnis.error) {
+    const status = ergebnis.error === 'timeout' ? 504 : 502;
+    return res.status(status).json({ error: 'Arsenal antwortet nicht', grund: ergebnis.error });
+  }
+  res.json({ ok: true, action, service: service ?? null, output: ergebnis.output });
 });
 
 // --- Lebenszeichen vom Arsenal ---------------------------------------------

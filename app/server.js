@@ -21,6 +21,7 @@ import { serviceAction, serviceStatus, streamLogs, withReadiness,
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
 import { arsenalRouter } from './arsenalRoutes.js';
+import { pruefeHandshake, registriere, verarbeiteNachricht, leitungWeg } from './arsenalSocket.js';
 import { getSessionUser, requireAuth, cleanupExpiredSessions,  cleanupLoginAttempts,
 } from './auth.js';
 import { roleHasPerm } from './permissions.js';
@@ -247,7 +248,30 @@ app.post('/api/swords/:id/:action(start|stop|restart)', requireAuth, async (req,
 // --- WebSocket: Live-Logs (login-pflichtig) -------------------------------
 
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws/logs' });
+
+// Zwei WebSocket-Pfade an EINEM HTTP-Server: Live-Logs und Arsenal-Leitungen.
+// WICHTIG (2026-11-09): mit `new WebSocketServer({ server, path })` zweimal
+// geht es NICHT - der erste Server nimmt jeden Upgrade-Request an, der zweite
+// antwortet nie (live gemessen: /ws/logs 101, /ws/arsenal 400). Deshalb hier
+// noServer plus ein Verteiler nach Pfad. Ein unbekannter Pfad wird verworfen,
+// nicht an den ersten Handler durchgereicht.
+const wss = new WebSocketServer({ noServer: true });          // /ws/logs
+const wssArsenal = new WebSocketServer({ noServer: true });   // /ws/arsenal
+
+server.on('upgrade', (req, socket, head) => {
+  let pfad = '';
+  try {
+    pfad = new URL(req.url, 'http://localhost').pathname;
+  } catch {
+    socket.destroy();
+    return;
+  }
+  const ziel = pfad === '/ws/logs' ? wss
+    : pfad === '/ws/arsenal' ? wssArsenal
+      : null;
+  if (!ziel) { socket.destroy(); return; }
+  ziel.handleUpgrade(req, socket, head, (ws) => ziel.emit('connection', ws, req));
+});
 
 function parseCookies(header = '') {
   const out = {};
@@ -308,6 +332,44 @@ wss.on('connection', (ws, req) => {
   }
 
   ws.on('close', () => { if (logProcess) logProcess.kill('SIGTERM'); });
+});
+
+// --- Arsenal-Leitungen ----------------------------------------------------
+// Die Armory hoert zu; das ARSENAL waehlt den Kontakt. Deshalb muss am
+// Arsenal kein Port offen sein. Identitaet ist der Arsenal-Schluessel im
+// Header, NICHT die IP - die ist im selben Netz faelschbar.
+//
+// Der Pfad liegt bewusst neben /ws/logs und nicht darunter: die beiden haben
+// nichts miteinander zu tun, und wer Logs lesen darf, darf noch lange kein
+// Arsenal steuern.
+wssArsenal.on('connection', (ws, req) => {
+  const url = new URL(req.url, 'http://localhost');
+  const handshake = pruefeHandshake({
+    id: url.searchParams.get('id'),
+    key: req.headers['x-arsenal-key'] ?? '',
+  });
+
+  if (!handshake.ok) {
+    // Gleiche Antwort fuer "gibt es nicht" und "falscher Schluessel".
+    ws.close(4401, 'unauthorized');
+    return;
+  }
+
+  const arsenalId = handshake.arsenal.id;
+  registriere(arsenalId, ws);
+
+  ws.on('message', (data) => {
+    verarbeiteNachricht(arsenalId, data);
+  });
+
+  ws.on('close', () => {
+    leitungWeg(arsenalId);
+  });
+
+  ws.on('error', () => {
+    // Ein Fehler auf der Leitung darf den Panel-Prozess nicht mitreissen.
+    leitungWeg(arsenalId);
+  });
 });
 
 // --- Seiten ----------------------------------------------------------------
