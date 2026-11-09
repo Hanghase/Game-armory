@@ -108,9 +108,15 @@ arsenalRouter.post('/arsenals/:id/revoke', requirePerm('arsenal.delete'), (req, 
 // die Antwort. Das Arsenal prueft den Befehl nochmal selbst gegen seine eigene
 // Whitelist - hier wird nicht blind weitergereicht.
 //
-// Die Aktionen sind bewusst dieselben vier wie im Agenten. Was hier nicht
-// steht, kann auch nicht durchgehen.
-const ERLAUBTE_AKTIONEN = ['status', 'start', 'stop', 'restart'];
+// Was von der Armory aus erreichbar ist: NUR das Fernupdate des Arsenals.
+//
+// Start/Stop/Neustart stehen bewusst NICHT hier (2026-11-09): ein Sword laeuft
+// auf dem Arsenal und wird ueber die Racks bewegt. Das Arsenal ist die
+// Maschine, die Racks traegt - kein Fernsteuerungszugang zu allem, was darauf
+// laeuft. Der Agent kann die drei Aktionen weiterhin (er prueft gegen seine
+// eigene Whitelist), die Armory bietet sie nicht mehr an. Weniger Angriffs-
+// flaeche ist hier der Zweck, nicht Bequemlichkeit.
+const ERLAUBTE_AKTIONEN = ['update'];
 
 arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async (req, res) => {
   const id = Number(req.params.id);
@@ -123,7 +129,9 @@ arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async
   if (!ERLAUBTE_AKTIONEN.includes(action)) {
     return res.status(400).json({ error: 'Unbekannte Aktion' });
   }
-  if (action !== 'status' && (typeof service !== 'string' || service.length === 0)) {
+  // update betrifft das Arsenal selbst und braucht keinen Dienstnamen.
+  if (action !== 'status' && action !== 'update'
+      && (typeof service !== 'string' || service.length === 0)) {
     return res.status(400).json({ error: 'Dienst fehlt' });
   }
 

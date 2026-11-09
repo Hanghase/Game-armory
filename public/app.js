@@ -3350,15 +3350,11 @@ function renderArsenals(list) {
     box.innerHTML = '<p class="hint">Noch kein Arsenal gekoppelt.</p>';
     return;
   }
+  // Start/Stop gehoert NICHT hierher: ein Sword laeuft auf dem Arsenal, das
+  // bewegt man ueber die Racks. Das Arsenal soll sich selbst aktuell halten -
+  // darum genau eine Aktion je Zeile: Fernupdate.
   box.innerHTML = list.map((a) => {
-    // Ein Offline-Arsenal bietet nur "Status" an. Gegen eine schlafende
-    // Maschine zu klicken und in einen Timeout zu laufen ist genau die Sorte
-    // stiller Fehler, die niemand erklaeren kann.
     const online = a.state === 'online';
-    const knopf = (aktion, text, titel) => `
-        <button class="ghost a-act" data-arsenal-id="${a.id}"
-                data-arsenal-action="${aktion}" title="${esc(titel)}"
-                ${online ? '' : 'disabled'}>${text}</button>`;
     return `
     <div class="arsenal-row">
       <span class="a-dot ${arsenalStateClass(a.state)}" title="${esc(arsenalStateLabel(a.state))}"></span>
@@ -3366,51 +3362,43 @@ function renderArsenals(list) {
       <span class="a-meta">${esc(arsenalMetaLine(a))}</span>
       <span class="a-acts">
         <button class="ghost a-act" data-arsenal-id="${a.id}"
-                data-arsenal-action="status" title="Laufende Dienste abfragen">Status</button>
-        ${knopf('start', 'Start', 'Dienst starten')}
-        ${knopf('stop', 'Stop', 'Dienst stoppen')}
-        ${knopf('restart', 'Neustart', 'Dienst neu starten')}
+                data-arsenal-action="update" title="Arsenal auf die neueste Version bringen"
+                ${online ? '' : 'disabled'}>Fernupdate</button>
       </span>
     </div>`;
   }).join('');
 }
 
-// Fuehrt eine Aktion aus und zeigt das Ergebnis IN der Zeile - nicht in einem
-// Dialog, der den Zusammenhang verliert.
+// Fernupdate anstossen. Die Armory schickt einen Befehl, das Arsenal sichert
+// sich, wechselt, prueft sich nach dem Neustart SELBST und rollt sich selbst
+// zurueck, wenn etwas schiefgeht. Die Antwort hier ist darum "angestoßen",
+// nicht "fertig" - der Rechner ist danach kurz weg.
 async function runArsenalAction(id, aktion) {
-  const zeile = document.querySelector(`.arsenal-row .a-act[data-arsenal-id="${id}"]`)?.closest('.arsenal-row');
-  if (aktion !== 'status' && !zeile) return;
-
-  // Dienstname: bei start/stop/restart fragen. Ein leeres Feld ist kein
-  // Fehler des Servers, sondern eine abgebrochene Aktion.
-  let service = null;
-  if (aktion !== 'status') {
-    service = prompt(`Welcher Dienst soll ${aktion === 'start' ? 'gestartet' : aktion === 'stop' ? 'gestoppt' : 'neu gestartet'} werden?`);
-    if (!service) return;
-  }
-
   const ziel = document.getElementById('arsenalState');
-  if (ziel) ziel.textContent = 'Befehl läuft…';
+  if (aktion !== 'update') return;
+  if (ziel) ziel.textContent = 'Fernupdate angestoßen\u2026';
   try {
     const res = await fetch(`/api/arsenals/${id}/command`, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: aktion, service }),
+      body: JSON.stringify({ action: 'update' }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      // 409 heisst offline - das ist keine Panne, sondern eine Auskunft.
       const text = res.status === 409
         ? 'Arsenal ist nicht verbunden.'
         : (data.error ?? `Fehlgeschlagen (HTTP ${res.status})`);
       if (ziel) ziel.textContent = text;
       return;
     }
+    const u = data.update ?? {};
     if (ziel) {
-      const ausgabe = typeof data.output === 'string' ? data.output.trim() : '';
-      ziel.textContent = ausgabe ? `${aktion}: ${ausgabe.split('\n')[0]}` : `${aktion} ausgeführt.`;
+      ziel.textContent = u.gestartet
+        ? `Update ${u.von} \u2192 ${u.auf} läuft. Das Arsenal prüft sich selbst und rollt bei Fehler zurück.`
+        : (u.grund === 'schon-aktuell' ? 'Arsenal ist schon aktuell.' : `Kein Update: ${u.grund ?? 'unbekannt'}`);
     }
+    loadArsenals();
   } catch (err) {
     if (ziel) ziel.textContent = 'Befehl nicht abgesetzt.';
   }

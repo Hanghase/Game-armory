@@ -36,9 +36,15 @@ test('status ohne Dienst ist erlaubt', () => {
   assert.equal(r.service, null);
 });
 
-test('die Whitelist ist genau vier Aktionen lang', () => {
-  // Waechst die Liste unerwartet, faellt es hier auf.
-  assert.deepEqual([...ALLOWED_ACTIONS], ['status', 'start', 'stop', 'restart']);
+test('die Whitelist ist genau diese fünf Aktionen lang', () => {
+  // Waechst die Liste unerwartet, faellt es hier auf. Die Liste steht
+  // ausgeschrieben und wird nicht gezaehlt: kommt eine Aktion hinzu, steht
+  // sie hier im Test - dann ist die Erweiterung eine Entscheidung und kein
+  // Versehen.
+  assert.deepEqual(
+    [...ALLOWED_ACTIONS],
+    ['status', 'start', 'stop', 'restart', 'update'],
+  );
 });
 
 // ---------- Befehlspruefung: was ABGELEHNT wird ----------

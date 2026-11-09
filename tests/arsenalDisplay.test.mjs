@@ -183,10 +183,10 @@ test('das Arsenal-CSS setzt keine festen Farben', async () => {
 });
 
 // --- Aktionen in der Arsenal-Zeile -----------------------------------------
-// Ein Eintrag, den man nur ansehen kann, ist eine Anzeige, keine Verwaltung.
-// Die API kann status/start/stop/restart - hier muss es auch klickbar sein.
+// 2026-11-09: Start/Stop wieder RAUS. Ein Sword laeuft auf dem Arsenal und
+// wird ueber die Racks bewegt; das Arsenal soll sich selbst aktuell halten.
+// Eine Zeile, ein Knopf: Fernupdate.
 
-// Quelle des Renderers, wie die anderen Tests sie lesen: async, ueber quelle().
 async function renderBlock() {
   const js = await quelle();
   const anfang = js.indexOf('function renderArsenals');
@@ -196,63 +196,58 @@ async function renderBlock() {
   return js.slice(anfang, ende);
 }
 
-test('jede Arsenal-Zeile hat die vier Aktionen', async () => {
-  // start/stop/restart laufen ueber den Helfer knopf(...), nur status steht
-  // direkt im Markup. Ein Test auf das data-Attribut allein wuerde bei der
-  // Helfer-Bauweise nie gruen - also die AUFRUFE pruefen.
+test('die Arsenal-Zeile bietet Fernupdate an', async () => {
   const block = await renderBlock();
   assert.ok(
-    block.includes('data-arsenal-action="status"'),
-    'Knopf fuer "status" fehlt in der Zeile',
+    block.includes('data-arsenal-action="update"'),
+    'Fernupdate-Knopf fehlt',
   );
-  for (const aktion of ['start', 'stop', 'restart']) {
+  assert.match(block, /Fernupdate/);
+});
+
+test('die Arsenal-Zeile bietet KEIN Start/Stop/Neustart an', async () => {
+  // Nicht weil es technisch nicht ginge, sondern weil es der falsche Ort ist.
+  // Wer das wieder einbaut, soll hier stolpern.
+  const block = await renderBlock();
+  for (const falsch of ['start', 'stop', 'restart']) {
     assert.ok(
-      new RegExp(`knopf\\('${aktion}'`).test(block),
-      `Aufruf knopf('${aktion}') fehlt - der Knopf wird nicht gezeichnet`,
+      !block.includes(`data-arsenal-action="${falsch}"`),
+      `"${falsch}" gehoert nicht an das Arsenal - das ist Swords-Sache`,
     );
   }
 });
 
-test('die Knopf-Aktionen sind genau die, die die Route durchlaesst', async () => {
-  // Wenn das HTML eine Aktion anbietet, die die Route mit 400 abweist, ist
-  // der Knopf eine Falle. Beide Listen muessen deckungsgleich sein.
+test('die angebotene Aktion ist genau die, die die Route durchlaesst', async () => {
   const routen = await readFile(new URL('../app/arsenalRoutes.js', import.meta.url), 'utf8');
   const m = routen.match(/const ERLAUBTE_AKTIONEN = \[([^\]]+)\]/);
   assert.ok(m, 'ERLAUBTE_AKTIONEN nicht gefunden');
-  const erlaubt = m[1].split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean).sort();
+  const erlaubt = m[1].split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean).sort();
 
   const block = await renderBlock();
-  // Zwei Quellen: das direkte Attribut und die knopf('-Aufrufe.
-  const direkt = [...block.matchAll(/data-arsenal-action="([^"]+)"/g)].map((x) => x[1]);
-  const viaHelfer = [...block.matchAll(/knopf\('([^']+)'/g)].map((x) => x[1]);
-  // '${aktion}' ist der Platzhalter IM Helfer, nicht eine Aktion. Ohne diesen
-  // Filter meldet der Test eine Aktion, die es nie gibt.
-  const eindeutig = [...new Set([...direkt, ...viaHelfer])]
-    .filter((a) => !a.includes('${'))
-    .sort();
+  const geboten = [...new Set(
+    [...block.matchAll(/data-arsenal-action="([^"]+)"/g)].map((x) => x[1]),
+  )].sort();
 
-  assert.deepEqual(eindeutig, erlaubt, 'Knopf und Route sind sich uneinig');
+  assert.deepEqual(geboten, erlaubt, 'Knopf und Route sind sich uneinig');
 });
 
 test('Knopf-Klicks werden auch VERDRAHTET, nicht nur gezeichnet', async () => {
-  // Die Lehre aus dem Panel: ein Knopf, der aussieht wie ein Knopf und
-  // keinen Zuhoerer hat, ist schlimmer als kein Knopf.
   const js = await quelle();
   assert.match(js, /data-arsenal-action/, 'Markup fehlt');
   assert.ok(
     js.includes("getElementById('arsenalList')?.addEventListener"),
-    'kein Zuhoerer am Container - die Knoepfe tun nichts',
+    'kein Zuhoerer am Container - der Knopf tut nichts',
   );
   assert.ok(js.includes('runArsenalAction'), 'keine Funktion, die den Befehl absetzt');
 });
 
-test('ein Offline-Arsenal bietet keine Start/Stop-Knoepfe an', async () => {
-  // Gegen ein schlafendes Arsenal zu klicken und in einen Timeout zu laufen
-  // ist genau die Sorte stiller Fehler, die wir nicht wollen.
+test('ein Offline-Arsenal bietet kein Fernupdate an', async () => {
+  // Ein Update auf einer schlafenden Maschine ist kein Update - es ist ein
+  // Timeout, den jemand spaeter nicht mehr erklaeren kann.
   const block = await renderBlock();
   assert.ok(
-    block.includes("a.state === 'online'") || block.includes('a.state !== online'),
+    block.includes("a.state === 'online'"),
     'renderArsenals prueft den Zustand nicht',
   );
-  assert.match(block, /online \? '' : 'disabled'/, 'Start/Stop sind nicht abschaltbar');
+  assert.match(block, /online \? '' : 'disabled'/, 'Fernupdate ist nicht abschaltbar');
 });

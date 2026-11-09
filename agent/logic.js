@@ -25,7 +25,13 @@ export const ALLOWED_ACTIONS = Object.freeze([
   'start',
   'stop',
   'restart',
+  // Das Fernupdate des Arsenals selbst. Kein Dienstname: es betrifft genau
+  // diesen Rechner, nicht eine Unit darauf.
+  'update',
 ]);
+
+// Aktionen, die KEINEN Dienstnamen brauchen.
+export const OHNE_DIENST = Object.freeze(['status', 'update']);
 
 // Erlaubte Form eines Dienstnamens (systemd-Unit). Keine Punkte am Anfang,
 // keine Leerzeichen, keine Shell-Metazeichen.
@@ -55,9 +61,9 @@ export function validateCommand(msg) {
   }
 
   const service = msg.service;
-  // status braucht keinen Dienst: es fragt "was laeuft hier" und nicht
-  // "was macht Dienst X".
-  if (action === 'status') {
+  // status und update brauchen keinen Dienst: status fragt "was laeuft hier",
+  // update betrifft das Arsenal selbst.
+  if (OHNE_DIENST.includes(action)) {
     if (service === undefined || service === null) {
       return { ok: true, service: null, action };
     }

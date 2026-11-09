@@ -64,6 +64,19 @@ function ladeConfig() {
 // bereits geprueften Dienstnamen. Die Whitelist steht in agent.js.
 
 async function fuehreAus({ action, service }) {
+  // update betrifft das ARSENAL SELBST, nicht eine Unit darauf. Es laeuft
+  // darum nicht ueber systemctl, sondern ueber den Update-Ablauf - und der
+  // antwortet sofort, weil der Neustart sonst die Antwort mitreisst.
+  if (action === 'update') {
+    const { starteUpdate } = await import('./updateRun.js');
+    try {
+      const ergebnis = await starteUpdate({ meldung: (t) => log(t) });
+      return { ok: true, action, service: null, update: ergebnis };
+    } catch (err) {
+      return { ok: false, action, service: null, output: String(err.message ?? err).slice(0, 300) };
+    }
+  }
+
   // status OHNE Dienst fragt "was laeuft hier" - dafuer braucht systemctl
   // eine Liste statt is-active ohne Argument. is-active ohne Unit faellt mit
   // "Too few arguments" aus, und das ist nicht die Antwort auf die Frage.
