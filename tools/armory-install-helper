@@ -332,6 +332,12 @@ case "$step" in
           path_in_allowed_root "$eltern" || { echo "Ziel ausserhalb der Roots: $eltern" >&2; exit 3; } ;;
       esac
       reject_symlink_path "$eltern"
+      # mktemp legt KEINE Elternordner an (live 1.5.82: "No such file or
+      # directory"). Angelegt wird nur das feste Ziel, nicht ein Pfad aus dem
+      # Befehl - ein mkdir -p auf ein Argument waere ein Weg, beliebige Ordner
+      # zu erzeugen. Und erst NACH der Rollenpruefung: eine Armory legt hier
+      # nichts an.
+      [[ -d "$eltern" ]] || mkdir -p "$eltern"
     fi
     tmp_root="$(mktemp -d "$eltern/armory-pack-XXXXXX")"
     # Der Helfer laeuft als root: er liest das ZIP (das kann in einem 0700-

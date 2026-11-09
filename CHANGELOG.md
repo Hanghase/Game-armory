@@ -3,6 +3,28 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.83] - 2026-11-09
+
+### Fehler: `mktemp` legt keine Elternordner an
+
+Live nach 1.5.82:
+
+```
+install atm11: fehlgeschlagen - mktemp: failed to create directory via
+template '/var/lib/armory-arsenal/packs/entpackt/armory-pack-XXXXXX':
+No such file or directory
+```
+
+Kleine Ursache, ehrliche Meldung. Behoben: `extract-pack` legt das feste Ziel
+an, wenn es fehlt - **nach** der Rollenpruefung, damit eine Armory den Ordner
+nicht anlegt. Angelegt wird nur das feste Verzeichnis, nie ein Pfad aus dem
+Befehl.
+
+### Getestet
+
+1 neuer Test, 415 gesamt. Er prueft die REIHENFOLGE: `mkdir` muss nach der
+Rollenpruefung stehen. Eine Mutation, die es davor setzt, wird rot.
+
 ## [1.5.82] - 2026-11-09
 
 ### Fehler: das Pack-Ziel war dem Helfer unbekannt

@@ -155,3 +155,21 @@ test('extract-pack benutzt das Zielargument', () => {
   const rumpf = quelle.slice(i, ende > 0 ? i + 1 + ende : i + 3000);
   assert.match(rumpf, /mktemp -d "\$eltern\/armory-pack/, 'mktemp nutzt das Zielargument nicht');
 });
+
+test('extract-pack legt das Pack-Ziel an, falls es fehlt', () => {
+  // Live 1.5.82: "mktemp: failed to create directory via template
+  // '/var/lib/armory-arsenal/packs/entpackt/armory-pack-XXXXXX': No such file
+  // or directory". mktemp legt keine Elternordner an.
+  //
+  // Angelegt wird NUR das feste Verzeichnis, nicht ein Pfad aus dem Befehl -
+  // mkdir -p auf ein Argument waere ein Weg, beliebige Ordner zu erzeugen.
+  const i = quelle.match(/^  extract-pack\)$/m).index;
+  const ende = quelle.slice(i + 1).search(/^  [a-z-]+\)$/m);
+  const rumpf = quelle.slice(i, ende > 0 ? i + 1 + ende : i + 3000);
+  assert.match(rumpf, /mkdir -p "\$eltern"/, 'das Zielverzeichnis wird nicht angelegt');
+  // Muss NACH der Rollenpruefung stehen: sonst legt eine Armory den Ordner an.
+  const iPruef = rumpf.indexOf('ARMORY_ROLLE');
+  const iMkdir = rumpf.indexOf('mkdir -p "$eltern"');
+  assert.ok(iPruef > 0, 'Rollenpruefung fehlt');
+  assert.ok(iMkdir > iPruef, 'mkdir steht VOR der Rollenpruefung');
+});
