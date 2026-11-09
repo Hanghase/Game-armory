@@ -402,7 +402,7 @@ Alle sechs müssen stimmen, sonst bricht die Übernahme ab.
 
 ### Minecraft/ATM: was die Prüfung realistisch trägt
 
-Nachgemessen in `/opt/minecraft/atm11` (2026-11-06):
+An einer laufenden ATM-Instanz nachgemessen:
 
 ```
 vorhanden:      startserver.sh, user_jvm_args.txt, mods/,
