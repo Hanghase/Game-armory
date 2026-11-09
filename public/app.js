@@ -944,6 +944,9 @@
 
     // Diagnose: erneut pruefen (frisch von der Platte).
     document.getElementById('diagReload')?.addEventListener('click', loadDiagnostics);
+    // Arsenale: manuell nachladen. Der Zustand aendert sich, ohne dass die
+    // Seite neu geladen wird - der Knopf ist der einfachste ehrliche Weg.
+    document.getElementById('arsenalRefresh')?.addEventListener('click', loadArsenals);
 
     // --- Profil-Modal (Tabs: Profil / Nutzer / Einstellungen) ---------------
     // Die Tab-Inhalte tragen dieselben IDs wie frueher #usersModal/#settingsModal,
@@ -955,7 +958,7 @@
         if (b.style.display === 'none') return;   // versteckte Tabs nie aktivieren
         b.classList.toggle('active', b.dataset.ptab === tab);
       });
-      const paneId = { profile: 'pTabProfile', users: 'pTabUsers', settings: 'pTabSettings', updates: 'pTabUpdates', reset: 'pTabReset', diagnose: 'pTabDiagnose', perms: 'pTabPerms' }[tab];
+      const paneId = { profile: 'pTabProfile', users: 'pTabUsers', settings: 'pTabSettings', updates: 'pTabUpdates', reset: 'pTabReset', diagnose: 'pTabDiagnose', perms: 'pTabPerms', arsenals: 'pTabArsenals' }[tab];
       document.querySelectorAll('#profileModal .tabpane').forEach((p) => {
         p.classList.toggle('active', p.id === paneId);
       });
@@ -975,6 +978,7 @@
       if (tab === 'updates') { loadSettings(); loadSelfUpdate(); }
       if (tab === 'diagnose') loadDiagnostics();
       if (tab === 'perms') loadPermissions();
+      if (tab === 'arsenals') loadArsenals();
     }
 
     function closeProfile() {
@@ -1339,6 +1343,7 @@
         if (b.dataset.ptab === 'settings') { loadSettings(); loadSelfUpdate(); }
         if (b.dataset.ptab === 'diagnose') loadDiagnostics();
         if (b.dataset.ptab === 'perms') loadPermissions();
+        if (b.dataset.ptab === 'arsenals') loadArsenals();
       });
     });
 
@@ -3277,3 +3282,87 @@ document.addEventListener('keydown', (ev) => {
     bindPwRules('nu_pass', 'nu_pass_rules', () => document.getElementById('nu_name')?.value ?? '');
     bindPwRules('rp_new', 'rp_pass_rules', () => profileResetUser?.username ?? '');
     bindPwRules('sp_new', 'sp_pass_rules', () => me?.username ?? '');
+
+// --- Arsenale: Anzeige im Konto-Tab --------------------------------------
+// Eine Armory kann auf mehreren Maschinen laufen (docs/arsenale-konzept.md).
+// Die Anzeige ist der einzige Ort, an dem der Kunde sieht, ob die Maschinen
+// noch da sind - deshalb wird der Zustand exakt benannt und nicht geraten.
+
+// Wortlaut je Zustand. "unknown" und "offline" sind ABSICHTLICH verschieden:
+// unbekannt heisst "hat sich nie gemeldet", offline heisst "hat sich gemeldet
+// und ist jetzt weg". Gleicher Text waere eine Behauptung, die niemand
+// gemessen hat.
+function arsenalStateLabel(state) {
+  const map = {
+    online: 'Online',
+    offline: 'Offline',
+    unknown: 'Noch nie gemeldet',
+    revoked: 'Gesperrt',
+  };
+  // Fail-closed: ein unbekannter Wert darf NIE als gesund gelesen werden -
+  // sonst zeigt ein neuer Server-Zustand im Panel gruen an.
+  return map[state] ?? 'Unbekannt';
+}
+
+// CSS-Klasse fuer Punkt/Farbe. Bewusst getrennt von Label, damit die
+// Gestaltung geaendert werden kann, ohne den Wortlaut zu beruehren.
+function arsenalStateClass(state) {
+  if (state === 'online') return 'a-online';
+  if (state === 'offline') return 'a-offline';
+  if (state === 'revoked') return 'a-revoked';
+  return 'a-unknown';
+}
+
+// "vor 12 s" / "vor 5 min" / "vor 3 h" - grob, aber ehrlich. Kein Datum im
+// Panel: der Kunde will wissen "ist es da", nicht die Uhrzeit der Meldung.
+function arsenalAge(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `vor ${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `vor ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `vor ${h} h`;
+  return `vor ${Math.floor(h / 24)} d`;
+}
+
+// Metazeile eines Arsenals. Fehlende Teile fallen weg (filter(Boolean)),
+// damit keine "· ·"-Ketten entstehen - dieselbe Lehre wie bei rackMetaLine.
+function arsenalMetaLine(a) {
+  if (!a) return '';
+  const teile = [arsenalStateLabel(a.state)];
+  if (a.lastVersion) teile.push(`v${a.lastVersion}`);
+  if (Number.isFinite(a.lastSeenAt)) teile.push(arsenalAge(Date.now() - a.lastSeenAt));
+  return teile.filter(Boolean).join(' · ');
+}
+
+function renderArsenals(list) {
+  const box = document.getElementById('arsenalList');
+  if (!box) return;
+  if (!Array.isArray(list) || list.length === 0) {
+    box.innerHTML = '<p class="hint">Noch kein Arsenal gekoppelt.</p>';
+    return;
+  }
+  box.innerHTML = list.map((a) => `
+    <div class="arsenal-row">
+      <span class="a-dot ${arsenalStateClass(a.state)}" title="${esc(arsenalStateLabel(a.state))}"></span>
+      <span class="a-name">${esc(a.name)}</span>
+      <span class="a-meta">${esc(arsenalMetaLine(a))}</span>
+    </div>`).join('');
+}
+
+async function loadArsenals() {
+  const box = document.getElementById('arsenalList');
+  if (box) box.innerHTML = '<p class="hint">Wird geladen\u2026</p>';
+  try {
+    const res = await fetch('/api/arsenals', { credentials: 'same-origin' });
+    if (!res.ok) {
+      if (box) box.innerHTML = `<p class="hint">Liste nicht abrufbar (HTTP ${res.status}).</p>`;
+      return;
+    }
+    const data = await res.json();
+    renderArsenals(data.arsenals);
+  } catch (err) {
+    if (box) box.innerHTML = '<p class="hint">Liste nicht abrufbar.</p>';
+  }
+}

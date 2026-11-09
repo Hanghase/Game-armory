@@ -67,6 +67,21 @@
       letter-spacing: .06em; }
     .profile-box .v { font-size: 16px; }
 
+    /* Arsenale: Liste mit Zustandspunkt (2026-11-09).
+       Der Punkt traegt den Zustand farblich, der Text sagt dasselbe in Worten.
+       Zwei Traeger, weil Farbe allein nicht barrierefrei ist. */
+    .arsenal-list { display: flex; flex-direction: column; gap: 2px; }
+    .arsenal-row { display: flex; align-items: center; gap: 10px;
+                   padding: 8px 10px; border-radius: 6px;
+                   background: var(--panel2, rgba(255,255,255,0.03)); }
+    .arsenal-row .a-name { font-weight: 600; }
+    .arsenal-row .a-meta { color: var(--muted); font-size: 12px; margin-left: auto; }
+    .a-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+    .a-dot.a-online  { background: #3fb950; }
+    .a-dot.a-offline { background: #d29922; }
+    .a-dot.a-unknown { background: #6e7681; }
+    .a-dot.a-revoked { background: #f85149; }
+
     /* Darstellungs-Schalter: Beschriftung oben, zwei Knoepfe darunter.
        Der aktive Knopf bekommt den Akzentrahmen (Klasse .active). */
     .theme-row { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
@@ -599,6 +614,7 @@
         <button class="ghost" data-ptab="updates" data-need="settings.read" style="display:none;">Updates</button>
         <button class="ghost" data-ptab="diagnose" data-need="system.diagnostics" style="display:none;">Diagnose</button>
           <button class="ghost" data-ptab="perms" data-need="user.role" style="display:none;">Rechte</button>
+          <button class="ghost" data-ptab="arsenals" data-need="arsenal.read" style="display:none;">Arsenale</button>
       </div>
 
       <!-- Nur dieser Bereich scrollt; Kopf, Tabs und Fuss bleiben stehen. -->
@@ -883,6 +899,20 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
         <div class="modal-foot">
           <button class="primary" id="permsSave" disabled>Änderungen speichern</button>
           <span id="permsState" class="hint"></span>
+        </div>
+      </div>
+
+      <!-- Tab: Arsenale. Eine Armory kann auf mehreren Maschinen laufen
+           (docs/arsenale-konzept.md). Sichtbar ab dem Recht arsenal.read,
+           Startbelegung nur Superuser. -->
+      <div class="tabpane" id="pTabArsenals">
+        <h4>Arsenale</h4>
+        <p class="hint">Maschinen, die zu dieser Armory gehören. Ein Arsenal
+          meldet sich alle 30 Sekunden; bleibt das aus, steht hier Offline.</p>
+        <div id="arsenalList" class="arsenal-list">Wird geladen…</div>
+        <div class="modal-foot">
+          <button class="ghost" id="arsenalRefresh">Aktualisieren</button>
+          <span id="arsenalState" class="hint"></span>
         </div>
       </div>
 

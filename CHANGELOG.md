@@ -3,6 +3,31 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.71] - 2026-11-09
+
+### Neu
+
+- **Arsenale im Konto-Tab sichtbar.** Der erste Teil, den der Kunde wirklich
+  sieht: unter Konto -> Arsenale steht jede gekoppelte Maschine mit Zustand,
+  Version und "letztes Lebenszeichen vor X". Ein Knopf "Aktualisieren" holt
+  den Stand neu, ohne die Seite zu laden.
+
+### Bewusst so gebaut
+
+- **"Noch nie gemeldet" und "Offline" sind zwei verschiedene Worte.** Ein
+  Arsenal, das sich nie gemeldet hat, ist NICHT bewiesen tot. Gleicher Text
+  waere eine Behauptung ohne Messung.
+- **Ein unbekannter Zustandswert wird nie als "Online" gelesen.** Fail-closed:
+  ein Wert, den das Frontend nicht kennt, zeigt "Unbekannt" - nicht gruen.
+  Sonst zeigt ein neuer Server-Zustand im Panel einen gesunden Server an.
+- **Farbe allein traegt nichts.** Jede Zeile hat einen farbigen Punkt UND den
+  Zustand als Wort.
+- **Der Schluessel taucht in der Anzeige nie auf** - nur beim Koppeln, einmal.
+
+### Tests
+
+- 11 neue Tests (Zustandstext, Metazeile, Escaping). Gesamt 233.
+
 ## [1.3.70] - 2026-11-09
 
 ### Neu
