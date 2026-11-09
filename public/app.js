@@ -947,6 +947,13 @@
     // Arsenale: manuell nachladen. Der Zustand aendert sich, ohne dass die
     // Seite neu geladen wird - der Knopf ist der einfachste ehrliche Weg.
     document.getElementById('arsenalRefresh')?.addEventListener('click', loadArsenals);
+    // Ein Zuhoerer auf dem Container, nicht je Knopf: die Zeilen werden beim
+    // Neuladen ersetzt, einzelne Zuhoerer waeren sofort wieder weg.
+    document.getElementById('arsenalList')?.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-arsenal-action]');
+      if (!b || b.disabled) return;
+      runArsenalAction(b.dataset.arsenalId, b.dataset.arsenalAction);
+    });
 
     // --- Profil-Modal (Tabs: Profil / Nutzer / Einstellungen) ---------------
     // Die Tab-Inhalte tragen dieselben IDs wie frueher #usersModal/#settingsModal,
@@ -3343,12 +3350,70 @@ function renderArsenals(list) {
     box.innerHTML = '<p class="hint">Noch kein Arsenal gekoppelt.</p>';
     return;
   }
-  box.innerHTML = list.map((a) => `
+  box.innerHTML = list.map((a) => {
+    // Ein Offline-Arsenal bietet nur "Status" an. Gegen eine schlafende
+    // Maschine zu klicken und in einen Timeout zu laufen ist genau die Sorte
+    // stiller Fehler, die niemand erklaeren kann.
+    const online = a.state === 'online';
+    const knopf = (aktion, text, titel) => `
+        <button class="ghost a-act" data-arsenal-id="${a.id}"
+                data-arsenal-action="${aktion}" title="${esc(titel)}"
+                ${online ? '' : 'disabled'}>${text}</button>`;
+    return `
     <div class="arsenal-row">
       <span class="a-dot ${arsenalStateClass(a.state)}" title="${esc(arsenalStateLabel(a.state))}"></span>
       <span class="a-name">${esc(a.name)}</span>
       <span class="a-meta">${esc(arsenalMetaLine(a))}</span>
-    </div>`).join('');
+      <span class="a-acts">
+        <button class="ghost a-act" data-arsenal-id="${a.id}"
+                data-arsenal-action="status" title="Laufende Dienste abfragen">Status</button>
+        ${knopf('start', 'Start', 'Dienst starten')}
+        ${knopf('stop', 'Stop', 'Dienst stoppen')}
+        ${knopf('restart', 'Neustart', 'Dienst neu starten')}
+      </span>
+    </div>`;
+  }).join('');
+}
+
+// Fuehrt eine Aktion aus und zeigt das Ergebnis IN der Zeile - nicht in einem
+// Dialog, der den Zusammenhang verliert.
+async function runArsenalAction(id, aktion) {
+  const zeile = document.querySelector(`.arsenal-row .a-act[data-arsenal-id="${id}"]`)?.closest('.arsenal-row');
+  if (aktion !== 'status' && !zeile) return;
+
+  // Dienstname: bei start/stop/restart fragen. Ein leeres Feld ist kein
+  // Fehler des Servers, sondern eine abgebrochene Aktion.
+  let service = null;
+  if (aktion !== 'status') {
+    service = prompt(`Welcher Dienst soll ${aktion === 'start' ? 'gestartet' : aktion === 'stop' ? 'gestoppt' : 'neu gestartet'} werden?`);
+    if (!service) return;
+  }
+
+  const ziel = document.getElementById('arsenalState');
+  if (ziel) ziel.textContent = 'Befehl läuft…';
+  try {
+    const res = await fetch(`/api/arsenals/${id}/command`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: aktion, service }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // 409 heisst offline - das ist keine Panne, sondern eine Auskunft.
+      const text = res.status === 409
+        ? 'Arsenal ist nicht verbunden.'
+        : (data.error ?? `Fehlgeschlagen (HTTP ${res.status})`);
+      if (ziel) ziel.textContent = text;
+      return;
+    }
+    if (ziel) {
+      const ausgabe = typeof data.output === 'string' ? data.output.trim() : '';
+      ziel.textContent = ausgabe ? `${aktion}: ${ausgabe.split('\n')[0]}` : `${aktion} ausgeführt.`;
+    }
+  } catch (err) {
+    if (ziel) ziel.textContent = 'Befehl nicht abgesetzt.';
+  }
 }
 
 async function loadArsenals() {

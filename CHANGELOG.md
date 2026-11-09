@@ -3,6 +3,31 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.1] - 2026-11-09
+
+### Neu
+
+- **Die Arsenale im Panel kann man jetzt bedienen.** Bisher stand da eine
+  Zeile mit Name und Zustand - eine Anzeige, keine Verwaltung. Jetzt stehen
+  Status, Start, Stop und Neustart in der Zeile. Start/Stop/Neustart fragen
+  nach dem Dienstnamen und zeigen das Ergebnis IN der Zeile, nicht in einem
+  Dialog, der den Zusammenhang verliert.
+
+- **Offline-Arsenale bieten nur Status an.** Gegen eine schlafende Maschine
+  zu klicken und in einen Timeout zu laufen ist genau die Sorte stiller
+  Fehler, die niemand erklaeren kann. Der Knopf ist dann abgeschaltet, nicht
+  versteckt - man sieht, dass es ihn gibt.
+
+### Getestet
+
+- 4 neue Tests. 271 gesamt.
+- **Mutationen, jede faengt genau ein Test:** Zuhoerer entfernt -> der
+  Verdrahtungs-Test wird rot. Start/Stop auch offline klickbar -> der
+  Zustands-Test. Knopf-Aktion "reboot" statt "restart" -> der
+  Deckungs-Test (Knopf und Route sind sich uneinig).
+- Ein Test prueft, dass die angebotenen Aktionen genau die sind, die die
+  Route durchlaesst - ein Knopf, den der Server mit 400 abweist, ist eine Falle.
+
 ## [1.4.0] - 2026-11-09
 
 ### Neu

@@ -84,6 +84,16 @@
     .a-dot.a-offline { background: var(--warn); }
     .a-dot.a-unknown { background: var(--muted); }
     .a-dot.a-revoked { background: var(--red); }
+    /* Die Aktionen rechts in der Zeile (2026-11-09). Klein und leise: sie
+       stehen neben dem Zustand, nicht statt seiner. */
+    .arsenal-row .a-acts { display: flex; gap: 4px; flex: 0 0 auto; }
+    .arsenal-row .a-act { padding: 2px 8px; font-size: 12px; line-height: 1.5; }
+    .arsenal-row .a-act:disabled { opacity: .4; cursor: not-allowed; }
+    @media (max-width: 620px) {
+      /* Auf schmalen Schirmen bricht die Zeile um, statt Knoepfe zu quetschen. */
+      .arsenal-row { flex-wrap: wrap; }
+      .arsenal-row .a-acts { width: 100%; justify-content: flex-end; }
+    }
 
     /* Darstellungs-Schalter: Beschriftung oben, zwei Knoepfe darunter.
        Der aktive Knopf bekommt den Akzentrahmen (Klasse .active). */
