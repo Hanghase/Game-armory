@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 
@@ -34,7 +35,21 @@ const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
 const CONFIG_PATH = process.env.ARMORY_ARSENAL_CONFIG || '/etc/armory-arsenal/arsenal.json';
-const AGENT_VERSION = '1.4.0';
+// Die Version kommt aus package.json, NICHT aus einer Konstante im Code.
+// Als Zeichenkette hier festgehalten wurde sie beim Update nicht mitgezogen:
+// auf der Test-VM lief nach dem Wechsel tatsaechlich 1.4.1, das Panel bekam
+// aber weiter 1.4.0 gemeldet - und ein Aktion, die gegen einen stillen
+// Versionsunterschied laeuft, ist genau der Fehler, den das Konzept
+// ausgeschlossen hat ("das Arsenal MELDET seine Version").
+// Fehlt die Datei, ist die Version unbekannt - nicht geraten.
+const AGENT_VERSION = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    return typeof pkg.version === 'string' ? pkg.version : 'unbekannt';
+  } catch {
+    return 'unbekannt';
+  }
+})();
 
 // --- Konfiguration ---------------------------------------------------------
 
@@ -69,12 +84,25 @@ async function fuehreAus({ action, service }) {
   // antwortet sofort, weil der Neustart sonst die Antwort mitreisst.
   if (action === 'update') {
     const { starteUpdate } = await import('./updateRun.js');
-    try {
-      const ergebnis = await starteUpdate({ meldung: (t) => log(t) });
-      return { ok: true, action, service: null, update: ergebnis };
-    } catch (err) {
-      return { ok: false, action, service: null, output: String(err.message ?? err).slice(0, 300) };
-    }
+    // NICHT warten. Live auf der Test-VM gemessen: mit blockierendem await
+    // lief das Update durch (1.4.0 -> 1.4.1, Pruefung "ok"), aber das Panel
+    // bekam einen Timeout - der Neustart riss die Verbindung weg, bevor die
+    // Antwort rausging. Ein erfolgreicher Vorgang, der wie ein Fehler
+    // aussieht, ist schlimmer als ein Fehler.
+    //
+    // Also: anstossen, sofort antworten, Ergebnis kommt als naechstes
+    // Lebenszeichen (Version) bzw. als Log. Das "sicher" wird mitgeschickt,
+    // weil bis dahin schon gesichert wurde - die Antwort soll nicht "laeuft"
+    // sagen, wenn in Wahrheit gleich ein Wechsel passiert.
+    starteUpdate({ meldung: (t) => log(t) })
+      .then((ergebnis) => log(`Update-Ergebnis: ${JSON.stringify(ergebnis)}`))
+      .catch((err) => log(`Update fehlgeschlagen: ${String(err.message ?? err).slice(0, 300)}`));
+    return {
+      ok: true,
+      action,
+      service: null,
+      output: 'Fernupdate angestoßen - das Arsenal prüft sich nach dem Neustart selbst.',
+    };
   }
 
   // status OHNE Dienst fragt "was laeuft hier" - dafuer braucht systemctl

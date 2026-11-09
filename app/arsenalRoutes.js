@@ -145,7 +145,16 @@ arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async
     const status = ergebnis.error === 'timeout' ? 504 : 502;
     return res.status(status).json({ error: 'Arsenal antwortet nicht', grund: ergebnis.error });
   }
-  res.json({ ok: true, action, service: service ?? null, output: ergebnis.output });
+  // update liefert seine Angaben direkt (gestartet/von/auf), nicht als
+  // Fliesstext. Die Antwort ist bewusst "angestossen": der Rechner ist
+  // danach kurz weg, das Ergebnis kommt beim naechsten Lebenszeichen.
+  res.json({
+    ok: true,
+    action,
+    service: service ?? null,
+    output: ergebnis.output ?? null,
+    ...(ergebnis.update ? { update: ergebnis.update } : {}),
+  });
 });
 
 // --- Lebenszeichen vom Arsenal ---------------------------------------------

@@ -90,3 +90,60 @@ test('der Befehlsname im Agenten ist update und sonst nichts', async () => {
   const logic = await readFile(new URL('../agent/logic.js', import.meta.url), 'utf8');
   assert.match(logic, /'update'/, 'update fehlt in der Aktionsliste des Agenten');
 });
+
+// --- Die gemeldete Version muss die ECHTE sein ------------------------------
+// Auf der Test-VM lief nach dem Fernupdate tatsaechlich 1.4.1, das Panel bekam
+// aber weiter 1.4.0 gemeldet - die Version stand als Zeichenkette im Code und
+// wurde beim Wechsel nicht mitgezogen. Ein stiller Versionsunterschied ist
+// genau der Fehler, den das Konzept ausgeschlossen hat.
+
+test('der Agent liest seine Version aus package.json, nicht aus einer Konstante', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const run = await readFile(new URL('../agent/run.js', import.meta.url), 'utf8');
+
+  assert.ok(
+    !/const AGENT_VERSION = '\d+\.\d+\.\d+'/.test(run),
+    'die Version steht als Zeichenkette im Code - sie wird beim Update nicht mitgezogen',
+  );
+  assert.match(run, /package\.json/, 'die Version wird nicht aus package.json gelesen');
+});
+
+test('die im Quelltext gelesene Version ist die aus package.json', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  // Der Agent meldet beim Start diese Version. Sie muss zum Paket passen.
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/, 'package.json hat keine brauchbare Version');
+});
+
+// --- Das Update antwortet VOR dem Neustart ---------------------------------
+// Live auf der Test-VM gemessen: das Update lief durch (v1.4.0 -> v1.4.1,
+// Pruefung meldete "ok"), aber das Panel bekam einen Timeout. Ursache: der
+// Agent wartete auf das Ergebnis, und der Neustart riss die Verbindung weg,
+// bevor er antworten konnte. Ein erfolgreicher Vorgang, der wie ein Fehler
+// aussieht, ist schlimmer als ein Fehler.
+
+test('der Agent antwortet auf update, BEVOR der Dienst neu startet', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const run = await readFile(new URL('../agent/run.js', import.meta.url), 'utf8');
+
+  const i = run.indexOf("action === 'update'");
+  assert.ok(i > -1, 'kein update-Zweig im Agenten');
+  const block = run.slice(i, i + 1400);
+
+  // Der Fehler live gemessen: blockierendes await auf den vollen Ablauf ->
+  // Neustart reisst die Verbindung weg -> Panel wartet 30 s in einen Timeout,
+  // obwohl das Update geklappt hat.
+  assert.ok(
+    !/await\s+starteUpdate\(/.test(block),
+    'der Agent wartet blockierend auf den Update-Ablauf - die Antwort stirbt mit dem Neustart',
+  );
+  // Und die Antwort muss VOR dem Anstossen rausgehen: starteUpdate im
+  // Hintergrund, Antwort sofort.
+  // Nicht auf Klammern matchen: der Aufruf enthaelt "(t) =>" und ein
+  // [^)]*-Muster bleibt daran haengen (eigener Testfehler, 2026-11-09).
+  // Entscheidend ist, dass der Aufruf NICHT mit await beginnt und dass
+  // .then/.catch dranhaengt - also im Hintergrund laeuft.
+  assert.match(block, /starteUpdate\(/, 'starteUpdate fehlt im Block');
+  assert.match(block, /\.then\(|\.catch\(/,
+    'starteUpdate wird nicht im Hintergrund angestossen');
+});

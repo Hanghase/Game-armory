@@ -3,6 +3,71 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.2] - 2026-11-09
+
+### Neu
+
+- **Fernupdate fuer Arsenale.** Ein Knopf je Zeile. Das Arsenal holt sich neue
+  Tags, sichert den laufenden Stand als tar, wechselt, startet neu - und
+  PRUEFT SICH DANACH SELBST. Kommt es nicht hoch oder meldet es noch die alte
+  Version, rollt es sich selbst zurueck.
+
+  ```
+  agent/update.js       die Entscheidungen (ohne Netz, ohne Prozesse)
+  agent/updateRun.js    der Ablauf (git, tar, systemctl)
+  agent/updateCheck.js  die Pruefung nach dem Neustart
+  ```
+
+  Die Pruefung laeuft via `systemd-run` in einer eigenen Unit. Liefe sie im
+  Dienst, wuerde der Neustart genau den Code beenden, der ihn pruefen soll.
+
+- **Start/Stop/Neustart sind aus dem Arsenal-Tab wieder RAUS.** Ein Sword
+  laeuft auf dem Arsenal und wird ueber die Racks bewegt; das Arsenal ist die
+  Maschine, die Racks traegt - kein Fernsteuerungszugang zu allem, was darauf
+  laeuft. Die Route bietet nur noch `update` an. Der Agent KANN die drei
+  weiterhin (eigene Whitelist), die Armory bietet sie nicht mehr an.
+
+### Sicherheit
+
+- **Das Rollback haengt an KEINER Netzverbindung.** `entscheideNachNeustart()`
+  kennt die Armory nicht als Eingabe - wer sie hineinreicht, baut einen
+  Rollback, der bei Netzproblemen ausfaellt, und merkt es erst, wenn er
+  gebraucht wird. Per Test und per Mutation festgehalten.
+- **Ein Rueckschritt ist kein Update.** Wer "verfuegbar < aktuell" als Update
+  liest, macht aus einem falschen Tag einen Rueckbau der Maschine.
+- **Kaputte Versionsangaben loesen nichts aus** (im Zweifel nichts tun).
+- **Der veraltete Stand wird gesichert, bevor gewechselt wird** - ohne
+  Sicherung gibt es kein Zurueck.
+
+### Behoben (beides live auf der Test-VM gefunden)
+
+- **Das Update lief durch, das Panel sah einen Timeout.** Der Agent wartete
+  blockierend auf den Ablauf; der Neustart riss die Verbindung weg, bevor die
+  Antwort rausging. Ein erfolgreicher Vorgang, der wie ein Fehler aussieht,
+  ist schlimmer als ein Fehler. Jetzt: anstossen, sofort antworten.
+- **Der Agent meldete die FALSCHE Version.** Die Version stand als
+  Zeichenkette im Code (`const AGENT_VERSION = '1.4.0'`); beim Wechsel wurde
+  `package.json` getauscht, die Konstante nicht. Auf der VM lief 1.4.1, das
+  Panel bekam 1.4.0. Jetzt wird sie aus `package.json` gelesen.
+
+### Getestet
+
+- 13 neue Tests (Entscheidungen, Rollback-Regel, Versionsvergleich,
+  Fruehantwort). 285 gesamt.
+- Mutationen, jede faengt genau die zugehoerigen Tests:
+  Rollback an die Armory gehaengt -> der Netzunabhaengigkeits-Test.
+  Vergleich alphabetisch -> der 1.10-vs-1.9-Test.
+  Dienst aktiv genuegt -> der Altversion-Test.
+  Rueckschritt als Update -> der Aelter-Test.
+  Version wieder als Konstante -> der Versions-Test.
+  Blockierendes await -> der Fruehantwort-Test.
+- **Live auf der Test-VM, drei Laeufe:**
+  1.4.0 -> 1.4.2: HEAD und package.json auf 1.4.2, NEU.txt vorhanden,
+  Pruefung `{"zustand":"ok"}`, Panel zeigt v1.4.2.
+  Dann ein absichtlich kaputter Tag 1.4.3 (Code, der beim Start stirbt):
+  **`{"zustand":"zurueckgerollt","grund":"dienst-nicht-aktiv","auf":"v1.4.2"}`** -
+  das Arsenal rollte sich selbst zurueck und lief danach.
+
 ## [1.4.1] - 2026-11-09
 
 ### Neu
