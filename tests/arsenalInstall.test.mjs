@@ -85,3 +85,42 @@ test('der Agent baut keine Shell um den Helfer', () => {
   const bisEnde = aufruf.slice(0, aufruf.indexOf(']'));
   assert.doesNotMatch(bisEnde, /exec\(|spawn\(|`.*\$\{.*\}`[^,]*,?\s*\]/, 'Shell im Helferaufruf');
 });
+
+// --- Der Pfad kommt aus dem PULL, nicht aus einer eigenen Rechnung --------
+// Fehler in 1.5.4: `install` baute den Pfad selbst als
+//   `${ZIEL_WURZEL}/${pullId}.zip`
+// Der Pull legt die Datei aber unter dem Namen ab, den die ARMORY schickt
+// ('atm11-server.zip'). Mit der pullId waere daraus
+//   /var/lib/armory-arsenal/packs/16d9a6bb....zip
+// geworden - eine Datei, die es nie gab. Der Helfer haette
+// "ZIP nicht lesbar" gemeldet, und die Ursache waere zwei Ebenen tiefer.
+
+test('install baut den Pfad NICHT aus der pullId', () => {
+  const i = agentQuelle.indexOf('async function entpackeDatei');
+  assert.ok(i > 0, 'entpackeDatei fehlt');
+  const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
+  assert.doesNotMatch(
+    rumpf,
+    /\$\{ZIEL_WURZEL\}[^\n]*pullId[^\n]*\.zip/,
+    'der Pfad wird aus der pullId gebaut statt aus dem gemerkten Pull-Ziel',
+  );
+});
+
+test('install schlaegt das Ziel des Pulls nach', () => {
+  const i = agentQuelle.indexOf('async function entpackeDatei');
+  const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
+  assert.match(rumpf, /gezogeneDatei|zielVonPull|ziele\.get|merkeZiel/i, 'kein Nachschlagen des Pull-Ziels');
+});
+
+test('das Ziel wird beim Abschluss des Pulls gemerkt', () => {
+  // Ohne Merken ist der install-Befehl nach dem Pull wertlos: der Eintrag in
+  // laufendePulls wird bei beende() geloescht.
+  assert.match(agentQuelle, /gezogeneDatei\.set\(/, 'kein Merken des Ziels');
+  assert.match(agentQuelle, /gezogeneDatei\.delete\(/, 'das Ziel wird nie aufgeraeumt');
+});
+
+test('ein unbekannter pullId liefert einen klaren Grund', () => {
+  const i = agentQuelle.indexOf('async function entpackeDatei');
+  const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
+  assert.match(rumpf, /unbekannt|nicht-gezogen|kein-pull/i, 'unbekannter pullId wird nicht benannt');
+});

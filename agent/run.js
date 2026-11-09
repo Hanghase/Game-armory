@@ -174,6 +174,15 @@ async function fuehreAus({ action, service }) {
   // Zu jeder pull-Kennung der laufende Auftrag auf DIESEM Arsenal.
   const laufendePulls = new Map();
 
+  // Gezogene Dateien, die auf ein install warten: pullId -> { ziel, groesse }.
+  //
+  // Warum getrennt von laufendePulls: der Pull-Eintrag wird bei beende()
+  // geloescht - der install-Befehl kommt aber DANACH. Ohne dieses Gedaechtnis
+  // muesste der Agent den Pfad raten, und genau das war der Fehler in 1.5.4:
+  // er baute `${ZIEL_WURZEL}/${pullId}.zip`, waehrend der Pull die Datei
+  // unter dem von der Armory geschickten Namen ablegte.
+  const gezogeneDatei = new Map();
+
   // Schreibt genau ein Stueck zur Zeit. Ein Promise als Warteschlange -
   // billiger als eine eigene Klasse und reicht fuer den Zweck.
   let stueckKette = Promise.resolve();
@@ -286,6 +295,8 @@ async function fuehreAus({ action, service }) {
     if (r.ok) {
       auftraege.setzeFortschritt(eintrag.auftragId, { prozent: 100, meldung: 'gezogen' });
       auftraege.beende(eintrag.auftragId, { erfolg: true, meldung: 'gezogen' });
+      // Ziel merken, damit ein spaeteres install die RICHTIGE Datei findet.
+      gezogeneDatei.set(id, { ziel: r.ziel, groesse: r.groesse });
       log(`pull ${id}: fertig, ${r.groesse} Bytes unter ${r.ziel}`);
       sende({ type: 'pull-fertig', id, ziel: r.ziel, groesse: r.groesse });
     } else {
@@ -316,9 +327,17 @@ async function fuehreAus({ action, service }) {
       return;
     }
 
-    // Die Datei muss aus UNSEREM Pack-Ordner kommen. Ein Pfad aus dem Befehl
-    // existiert hier gar nicht - der Name wird aus dem pull nachgeschlagen.
-    const ziel = `${ZIEL_WURZEL}/${p.pullId}.zip`;
+    // Der Pfad kommt aus dem PULL, nicht aus einer eigenen Rechnung. Die
+    // Armory schickt den Zielpfad beim Pull mit; der Dateiname dort ist nicht
+    // die pullId. Wird ein unbekannter pullId verlangt, gibt es keinen Pfad -
+    // und damit keinen Weg zum Helfer.
+    const gezogen = gezogeneDatei.get(p.pullId);
+    if (!gezogen) {
+      log(`install abgelehnt: pull ${p.pullId} unbekannt (nicht gezogen oder schon verbaut)`);
+      sende({ type: 'install-abbruch', id: p.pullId, grund: 'nicht-gezogen' });
+      return;
+    }
+    const ziel = gezogen.ziel;
 
     // Auftrag anlegen, damit der Fortschritt im Lebenszeichen mitreist.
     const auftrag = auftraege.anlegen({ art: 'install', titel: p.swordId });
@@ -347,6 +366,9 @@ async function fuehreAus({ action, service }) {
       auftraege.setzeFortschritt(auftrag.id, { prozent: 100, meldung: 'entpackt' });
       auftraege.beende(auftrag.id, { erfolg: true, meldung: 'entpackt' });
       log(`install ${p.swordId}: entpackt nach ${m[1]}`);
+      // Nach dem Entpacken ist die ZIP verbraucht. Ein zweiter install mit
+      // derselben Kennung soll nicht stillschweigend dasselbe entpacken.
+      gezogeneDatei.delete(p.pullId);
       sende({ type: 'install-fertig', id: p.pullId, swordId: p.swordId, pfad: m[1] });
     } catch (err) {
       // Der Helfer gibt seinen Grund auf stderr aus. Nur die erste Zeile,

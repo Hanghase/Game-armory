@@ -3,6 +3,38 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.6] - 2026-11-09
+
+### Fehler: `install` baute den Dateipfad selbst
+
+Gefunden, bevor der erste Sword installiert war - beim Aufsetzen des
+Live-Tests:
+
+```js
+const ziel = `${ZIEL_WURZEL}/${p.pullId}.zip`;
+```
+
+Der Pull legt die Datei aber unter dem Namen ab, den die **Armory** schickt
+(`atm11-server.zip`). Mit der pullId waere daraus
+`/var/lib/armory-arsenal/packs/16d9a6bb....zip` geworden - eine Datei, die es
+nie gab. Der Helfer haette `ZIP nicht lesbar` gemeldet, und die Ursache waere
+zwei Ebenen tiefer gelegen.
+
+**Ursache:** Der Pull-Eintrag in `laufendePulls` wird bei `beende()` geloescht.
+Der `install` kommt aber DANACH. Also gab es keinen Ort, an dem das Ziel stand,
+und der Code hat es sich ausgedacht.
+
+**Loesung:** `gezogeneDatei` (Map pullId -> { ziel, groesse }) wird beim
+erfolgreichen Abschluss des Pulls gefuellt. `install` schlaegt dort nach. Ein
+unbekannter pullId liefert `nicht-gezogen` statt eines geratenen Pfads. Nach
+dem Entpacken wird der Eintrag geloescht - ein zweiter install mit derselben
+Kennung soll nicht stillschweigend dasselbe entpacken.
+
+### Getestet
+
+4 neue Tests, 393 gesamt. Der Test prueft ausdruecklich, dass der Pfad NICHT
+aus der pullId gebaut wird - die Form, in der der Fehler auftrat.
+
 ## [1.5.5] - 2026-11-09
 
 ### Der Install-Weg ist FREI - mit Rollenschranke
