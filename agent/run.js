@@ -29,7 +29,9 @@ import {
   shouldReconnect,
   nextBackoff,
   HEARTBEAT_MS,
+  validatePull,
 } from './logic.js';
+import { startePull, nimmStueck, beendePull, brichAb } from './transferRun.js';
 
 const execFileP = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -156,6 +158,127 @@ async function fuehreAus({ action, service }) {
   }
 }
 
+  // --- Dateien ziehen --------------------------------------------------------
+  //
+  // Das Arsenal ZIEHT. Die Armory sagt in einer JSON-Nachricht "hol diese
+  // Datei" (id, Groesse, Pruefsumme, Name). Danach kommen die Stuecke als
+  // BINAER-Nachrichten - nicht als JSON, weil base64 ein Drittel mehr Verkehr
+  // und dreimal so viel Speicher kostet.
+  //
+  // Jedes Stueck traegt seinen Offset im Kopf (8 Bytes: offset, laenge).
+  // Ohne Offset koennte ein verspaetet ankommendes Stueck an die falsche
+  // Stelle geschrieben werden, und die Datei waere still kaputt.
+
+  // Zu jeder pull-Kennung der laufende Auftrag auf DIESEM Arsenal.
+  const laufendePulls = new Map();
+
+  async function beginnePull(msg) {
+    const p = validatePull(msg);
+    if (!p.ok) {
+      // Fester Grund zurueckmelden, nie den rohen Inhalt des Befehls.
+      log(`pull abgelehnt: ${p.reason}`);
+      sende({ type: 'pull-abbruch', id: msg?.id ?? null, grund: p.reason });
+      return;
+    }
+
+    const name = msg.name;
+    try {
+      // Der Auftrag entsteht, damit der Fortschritt im Lebenszeichen mitreist
+      // und der Takt auf 15 s geht, solange gezogen wird.
+      const auftrag = auftraege.anlegen({ art: 'pull', titel: name });
+      auftraege.setzeFortschritt(auftrag.id, { prozent: 0, meldung: 'bereit' });
+
+      const lauf = startePull(
+        { id: p.id, gesamt: p.gesamt, sha256: p.sha256, ziel: p.ziel },
+        { auftraege, auftragId: auftrag.id, meldung: (t) => log(t) },
+      );
+
+      // Erst die Datei oeffnen, dann "bereit" sagen. Andersherum schickt die
+      // Armory Stuecke an einen Empfaenger, der noch nicht schreiben kann.
+      const info = await lauf.oeffne();
+      laufendePulls.set(p.id, { lauf, auftragId: auftrag.id, ziel: p.ziel });
+      sende({ type: 'bereit', id: p.id, gesamt: info.gesamt });
+      log(`pull ${p.id}: Datei geoeffnet (${p.gesamt} Bytes) -> ${p.ziel}`);
+      planeHeartbeat(ladeConfig());
+    } catch (err) {
+      log(`pull ${p.id}: Datei nicht zu oeffnen: ${String(err.message ?? err).slice(0, 200)}`);
+      sende({ type: 'pull-abbruch', id: p.id, grund: 'datei' });
+    }
+  }
+
+  async function nimmDateistueck(puffer) {
+    // Kopf: 4 Bytes Offset, 4 Bytes Laenge. Big-Endian, wie im Pruefstand.
+    if (puffer.length < 8) {
+      log('Stueck zu kurz - verworfen');
+      return;
+    }
+    const offset = puffer.readUInt32BE(0);
+    const laenge = puffer.readUInt32BE(4);
+
+    // Der Laengenwert im Kopf muss zum Rest des Puffers passen. Sonst ist der
+    // Kopf falsch oder das Stueck unterwegs beschnitten.
+    if (laenge <= 0 || 8 + laenge > puffer.length) {
+      log(`Stueck mit unmoeglicher Laenge verworfen (${laenge} bei ${puffer.length} Bytes)`);
+      return;
+    }
+
+    const daten = puffer.subarray(8, 8 + laenge);
+
+    // Welchen Pull betrifft das Stueck? Die Stuecke tragen die Kennung NICHT
+    // im Kopf - das waeren 16 Bytes Verwaltung pro 64-KiB-Stueck, bei einem
+    // Modpack mit tausenden Stuecken macht das keinen Sinn. Solange genau ein
+    // Pull laeuft, ist es eindeutig. Laufen zwei, wird VERWEIGERT statt
+    // geraten: ein Stueck im falschen Ziel waere eine still kaputte Datei,
+    // und die faellt erst beim Installieren auf.
+    if (laufendePulls.size === 0) {
+      log('Stueck ohne laufenden pull verworfen');
+      return;
+    }
+    if (laufendePulls.size > 1) {
+      log('Stueck verworfen: mehrere pulls gleichzeitig - nicht eindeutig');
+      return;
+    }
+    const [id, eintrag] = [...laufendePulls.entries()][0];
+
+    const r = await nimmStueck(id, { offset, daten });
+    if (!r.ok) {
+      log(`Stueck abgelehnt (${r.grund}) bei Offset ${offset}`);
+      // Ein abgelehntes Stueck heisst: dieser Pull ist nicht mehr zu retten.
+      // Nicht weiterspielen, sondern sauber abbrechen und aufraeumen.
+      await brichAb(id);
+      laufendePulls.delete(id);
+      auftraege.beende(eintrag.auftragId, { erfolg: false, fehler: `stueck-${r.grund}` });
+      sende({ type: 'pull-abbruch', id, grund: r.grund });
+      planeHeartbeat(ladeConfig());
+      return;
+    }
+
+    // Fertig, sobald alles da ist - NICHT am Verbindungsende. Die Leitung
+    // bleibt fuer Befehle offen, ein "close" gibt es hier nicht.
+    if (r.empfangen >= r.gesamt) {
+      await schliessePullAb(id);
+    }
+  }
+
+  async function schliessePullAb(id) {
+    const eintrag = laufendePulls.get(id);
+    if (!eintrag) return;
+    laufendePulls.delete(id);
+
+    const r = await beendePull(id);
+    if (r.ok) {
+      auftraege.setzeFortschritt(eintrag.auftragId, { prozent: 100, meldung: 'gezogen' });
+      auftraege.beende(eintrag.auftragId, { erfolg: true, meldung: 'gezogen' });
+      log(`pull ${id}: fertig, ${r.groesse} Bytes unter ${r.ziel}`);
+      sende({ type: 'pull-fertig', id, ziel: r.ziel, groesse: r.groesse });
+    } else {
+      auftraege.beende(eintrag.auftragId, { erfolg: false, fehler: String(r.grund) });
+      log(`pull ${id}: FEHLGESCHLAGEN (${r.grund}) - Datei wurde entfernt`);
+      sende({ type: 'pull-abbruch', id, grund: r.grund });
+    }
+    planeHeartbeat(ladeConfig());
+  }
+
 // --- Verbindung ------------------------------------------------------------
 
 let ws = null;
@@ -188,13 +311,27 @@ function verbinde(cfg) {
     starteStillpruefung();
   });
 
-  ws.on('message', async (data) => {
+  ws.on('message', async (data, istBinaer) => {
     letzteNachricht = Date.now();
+
+    // Binaer = ein Stueck einer Datei, kein JSON. Muss VOR dem JSON-Parse
+    // stehen: eine ZIP als JSON zu parsen wirft, und das Stueck waere weg.
+    if (istBinaer || Buffer.isBuffer(data)) {
+      await nimmDateistueck(data);
+      return;
+    }
+
     let msg;
     try {
       msg = JSON.parse(String(data));
     } catch {
       log('Nachricht ist kein JSON - ignoriert');
+      return;
+    }
+
+    // pull hat eine eigene Pruefung: hier steht ein PFAD drin.
+    if (msg && msg.type === 'pull') {
+      await beginnePull(msg);
       return;
     }
 

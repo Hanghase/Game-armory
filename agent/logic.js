@@ -118,3 +118,61 @@ export function nextBackoff(current, capMs = 60_000) {
   const start = Number.isFinite(current) && current > 0 ? current : 1000;
   return Math.min(start * 2, capMs);
 }
+
+// --- Ziehen einer Datei ----------------------------------------------------
+//
+// Das Arsenal ZIEHT (docs/arsenale-konzept.md): die Armory schickt nicht, das
+// Arsenal holt. Der Befehl 'pull' sagt nur, WAS geholt werden soll. Die
+// Stuecke kommen danach als Binaernachrichten, nicht als JSON - eine ZIP als
+// base64 waere ein Drittel mehr Verkehr und dreimal so viel Speicher.
+//
+// Diese Funktion prueft NUR die Ansage. Ein zweiter Blick auf jedes Feld,
+// weil hier ein Pfad drinsteht: ein Pfad aus dem Netz ist der klassische Weg
+// fuer "schreib mir mal was nach /etc".
+
+export const MAX_PULL_BYTES = 4 * 1024 ** 3; // 4 GiB - groesser ist kein Modpack
+
+// Erlaubte Ziele. Das Arsenal legt Packs in sein eigenes Verzeichnis; ein
+// Ziel ausserhalb waere ein Schreibzugriff irgendwohin.
+export const ZIEL_WURZEL = '/var/lib/armory-arsenal/packs';
+
+export function validatePull(msg) {
+  if (!msg || typeof msg !== 'object') return { ok: false, reason: 'bad-message' };
+  if (msg.type !== 'pull') return { ok: false, reason: 'nicht-pull' };
+
+  // Die Kennung ordnet spaetere Stuecke zu. Muss eine Hexkennung sein, damit
+  // sie nie als Pfad oder Dateiname missverstanden werden kann.
+  if (typeof msg.id !== 'string' || !/^[a-f0-9]{8,64}$/.test(msg.id)) {
+    return { ok: false, reason: 'bad-id' };
+  }
+
+  const { gesamt, sha256, name } = msg;
+  if (!Number.isInteger(gesamt) || gesamt <= 0 || gesamt > MAX_PULL_BYTES) {
+    return { ok: false, reason: 'bad-groesse' };
+  }
+  if (typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(sha256)) {
+    return { ok: false, reason: 'bad-pruefsumme' };
+  }
+
+  // Der Dateiname kommt vom Server. Er darf NICHTS ueber den Ort bestimmen:
+  // kein Schraegstrich, kein .., kein Punkt am Anfang. Der Ordner wird hier
+  // festgelegt, nie uebernommen.
+  if (typeof name !== 'string' || name.length === 0 || name.length > 200) {
+    return { ok: false, reason: 'bad-name' };
+  }
+  if (name.includes('/') || name.includes('\\') || name.includes('..') || name.startsWith('.')) {
+    return { ok: false, reason: 'bad-name' };
+  }
+  // Steuerzeichen im Namen (z.B. \x00) wuerden im Dateisystem abgeschnitten
+  // und koennten auf einen anderen Namen zeigen, als geprueft wurde.
+  if (/[\x00-\x1f\x7f]/.test(name)) return { ok: false, reason: 'bad-name' };
+
+  return {
+    ok: true,
+    id: msg.id,
+    gesamt,
+    sha256: sha256.toLowerCase(),
+    ziel: `${ZIEL_WURZEL}/${name}`,
+    auftragId: typeof msg.auftragId === 'string' ? msg.auftragId : null,
+  };
+}

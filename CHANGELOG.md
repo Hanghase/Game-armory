@@ -3,6 +3,57 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.24] - 2026-11-09
+
+### Behoben
+
+- **1.4.23 hat den pull-Code NICHT enthalten.** Die Dateien lagen im
+  Arbeitsverzeichnis, waren aber nicht im Commit: `agent/logic.js` (die
+  Pruefung), `agent/run.js` (der Verteiler) und der zugehoerige Test kamen
+  erst NACH dem `git add -A`. Ein Tag ohne den Code, den er ankuendigt.
+  Jetzt vollstaendig drin und nachgewiesen:
+  `git show v1.4.24:agent/run.js | grep -c beginnePull` ist nicht 0.
+
+### Neu
+
+- **Der Befehl `pull`.** Die Armory sagt "hol diese Datei" (Kennung, Groesse,
+  Pruefsumme, Name), das Arsenal zieht. Danach kommen die Stuecke binaer.
+  Kein base64: das waere ein Drittel mehr Verkehr und dreimal so viel
+  Speicher.
+
+  Was am Befehl geprueft wird - und jeder Punkt hat einen Test, der bei
+  Lockerung rot wird:
+
+  | Feld | Regel |
+  |---|---|
+  | Kennung | Hex, 8-64 Zeichen |
+  | Groesse | ganze Zahl, 1 Byte bis 4 GiB |
+  | Pruefsumme | sha256, 64 Hexzeichen |
+  | Name | **kein** `/`, `\`, `..`, kein Punkt am Anfang, keine Steuerzeichen |
+  | Ziel | **kommt nie aus dem Befehl** |
+
+  Der letzte Punkt ist der wichtigste: ein mitgeschicktes `ziel` wird
+  ignoriert, der Ordner ist fest. Sonst waere die ganze Namenspruefung
+  umgehbar.
+
+### Verhalten, das bewusst so ist
+
+- **Stuecke tragen keine Kennung im Kopf.** 16 Bytes Verwaltung pro 64 KiB
+  Stueck waeren bei tausenden Stuecken Unsinn. Solange genau ein Pull laeuft,
+  ist es eindeutig. Laufen zwei, wird **verweigert statt geraten** - ein
+  Stueck im falschen Ziel ist eine still kaputte Datei.
+- **Ein abgelehntes Stueck bricht den Pull ab**, statt "irgendwie
+  weiterzumachen".
+- **Fertig wird an der Vollstaendigkeit erkannt**, nicht am Verbindungsende.
+  Die Leitung bleibt fuer Befehle offen, ein `close` gibt es hier nicht.
+
+### Getestet
+
+- 13 neue Tests fuer die Befehlspruefung, 340 gesamt.
+- 6 Mutationen, alle gefangen: Namenspruefung gelockert, mitgeschicktes Ziel
+  uebernommen, Pruefsumme nicht geprueft, Groesse nicht begrenzt, Kennung
+  nicht geprueft, Steuerzeichen erlaubt.
+
 ## [1.4.23] - 2026-11-09
 
 ### Neu
