@@ -936,7 +936,14 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
           <input id="arsenalPullId" type="text" placeholder="Kennung aus dem Ziehen" autocomplete="off">
           <label for="arsenalSwordId">Sword-Name</label>
           <input id="arsenalSwordId" type="text" placeholder="z. B. atm11" autocomplete="off">
-          <p class="hint">Entpackt ein bereits gezogenes Pack als Sword auf dem Arsenal.</p>
+          <label for="arsenalQuelle">Quellordner</label>
+          <input id="arsenalQuelle" type="text" class="wide"
+                 placeholder="/var/lib/armory-arsenal/packs/entpackt/armory-pack-..." autocomplete="off">
+          <label for="arsenalTeile">Teile</label>
+          <input id="arsenalTeile" type="text" placeholder="mods,config,kubejs" autocomplete="off">
+          <p class="hint">Entpackt ein bereits gezogenes Pack als Sword auf dem Arsenal.
+            <strong>Einsetzen</strong> kopiert die Teile danach ins Spielverzeichnis und
+            sichert vorher nach <code>backups/</code>. Ohne Sicherung wird nicht kopiert.</p>
         </div>
 
         <div class="modal-foot">

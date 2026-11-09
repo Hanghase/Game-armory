@@ -239,3 +239,156 @@ export function validateInstall(msg) {
 
   return { ok: true, pullId: msg.pullId, swordId: msg.swordId };
 }
+
+// --- Einsetzen: aus dem entpackten Pack wird der Sword --------------------
+//
+// Bis hierher endet der install-Weg beim Entpacken. Das Pack liegt unter
+// PACK_ORDNER, der Sword unter /opt/minecraft/<id> hat davon nichts. Felix am
+// 2026-11-09: "ja bitte" - also einsetzen.
+//
+// Das ist der Schritt mit dem groessten Schaden: ein falsches Pack ueber eine
+// bestehende Welt kopiert, und die Welt ist weg. Darum gilt hier:
+//   - Quelle MUSS unter EINSETZ_ORDNER liegen (kein Pfad-Ausbruch)
+//   - Teile sind Eintraege IM Pack, nie Pfade
+//   - die Sicherung laeuft VOR dem Kopieren (siehe sichereVorEinsetzen)
+
+// Wo entpackte Packs liegen. Absichtlich dieselbe Wurzel wie PACK_ORDNER.
+export const EINSETZ_ORDNER = PACK_ORDNER;
+
+// Wie viele Eintraege ein Pack hoechstens ersetzen darf. Ein Modpack hat
+// mods, config, kubejs, defaultconfigs, scripts, resourcepacks - sechs. 40 ist
+// grosszuegig und verhindert trotzdem, dass jemand 10.000 Eintraege schickt.
+export const MAX_TEILE = 40;
+
+// Ein Teilname ist ein Eintrag im Pack: "mods", "config", "kubejs". Kein Pfad.
+// Gleiche Regel wie im Helfer (valid_pack_name), hier gespiegelt - der Agent
+// prueft zuerst, der Helfer nochmal.
+export const TEIL_RE = /^[a-zA-Z0-9._-]{1,64}$/;
+
+function teilOk(t) {
+  if (typeof t !== 'string') return false;
+  if (t === '.' || t === '..') return false;
+  if (t.includes('..')) return false;
+  if (t.includes('/') || t.includes('\\')) return false;
+  return TEIL_RE.test(t);
+}
+
+// Liegt der Pfad unter EINSETZ_ORDNER? Nach dem Aufloesen von '..', nicht
+// davor - "/a/b/../../etc" besteht die Textpruefung sonst.
+function unterEinsetzOrdner(p) {
+  if (typeof p !== 'string' || !p.startsWith('/')) return false;
+  if (p.includes('\0')) return false;
+  const wurzel = EINSETZ_ORDNER.endsWith('/') ? EINSETZ_ORDNER : EINSETZ_ORDNER + '/';
+  // Textuell: muss mit dem Ordner beginnen und danach noch etwas kommen.
+  if (!p.startsWith(wurzel)) return false;
+  const rest = p.slice(wurzel.length);
+  if (rest.length === 0) return false;
+  // Und der Rest darf nicht aus dem Ordner herausfuehren.
+  const teile = rest.split('/');
+  let tiefe = 0;
+  for (const t of teile) {
+    if (t === '' || t === '.') continue;
+    if (t === '..') {
+      tiefe -= 1;
+      if (tiefe < 0) return false;  // ueber den Ordner hinaus
+      continue;
+    }
+    tiefe += 1;
+  }
+  return tiefe > 0;
+}
+
+// Wo ein Sword liegen darf. Dieselbe Liste wie im Helfer
+// (ALLOWED_ROOTS in /usr/local/bin/armory-install-helper) - der Helfer prueft
+// sie nochmal, aber wer die Armory uebernimmt, soll hier schon scheitern.
+export const ERLAUBTE_SWORD_WURZELN = ['/opt/minecraft', '/opt/7d2d', '/opt/teamspeak6', '/opt/satisfactory'];
+
+// Der Arbeitsordner eines Swords. Er kommt aus der Nachricht (die Armory kennt
+// ihn aus ihrer Sword-Datei), wird aber hier geprueft:
+//   - unter einer erlaubten Wurzel
+//   - GENAU eine Ebene tiefer (/opt/minecraft ist der Elternordner aller
+//     Swords - dort zu ersetzen traefe alle Instanzen)
+//   - kein '..', kein Symlink-verdaechtiger Doppelpfad
+export function pruefeArbeitsVerzeichnis(p) {
+  if (typeof p !== 'string' || !p.startsWith('/')) return false;
+  if (p.includes('\0')) return false;
+  const sauber = p.split('/');
+  let tiefe = 0;
+  const teile = [];
+  for (const t of sauber) {
+    if (t === '' || t === '.') continue;
+    if (t === '..') {
+      tiefe -= 1;
+      if (tiefe < 0) return false;
+      teile.pop();
+      continue;
+    }
+    tiefe += 1;
+    teile.push(t);
+  }
+  const normal = '/' + teile.join('/');
+  for (const w of ERLAUBTE_SWORD_WURZELN) {
+    if (!normal.startsWith(w + '/')) continue;
+    const rest = normal.slice(w.length + 1);
+    // Genau eine Ebene: "atm11" ja, "atm11/mods" nein, "" nein.
+    if (rest.length === 0 || rest.includes('/')) return false;
+    return normal;
+  }
+  return false;
+}
+
+export function validateEinsetzen(msg) {
+  if (!msg || typeof msg !== 'object') return { ok: false, reason: 'bad-message' };
+  if (msg.type !== 'einsetzen') return { ok: false, reason: 'nicht-einsetzen' };
+
+  if (typeof msg.swordId !== 'string' || !SWORD_ID_RE.test(msg.swordId)) {
+    return { ok: false, reason: 'bad-sword' };
+  }
+
+  const arbeitsVerzeichnis = pruefeArbeitsVerzeichnis(msg.arbeitsVerzeichnis);
+  if (!arbeitsVerzeichnis) {
+    return { ok: false, reason: 'bad-arbeitsverzeichnis' };
+  }
+
+  if (typeof msg.quelle !== 'string' || !unterEinsetzOrdner(msg.quelle)) {
+    return { ok: false, reason: 'bad-quelle' };
+  }
+
+  if (!Array.isArray(msg.teile)) return { ok: false, reason: 'keine-teile' };
+  if (msg.teile.length === 0) return { ok: false, reason: 'keine-teile' };
+  if (msg.teile.length > MAX_TEILE * 4) return { ok: false, reason: 'zu-viele-teile' };
+
+  for (const t of msg.teile) {
+    if (!teilOk(t)) return { ok: false, reason: 'bad-teil' };
+  }
+
+  // Doppelte zusammenfassen: sonst kopiert der Helfer 'mods' dreimal und die
+  // Sicherung traegt denselben Eintrag dreimal.
+  const teile = [...new Set(msg.teile)];
+  if (teile.length > MAX_TEILE) return { ok: false, reason: 'zu-viele-teile' };
+
+  return { ok: true, swordId: msg.swordId, quelle: msg.quelle, arbeitsVerzeichnis, teile };
+}
+
+// Sicherung VOR dem Einsetzen. Nicht optional: wer die Welt ueberschreibt,
+// ohne vorher zu sichern, hat keine zweite Chance.
+//
+// Rueckgabe: der Pfad der Sicherung, oder ein Fehler. Ein "keine Sicherung,
+// aber weiter" gibt es hier absichtlich NICHT.
+export async function sichereVorEinsetzen({ swordId, arbeitsVerzeichnis, helfer, execFileP }) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', 'Z');
+  const label = `vor-einsetzen-${stamp}`.slice(0, 40);
+  const { stdout } = await execFileP(
+    helfer,
+    ['backup-tar', swordId, label, arbeitsVerzeichnis, 'mods', 'config', 'kubejs', 'defaultconfigs', 'scripts', 'resourcepacks', 'world', 'server.properties'],
+    { timeout: 300_000, maxBuffer: 64 * 1024 },
+  );
+  const m = /^backup ok (\S+)$/m.exec(String(stdout));
+  if (!m) {
+    // Kein Pfad = keine Sicherung = kein Einsetzen. Der Grund ist ein fester
+    // Text, nie der rohe Helfer-Output.
+    return { ok: false, grund: 'sicherung-ohne-pfad' };
+  }
+  return { ok: true, pfad: m[1] };
+}
+

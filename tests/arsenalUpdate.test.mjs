@@ -163,8 +163,12 @@ test('die Route bietet update UND restart an - sonst nichts', async () => {
   const erlaubt = m[1].split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean).sort();
   // install kam 2026-11-09 dazu. Es ist der EINZIGE Weg, ein gezogenes Pack
   // auf einem Arsenal zu entpacken - ohne ihn bliebe die ZIP dort liegen.
-  assert.deepEqual(erlaubt, ['install', 'restart', 'update'],
-    'erlaubt sind Fernupdate, Neustart des Arsenals und install');
+  //
+  // einsetzen kam am selben Tag dazu: es kopiert das Entpackte ins
+  // Spielverzeichnis. Bewusst mit aufgenommen statt die Pruefung zu lockern -
+  // eine neue Aktion soll hier auftauchen muessen, nicht durchrutschen.
+  assert.deepEqual(erlaubt, ['einsetzen', 'install', 'restart', 'update'],
+    'erlaubt sind Fernupdate, Neustart des Arsenals, install und einsetzen');
 });
 
 test('restart braucht KEINEN Dienstnamen', async () => {

@@ -32,7 +32,7 @@ import { istVerbunden, frageArsenal, holeLeitung } from './arsenalSocket.js';
 import { sendePull } from './arsenalTransferSend.js';
 import { readUpload } from './uploads.js';
 // Dieselbe Pruefung wie im Agenten - sonst laufen die zwei Seiten auseinander.
-import { validateInstall } from '../agent/logic.js';
+import { validateInstall, validateEinsetzen } from '../agent/logic.js';
 
 export const arsenalRouter = Router();
 
@@ -128,7 +128,7 @@ arsenalRouter.post('/arsenals/:id/revoke', requirePerm('arsenal.delete'), (req, 
 // pullId + swordId statt eines Dienstnamens - eigener Zweig weiter unten.
 // Der Kommentar steht AUSSERHALB der Liste: Tests lesen sie als reine
 // Aufzaehlung, und ein Kommentar darin wuerde mitgeparst.
-const ERLAUBTE_AKTIONEN = ['update', 'restart', 'install'];
+const ERLAUBTE_AKTIONEN = ['update', 'restart', 'install', 'einsetzen'];
 
 arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async (req, res) => {
   const id = Number(req.params.id);
@@ -164,6 +164,65 @@ arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async
     // Ergebnis kommt mit dem naechsten Lebenszeichen.
     return res.json({ ok: true, action: 'install', pullId: p.pullId, swordId: p.swordId });
   }
+
+  // einsetzen kopiert aus dem entpackten Pack ins Spielverzeichnis. Braucht
+  // keinen Dienstnamen, sondern Quelle + Arbeitsordner + Teile.
+  //
+  // Der Arbeitsordner wird HIER aus der Sword-Datei gelesen, nicht aus dem
+  // Request: die Armory weiss, wo ihre Swords liegen. Kaeme der Pfad vom
+  // Client, waere die Route eine Weiterleitung beliebiger Pfade an einen
+  // root-Helfer.
+  //
+  // Die Sicherung passiert auf dem ARSENAL, kurz vor dem Kopieren. Hier wird
+  // nur geprueft, ob der Auftrag vollstaendig ist.
+  if (action === 'einsetzen') {
+    const { swordId, quelle, teile } = req.body ?? {};
+    const schwert = getSwords().find((x) => x.id === swordId);
+    if (!schwert) {
+      return res.status(404).json({ error: 'Sword nicht gefunden', grund: 'unbekannter-sword' });
+    }
+    // Liegt der Sword auf DIESEM Arsenal? Sonst schoebe die Armory ein Pack
+    // auf eine Maschine, auf der der Sword gar nicht laeuft.
+    if (Number(schwert.arsenal) !== id) {
+      return res.status(409).json({
+        error: 'Sword liegt nicht auf diesem Arsenal',
+        grund: 'falsches-arsenal',
+        swordArsenal: schwert.arsenal ?? null,
+      });
+    }
+    const p = validateEinsetzen({
+      type: 'einsetzen',
+      swordId,
+      quelle,
+      arbeitsVerzeichnis: schwert.workingDir,
+      teile,
+    });
+    if (!p.ok) {
+      return res.status(400).json({ error: 'Ungültiger Einsetz-Befehl', grund: p.reason });
+    }
+    if (!istVerbunden(id)) {
+      return res.status(409).json({ error: 'Arsenal ist nicht verbunden', grund: 'arsenal-offline' });
+    }
+    const ergebnis = await frageArsenal(id, {
+      action: 'einsetzen',
+      swordId: p.swordId,
+      quelle: p.quelle,
+      arbeitsVerzeichnis: p.arbeitsVerzeichnis,
+      teile: p.teile,
+    });
+    if (ergebnis.ok === false && ergebnis.error) {
+      const status = ergebnis.error === 'timeout' ? 504 : 502;
+      return res.status(status).json({ error: 'Arsenal antwortet nicht', grund: ergebnis.error });
+    }
+    return res.json({
+      ok: true,
+      action: 'einsetzen',
+      swordId: p.swordId,
+      teile: p.teile,
+      arbeitsVerzeichnis: p.arbeitsVerzeichnis,
+    });
+  }
+
 
   // update und restart betreffen das Arsenal selbst und brauchen keinen
   // Dienstnamen.

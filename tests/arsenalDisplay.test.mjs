@@ -241,7 +241,19 @@ test('die angebotene Aktion ist genau die, die die Route durchlaesst', async () 
     [...block.matchAll(/data-arsenal-action="([^"]+)"/g)].map((x) => x[1]),
   )].sort();
 
-  assert.deepEqual(geboten, erlaubt, 'Knopf und Route sind sich uneinig');
+  // Routen, die absichtlich KEINEN Knopf in der Arsenal-Zeile haben.
+  //
+  // Der erste Anlauf listete hier auch 'install' und 'einsetzen' auf - falsch,
+  // denn install HAT seit dem 2026-11-09 einen Knopf (mit pullId + swordId),
+  // und einsetzen bekommt aus demselben Grund einen. Der Test war dadurch rot
+  // und hatte recht: ich hatte eine Ausnahme erfunden, statt nachzusehen.
+  //
+  // Jetzt leer, aber die Liste bleibt: wer kuendigt einen Knopf auf, ohne dass
+  // es auffaellt?
+  const OHNE_KNOPF = [];
+  const erwarteteKnoepfe = erlaubt.filter((a) => !OHNE_KNOPF.includes(a));
+
+  assert.deepEqual(geboten, erwarteteKnoepfe, 'Knopf und Route sind sich uneinig');
 });
 
 test('Knopf-Klicks werden auch VERDRAHTET, nicht nur gezeichnet', async () => {

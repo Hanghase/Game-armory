@@ -31,6 +31,8 @@ import {
   HEARTBEAT_MS,
   validatePull,
   validateInstall,
+  validateEinsetzen,
+  sichereVorEinsetzen,
   PACK_HELFER,
   PACK_ORDNER,
 } from './logic.js';
@@ -423,6 +425,98 @@ async function fuehreAus({ action, service, pullId, swordId }) {
     planeHeartbeat(ladeConfig());
   }
 
+// --- Einsetzen ------------------------------------------------------------
+//
+// Aus dem entpackten Pack wird der Sword im Spielverzeichnis.
+//
+// REIHENFOLGE IST TEIL DER SICHERHEIT:
+//   1. Sicherung (backup-tar) ueber die vorhandenen Ordner
+//   2. erst dann ersetzen (replace-pack je Eintrag)
+//   3. dann melden, dass der Sword auf einem Arsenal liegt
+//
+// Scheitert Schritt 1, wird NICHT eingesetzt. Lieber kein Update als eine Welt
+// ohne Rueckweg.
+async function setzeEin(msg) {
+  const p = validateEinsetzen(msg);
+  if (!p.ok) {
+    sende({ type: 'einsetzen-abbruch', id: msg?.id ?? null, grund: p.reason });
+    log(`einsetzen abgelehnt: ${p.reason}`);
+    return;
+  }
+
+  const auftrag = auftraege.starte(p.swordId, 'einsetzen');
+  planeHeartbeat(ladeConfig());
+
+  try {
+    // Wo der Sword liegt, kommt aus der Nachricht - und ist in
+    // validateEinsetzen bereits geprueft (unter einer erlaubten Wurzel, genau
+    // eine Ebene tief). NICHT aus cfg.swords: arsenal.json hat nur id, key und
+    // url; ein cfg.swords gibt es nicht. Der erste Anlauf las es trotzdem und
+    // haette JEDEN Auftrag mit "unbekannter-sword" abgebrochen - live
+    // nachgesehen am 2026-11-09.
+    const arbeitsVerzeichnis = p.arbeitsVerzeichnis;
+    const cfg = ladeConfig();
+
+    auftraege.setzeFortschritt(auftrag.id, { prozent: 10, meldung: 'sicherung' });
+    const sich = await sichereVorEinsetzen({
+      swordId: p.swordId,
+      arbeitsVerzeichnis,
+      helfer: PACK_HELFER,
+      execFileP,
+    });
+    if (!sich.ok) {
+      auftraege.beende(auftrag.id, { erfolg: false, fehler: sich.grund });
+      sende({ type: 'einsetzen-abbruch', id: msg.id, grund: sich.grund, hinweis: 'nicht-eingesetzt' });
+      log(`einsetzen ${p.swordId}: ${sich.grund} - abgebrochen, nichts geaendert`);
+      planeHeartbeat(cfg);
+      return;
+    }
+    log(`einsetzen ${p.swordId}: gesichert nach ${sich.pfad}`);
+
+    // Erst jetzt kopieren. Jeder Teil einzeln, damit ein Fehler in der Mitte
+    // meldet, WELCHER Teil scheiterte.
+    const gesamt = p.teile.length;
+    for (let i = 0; i < gesamt; i += 1) {
+      const teil = p.teile[i];
+      const quelle = `${p.quelle}/${teil}`;
+      auftraege.setzeFortschritt(auftrag.id, {
+        prozent: 10 + Math.round((i / gesamt) * 85),
+        meldung: `einsetzen: ${teil}`,
+      });
+      const { stdout } = await execFileP(
+        PACK_HELFER,
+        ['replace-pack', p.swordId, arbeitsVerzeichnis, teil, quelle],
+        { timeout: 600_000, maxBuffer: 64 * 1024 },
+      );
+      if (!/^replace ok /m.test(String(stdout))) {
+        auftraege.beende(auftrag.id, { erfolg: false, fehler: `teil-${teil}` });
+        sende({ type: 'einsetzen-abbruch', id: msg.id, grund: `teil-${teil}`, sicherung: sich.pfad });
+        log(`einsetzen ${p.swordId}: ${teil} fehlgeschlagen - Sicherung ${sich.pfad}`);
+        planeHeartbeat(cfg);
+        return;
+      }
+    }
+
+    auftraege.setzeFortschritt(auftrag.id, { prozent: 100, meldung: 'eingesetzt' });
+    auftraege.beende(auftrag.id, { erfolg: true, meldung: 'eingesetzt' });
+    log(`einsetzen ${p.swordId}: ${gesamt} Teile eingesetzt, Sicherung ${sich.pfad}`);
+    sende({
+      type: 'einsetzen-fertig',
+      id: msg.id,
+      swordId: p.swordId,
+      teile: p.teile,
+      sicherung: sich.pfad,
+    });
+  } catch (err) {
+    const grund = String(err.stderr ?? err.message ?? err).split('\n')[0].slice(0, 200);
+    auftraege.beende(auftrag.id, { erfolg: false, fehler: grund });
+    sende({ type: 'einsetzen-abbruch', id: msg.id ?? null, grund });
+    log(`einsetzen ${p.swordId}: fehlgeschlagen - ${grund}`);
+  }
+  planeHeartbeat(ladeConfig());
+}
+
+
 // --- Verbindung ------------------------------------------------------------
 
 let ws = null;
@@ -503,6 +597,13 @@ function verbinde(cfg) {
     // NAME an einen root-Helfer geht.
     if (msg && msg.type === 'install') {
       await entpackeDatei(msg);
+      return;
+    }
+
+    // einsetzen kopiert aus dem entpackten Pack ins Spielverzeichnis.
+    // Eigene Pruefung: hier gehen ein Quellpfad und Teile an einen root-Helfer.
+    if (msg && msg.type === 'einsetzen') {
+      await setzeEin(msg);
       return;
     }
 

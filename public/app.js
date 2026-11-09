@@ -3403,6 +3403,9 @@ function renderArsenals(list) {
                 <button class="ghost a-act" data-arsenal-id="${a.id}"
                         data-arsenal-action="install" title="Gezogenes Pack auf diesem Arsenal entpacken"
                         ${online ? '' : 'disabled'}>Installieren</button>
+        <button class="ghost a-act" data-arsenal-id="${a.id}"
+                data-arsenal-action="einsetzen" title="Entpacktes Pack ins Spielverzeichnis einsetzen (sichert vorher)"
+                ${online ? '' : 'disabled'}>Einsetzen</button>
       </span>
     </div>`;
   }).join('');
@@ -3414,7 +3417,7 @@ function renderArsenals(list) {
 // nicht "fertig" - der Rechner ist danach kurz weg.
 async function runArsenalAction(id, aktion) {
   const ziel = document.getElementById('arsenalState');
-  if (aktion !== 'update' && aktion !== 'restart' && aktion !== 'install') return;
+  if (aktion !== 'update' && aktion !== 'restart' && aktion !== 'install' && aktion !== 'einsetzen') return;
 
   // --- Installieren ------------------------------------------------------
   // Das Pack muss schon auf dem Arsenal liegen (vorher "Ziehen" gedrueckt).
@@ -3449,6 +3452,104 @@ async function runArsenalAction(id, aktion) {
     }
     return;
   }
+
+  // --- Einsetzen ---------------------------------------------------------
+
+  // Aus dem entpackten Pack wird der Sword im Spielverzeichnis.
+
+  //
+
+  // Die Quelle ist der Pfad, den das Entpacken gemeldet hat. Die Teile sind
+
+  // das, was im Pack liegt. Beides wird HIER nicht geraten: die Armory prueft
+
+  // den Auftrag, das Arsenal sichert VOR dem Kopieren.
+
+  //
+
+  // Was hier NICHT passiert: eine Rueckfrage "wirklich ueberschreiben?". Die
+
+  // Sicherung ist der Rueckweg, und eine Rueckfrage, die immer mit Ja
+
+  // beantwortet wird, erzieht dazu, sie wegzuklicken.
+
+  if (aktion === 'einsetzen') {
+
+    const swordId = (document.getElementById('arsenalSwordId')?.value ?? '').trim();
+
+    const quelle = (document.getElementById('arsenalQuelle')?.value ?? '').trim();
+
+    const teileRoh = (document.getElementById('arsenalTeile')?.value ?? '').trim();
+
+    if (!swordId) {
+
+      if (ziel) ziel.textContent = 'Sword-Name fehlt (z. B. atm11).';
+
+      return;
+
+    }
+
+    if (!quelle) {
+
+      if (ziel) ziel.textContent = 'Quellordner fehlt (der Pfad aus dem Entpacken).';
+
+      return;
+
+    }
+
+    const teile = teileRoh.split(',').map((t) => t.trim()).filter(Boolean);
+
+    if (teile.length === 0) {
+
+      if (ziel) ziel.textContent = 'Keine Teile angegeben (z. B. mods,config).';
+
+      return;
+
+    }
+
+    if (ziel) ziel.textContent = `Sichere und setze ${teile.length} Teile ein…`;
+
+    try {
+
+      const res = await fetch(`/api/arsenals/${id}/command`, {
+
+        method: 'POST',
+
+        credentials: 'same-origin',
+
+        headers: { 'content-type': 'application/json' },
+
+        body: JSON.stringify({ action: 'einsetzen', swordId, quelle, teile }),
+
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (ziel) {
+
+        if (res.ok) ziel.textContent = `Setze ${data.teile?.length ?? teile.length} Teile ein – die Sicherung läuft vorher.`;
+
+        else if (res.status === 409 && data.grund === 'falsches-arsenal') ziel.textContent = 'Dieser Sword liegt auf einem anderen Arsenal.';
+
+        else if (res.status === 409) ziel.textContent = 'Arsenal ist nicht verbunden.';
+
+        else ziel.textContent = data.error ?? 'Fehlgeschlagen';
+
+      }
+
+      setTimeout(loadArsenals, 8000);
+
+    } catch {
+
+      if (ziel) ziel.textContent = 'Befehl nicht abgesetzt.';
+
+    }
+
+    return;
+
+  }
+
+
 
   if (ziel) ziel.textContent = aktion === 'restart' ? 'Neustart angestoßen\u2026' : 'Fernupdate angestoßen\u2026';
   // Neustart: kein Dienstname, die Zeile bleibt wie sie ist. Nach ein paar
