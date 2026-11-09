@@ -192,3 +192,40 @@ test('die Route reicht pullId und swordId weiter, nicht als Dienst', async () =>
   assert.match(rumpf, /swordId/, 'swordId wird nicht weitergereicht');
   assert.doesNotMatch(rumpf, /service/, 'install schleust sich ueber den Dienst-Pfad');
 });
+
+// --- Der Benutzer muss VOR dem Entpacken da sein -------------------------
+// Live gemessen am 2026-11-09:
+//   install atm11: fehlgeschlagen - chown: invalid user: 'atm11:atm11'
+// Der Helfer legt keinen Benutzer an (bewusst: Benutzerverwaltung ist mehr
+// als entpacken). Also muss der Agent es tun - VORHER, wie installer.js auf
+// der Armory (Zeile 623). Ohne diese Reihenfolge scheitert jeder erste
+// Install auf einem frischen Arsenal, und zwar mit einer Meldung, die nach
+// Rechteproblem klingt statt nach fehlendem Schritt.
+
+test('der Agent legt den Benutzer VOR dem Entpacken an', () => {
+  const i = agentQuelle.indexOf('async function entpackeDatei');
+  assert.ok(i > 0, 'entpackeDatei fehlt');
+  const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
+
+  const iUser = rumpf.indexOf("'useradd'");
+  const iPack = rumpf.indexOf("'extract-pack'");
+  assert.ok(iUser > 0, 'useradd wird nicht aufgerufen - der erste Install scheitert');
+  assert.ok(iPack > 0, 'extract-pack fehlt');
+  assert.ok(iUser < iPack, 'useradd kommt NACH extract-pack - dann ist der Benutzer zu spaet da');
+});
+
+test('useradd laeuft ueber den Helfer, nicht ueber die Shell', () => {
+  const i = agentQuelle.indexOf('async function entpackeDatei');
+  const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
+  const zeile = rumpf.slice(rumpf.indexOf("'useradd'") - 60, rumpf.indexOf("'useradd'") + 40);
+  assert.match(zeile, /execFileP\(PACK_HELFER|execFileP\(\s*PACK_HELFER/, `kein fester Helferaufruf: ${zeile}`);
+});
+
+test('ein bereits vorhandener Benutzer ist kein Fehler', () => {
+  // Der Helfer antwortet "user exists" mit Exit 0. Der Agent darf daraus
+  // keinen Abbruch machen - sonst liesse sich derselbe Sword nie neu
+  // installieren.
+  const i = agentQuelle.indexOf('async function entpackeDatei');
+  const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
+  assert.match(rumpf, /user exists|bestand|existiert/i, 'vorhandener Benutzer wird nicht behandelt');
+});

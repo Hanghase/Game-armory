@@ -359,6 +359,24 @@ async function fuehreAus({ action, service, pullId, swordId }) {
     planeHeartbeat(ladeConfig());
 
     try {
+      // Der Benutzer muss VOR dem Entpacken da sein. Live gemessen am
+      // 2026-11-09: ohne ihn meldet der Helfer "chown: invalid user: 'atm11'",
+      // und das klingt nach einem Rechteproblem statt nach einem fehlenden
+      // Schritt. Die Armory macht es genauso (installer.js, useradd vor dem
+      // Entpacken) - hier ist die Reihenfolge dieselbe.
+      //
+      // "user exists" ist KEIN Fehler: derselbe Sword muss neu installierbar
+      // bleiben, sonst waere jedes Update ein Sonderfall.
+      const angelegt = await execFileP(PACK_HELFER, ['useradd', p.swordId], {
+        timeout: 60_000,
+        maxBuffer: 64 * 1024,
+      }).catch((err) => ({ stdout: '', stderr: String(err.stderr ?? err.message ?? err) }));
+      const benutzerText = String(angelegt.stdout ?? '').trim();
+      if (benutzerText) log(`install ${p.swordId}: ${benutzerText}`);
+      if (/user exists/.test(benutzerText)) {
+        log(`install ${p.swordId}: Benutzer vorhanden, fahre fort`);
+      }
+
       // Feste Argumentfolge, keine Shell. execFile mit Array - ein Name mit
       // Leerzeichen koennte sonst ein zweites Argument werden.
       const { stdout } = await execFileP(PACK_HELFER, ['extract-pack', p.swordId, ziel], {

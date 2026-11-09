@@ -3,6 +3,35 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.8] - 2026-11-09
+
+### Fehler: der Benutzer fehlte beim ersten Install
+
+Live gemessen auf der VM, erster echter Durchlauf ueber die Route:
+
+```
+Befehl: install
+install atm11: fehlgeschlagen - chown: invalid user: 'atm11:atm11'
+```
+
+Der Helfer legt **bewusst keinen** Benutzer an (Benutzerverwaltung ist mehr
+als entpacken). Die Armory macht das in `installer.js` (Zeile 623) **vor** dem
+Entpacken - der Agent tat es gar nicht.
+
+**Das ist die Art Fehler, die man im Log fuer ein Rechteproblem haelt.** Die
+Meldung nennt `chown`, nicht "Schritt fehlt".
+
+Behoben: `useradd` laeuft jetzt vor `extract-pack`, ueber denselben Helfer mit
+festen Argumenten. Ein bereits vorhandener Benutzer ist **kein** Fehler
+(`user exists` -> Exit 0) - sonst liesse sich derselbe Sword nie neu
+installieren.
+
+### Getestet
+
+3 neue Tests, 409 gesamt. Der Test prueft die REIHENFOLGE, nicht nur das
+Vorhandensein: useradd muss vor extract-pack stehen. Eine Mutation, die die
+beiden vertauscht, wird rot.
+
 ## [1.5.7] - 2026-11-09
 
 ### `install` ist im Panel erreichbar - Knopf, Felder, Route
