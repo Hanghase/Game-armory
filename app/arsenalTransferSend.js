@@ -25,6 +25,12 @@ import { sha256VonDatei, planeStuecke, STUECK_BYTES } from './arsenalTransfer.js
 // Laufende Pulls: Kennung -> { pull, datei, leitung, auftragId }
 const pulls = new Map();
 
+// Ein Sender je Pull: sendeWeiter ist async und wird von "bereit" UND von
+// jeder "stand"-Quittung aufgerufen. Liefen zwei gleichzeitig, lesen beide
+// denselben Stand von pull.gesendet und schicken DASSELBE Stueck nochmal.
+// Live am 2026-11-09: "Stueck abgelehnt (schon-da) bei Offset 589824".
+const senderKette = new Map();
+
 // Ein Stueck: 8 Bytes Kopf (offset, laenge), dann die Daten.
 // Muss zu agent/run.js passen - dort steht dieselbe Form beim Lesen.
 function rahmen(offset, daten) {
@@ -73,7 +79,19 @@ export async function sendePull({ arsenalId, dateiPfad, name, leitung, auftragId
 }
 
 // Das Arsenal hat "bereit" gesagt: jetzt Stuecke schicken.
-export async function sendeWeiter(id) {
+export function sendeWeiter(id) {
+  // In die Warteschlange haengen statt sofort loszulegen. Der Aufrufer
+  // (arsenalSocket) wartet nicht auf das Ergebnis - er meldet nur "angestossen".
+  const vorher = senderKette.get(id) ?? Promise.resolve();
+  const jetzt = vorher.then(() => sendeWeiterJetzt(id)).catch(() => ({ ok: false, grund: 'senden-fehlgeschlagen' }));
+  senderKette.set(id, jetzt);
+  jetzt.then(() => {
+    if (senderKette.get(id) === jetzt) senderKette.delete(id);
+  });
+  return jetzt;
+}
+
+async function sendeWeiterJetzt(id) {
   const eintrag = pulls.get(id);
   if (!eintrag) return { ok: false, grund: 'pull-unbekannt' };
 
@@ -132,6 +150,7 @@ export async function schliesseAb(id, { erfolg, grund = null, groesse = null }) 
   const eintrag = pulls.get(id);
   if (!eintrag) return null;
   pulls.delete(id);
+  senderKette.delete(id);
   await eintrag.offen?.close().catch(() => {});
   return {
     id,
@@ -154,6 +173,7 @@ export async function brichAb(id, grund) {
 
   await eintrag.offen?.close().catch(() => {});
   pulls.delete(id);
+  senderKette.delete(id);
   return { ok: false, grund, aufgeraeumt: true };
 }
 

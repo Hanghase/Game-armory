@@ -3,6 +3,40 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.3] - 2026-11-09
+
+### Behoben - dasselbe Stueck wurde zweimal geschickt
+
+Nach 1.5.2 kam der Pull nicht mehr zum Absturz, aber das Arsenal lehnte ab:
+
+```
+Stueck abgelehnt (schon-da) bei Offset 589824
+```
+
+**Derselbe Fehler wie beim Agenten - nur auf der anderen Seite.**
+`sendeWeiter()` ist `async` und wird von `bereit` UND von jeder
+`stand`-Quittung aufgerufen. Liefen zwei gleichzeitig, lasen beide
+`pull.gesendet`, bevor einer es hochzaehlt - und schickten dasselbe Stueck
+nochmal. Der Agent hat richtig abgelehnt und abgebrochen; falsch war der
+Sender.
+
+Jetzt haengt auch die Sendeseite an einer **Warteschlange je Pull**
+(`senderKette`), und die Kette wird bei Abschluss **und** Abbruch geloescht.
+
+### Die Lehre
+
+Ich habe den Fehler beim Agenten gefunden und behoben - und auf der
+Sendeseite **dieselbe Stelle nicht angesehen**. Die Pruefung lautet
+"parallel auf denselben Zustand zugreifen" und galt fuer beide Seiten.
+Zweimal derselbe Fehler in einer Stunde, weil ich beim Suchen bei der
+Fundstelle aufhoere.
+
+2 neue Tests; die zweite Mutation deckte auf, dass ein blosser
+Vorkommens-Zaehler (`>= 2`) auch **dieselbe** Funktion zweimal akzeptiert
+haette - der Test prueft jetzt jede Aufraeumfunktion einzeln.
+
+368 Tests gesamt gruen.
+
 ## [1.5.2] - 2026-11-09
 
 ### Behoben - der Agent stuerzte beim Ziehen ab

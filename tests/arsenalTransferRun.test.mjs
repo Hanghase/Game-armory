@@ -104,3 +104,39 @@ test('der Sender rechnet mit Offset, nicht mit Stueckzaehler', () => {
   }
   assert.equal(p.gesendet, 1000, 'die Summe der Stuecke ergibt nicht die Gesamtgroesse');
 });
+
+// --- Nur EIN Sender je Pull -----------------------------------------------
+//
+// sendeWeiter ist async und wird von "bereit" UND von jeder "stand"-Quittung
+// aufgerufen. Liefen zwei gleichzeitig, lesen beide pull.gesendet, bevor
+// einer es hochzaehlt - und schicken dasselbe Stueck nochmal.
+//
+// Live am 2026-11-09: "Stueck abgelehnt (schon-da) bei Offset 589824".
+
+const sendQuelle = await import('node:fs/promises').then((fs) =>
+  fs.readFile(new URL('../app/arsenalTransferSend.js', import.meta.url), 'utf8'));
+
+test('sendeWeiter haengt an einer Warteschlange je Pull', () => {
+  assert.match(sendQuelle, /senderKette/, 'keine Kette - zwei Aufrufe koennen dasselbe Stueck senden');
+  assert.match(
+    sendQuelle,
+    /const jetzt = vorher\.then\(/,
+    'sendeWeiter verkettet nicht mit dem vorigen Aufruf',
+  );
+});
+
+test('die Kette wird beim Aufraeumen geloescht', () => {
+  // Sonst waechst die Map bei jedem Pull und haelt geschlossene Dateien fest.
+  // Nicht nur zaehlen: die Loeschung muss in BEIDEN Aufraeumfunktionen stehen.
+  // Ein blosser Zaehler akzeptiert auch zweimal dieselbe Funktion.
+  for (const [name, marke] of [
+    ['schliesseAb', 'export async function schliesseAb'],
+    ['brichAb', 'export async function brichAb'],
+  ]) {
+    const von = sendQuelle.indexOf(marke);
+    assert.ok(von >= 0, `${name} nicht gefunden`);
+    const bis = sendQuelle.indexOf('\n}', von);
+    const rumpf = sendQuelle.slice(von, bis);
+    assert.match(rumpf, /senderKette\.delete\(id\)/, `${name} loescht die Kette nicht - sie waechst bei jedem Pull`);
+  }
+});
