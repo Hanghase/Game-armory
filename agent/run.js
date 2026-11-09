@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
+import { erstelleAuftragsliste } from '../app/arsenalJobs.js';
 import { readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
@@ -161,6 +162,8 @@ let ws = null;
 let letzteNachricht = 0;
 let backoff = 0;
 let heartbeatTimer = null;
+// Auftraege dieses Arsenals (installs, Verschiebungen). Der Takt haengt daran.
+const auftraege = erstelleAuftragsliste();
 let stillTimer = null;
 let beenden = false;
 
@@ -181,7 +184,7 @@ function verbinde(cfg) {
     backoff = 0;
     letzteNachricht = Date.now();
     sendeHeartbeat(cfg);
-    heartbeatTimer = setInterval(() => sendeHeartbeat(cfg), HEARTBEAT_MS);
+    planeHeartbeat(cfg);
     starteStillpruefung();
   });
 
@@ -229,8 +232,34 @@ function sende(obj) {
   }
 }
 
+// Der Takt des Lebenszeichens haengt am ZUSTAND DER ARBEIT (Felix,
+// 2026-11-09): "im Idle oder normalem Tagesgeschaeft 30 Sekunden, bei
+// installs oder server verschieben alle 15 Sekunden bis fertig".
+//
+// Darum KEIN setInterval: das haelt eine feste Zeit fest und muesste bei
+// jeder Aenderung neu gesetzt werden. Die Kette entscheidet nach jedem
+// Senden neu - kostet nichts und kann nicht auseinanderlaufen.
+function planeHeartbeat(cfg) {
+  clearTimeout(heartbeatTimer);
+  heartbeatTimer = setTimeout(() => {
+    if (beenden || !ws || ws.readyState !== 1) return;
+    sendeHeartbeat(cfg);
+    planeHeartbeat(cfg);
+  }, auftraege.taktMs());
+  // Nicht den Prozess am Leben halten, nur weil ein Timer laeuft.
+  if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
+}
+
 function sendeHeartbeat(cfg) {
-  sende(heartbeatMessage({ id: cfg.id, version: AGENT_VERSION, hostname: os.hostname() }));
+  const offen = auftraege.fuerHerzschlag();
+  sende(heartbeatMessage({
+    id: cfg.id,
+    version: AGENT_VERSION,
+    hostname: os.hostname(),
+    // Ohne Auftraege faellt das Feld weg - ein Herzschlag mit leerer Liste
+    // waere nur Rauschen (siehe arsenalJobs.fuerHerzschlag()).
+    ...(offen.length > 0 ? { jobs: offen } : {}),
+  }));
   letzteNachricht = Date.now();
 }
 
@@ -247,7 +276,7 @@ function starteStillpruefung() {
 }
 
 function aufraeumen() {
-  clearInterval(heartbeatTimer);
+  clearTimeout(heartbeatTimer);
   clearInterval(stillTimer);
   heartbeatTimer = null;
   stillTimer = null;

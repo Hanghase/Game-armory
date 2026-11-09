@@ -3,6 +3,69 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.22] - 2026-11-09
+
+### Neu
+
+- **Auftraege statt langer Befehle.** Ein Befehl darf 30 s dauern; ein Install
+  dauert Minuten. Also: Auftrag anlegen, sofort antworten, Ergebnis kommt mit
+  dem naechsten Lebenszeichen. Kein neuer Kanal - der Herzschlag, der
+  sowieso geht, traegt es (Felix: "so verhindern wir dumme sperrzeiten").
+
+  ```
+  app/arsenalJobs.js       Auftragsliste, Zustaende, Takt
+  app/arsenalTransfer.js   Stueckelung, Pruefsumme, Vollstaendigkeit
+  ```
+
+- **Der Takt haengt an der Arbeit** (Felix woertlich): "im Idle oder normalem
+  Tagesgeschaeft 30 Sekunden, bei installs oder server verschieben alle 15
+  Sekunden bis fertig". Umgesetzt als Kette statt `setInterval` - die
+  entscheidet nach jedem Senden neu und kann nicht auseinanderlaufen.
+
+  | Zustand | Takt |
+  |---|---|
+  | kein Auftrag | 30 s |
+  | Auftrag offen/laeuft | 15 s |
+  | fertig/fehlgeschlagen | 30 s |
+
+  Der Takt faellt NICHT mit der Zahl der Auftraege: fuenf Auftraege fragen
+  nicht alle 3 s.
+
+### Verhalten, das bewusst so ist
+
+- **Ein Fehlschlag ist ein eigener Zustand, nicht "fertig".** Beide bei 100 %,
+  aber `fehlgeschlagen` traegt den Grund.
+- **Ein Ergebnis kommt genau EINMAL.** Sonst blinkt im Panel jede Minute
+  dieselbe Erfolgsmeldung.
+- **Ein fertiger Auftrag springt nie zurueck**, auch nicht auf 10 % - ein
+  Nachzuegler-Fortschritt darf den Balken nicht zuruecksetzen.
+- **Ein Lebenszeichen ohne Auftraege traegt kein `jobs`-Feld** - nur Rauschen.
+
+### Getestet
+
+- 22 neue Tests. 312 gesamt.
+- Mutationen, jede faengt genau die zugehoerigen Tests:
+  Takt immer 30 s / immer 15 s / faellt mit der Zahl der Auftraege /
+  Fehlschlag zaehlt als Arbeit (je ein Test).
+  Fehler als "fertig" gemeldet, Ergebnis bei jedem Herzschlag neu,
+  Liste unbegrenzt, Deckel bei 100 % weg.
+  Agent wieder auf setInterval -> der "wird benutzt"-Test.
+- **Live auf der VM gemessen** (nicht angenommen): Abstaende der
+  Lebenszeichen im Leerlauf `[30, 30]` Sekunden. Mit Auftrag: `taktMs()`
+  15000, `fuerHerzschlag()` traegt den Auftrag mit 50 %, nach `beende()`
+  wieder 30000, nach `bestaetige()` leere Liste.
+
+### Eigene Testfehler dabei
+
+- Mutation "fertiger Auftrag wird wieder offen" blieb gruen: der Test prueft
+  nur den Zustand, nicht Prozent und Meldung. Ein Nachzuegler haette den
+  Balken zurueckgesetzt, ohne den Zustand zu aendern.
+- Mutation "Pruefsumme nur erster Block" blieb gruen: die Testdateien waren
+  kleiner als ein Block. Jetzt zwei 200-KiB-Dateien, die sich nur in der
+  letzten Zeile unterscheiden.
+- Mutation "setInterval" blieb gruen: der Test schnitt zu eng
+  (`heartbeatTimer = setInterval`), die Mutation traf die Kette selbst.
+
 ## [1.4.21] - 2026-11-09
 
 ### Neu
