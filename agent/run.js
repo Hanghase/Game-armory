@@ -172,6 +172,10 @@ async function fuehreAus({ action, service }) {
   // Zu jeder pull-Kennung der laufende Auftrag auf DIESEM Arsenal.
   const laufendePulls = new Map();
 
+  // Schreibt genau ein Stueck zur Zeit. Ein Promise als Warteschlange -
+  // billiger als eine eigene Klasse und reicht fuer den Zweck.
+  let stueckKette = Promise.resolve();
+
   async function beginnePull(msg) {
     const p = validatePull(msg);
     if (!p.ok) {
@@ -337,7 +341,18 @@ function verbinde(cfg) {
     // als "Stueck mit unmoeglicher Laenge". Das Flag ist die einzige
     // verlaessliche Auskunft, ob der Frame binaer war.
     if (istBinaer) {
-      await nimmDateistueck(data);
+        // WARTESCHLANGE statt paralleler Schreiber.
+        //
+        // 'ws' ruft diesen Handler fuer JEDE Nachricht auf, ohne auf den
+        // vorigen zu warten. Zwei Stuecke, die schneller kommen als das
+        // Schreiben dauert, ergaben zwei gleichzeitige write() auf denselben
+        // Strom - und damit "Cannot call write after a stream was destroyed".
+        // Live am 2026-11-09: der Agent stuerzte ab und begann den Pull immer
+        // wieder von vorn (589824 Bytes, dann Neustart).
+        stueckKette = stueckKette
+          .then(() => nimmDateistueck(data))
+          .catch((err) => log(`Stueck nicht verarbeitet: ${String(err.message ?? err).slice(0, 200)}`));
+        await stueckKette;
       return;
     }
 

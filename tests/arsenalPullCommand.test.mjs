@@ -110,13 +110,16 @@ test('der Verteiler prueft nur istBinaer, nicht Buffer.isBuffer', async () => {
 
   // Der Zweig, der Stuecke behandelt, darf Buffer.isBuffer NICHT als
   // zusaetzliche Bedingung enthalten - sonst schluckt er jede JSON-Nachricht.
-  const zweig = quelle.match(/if \(([^)]*)\) \{\s*\n\s*await nimmDateistueck/);
-  assert.ok(zweig, 'der Verteiler-Zweig fuer Stuecke wurde nicht gefunden');
-  assert.equal(
-    zweig[1].trim(),
-    'istBinaer',
-    `der Stueck-Zweig prueft "${zweig[1]}" statt nur "istBinaer" - Buffer.isBuffer ist bei 'ws' IMMER true, auch fuer JSON`,
-  );
+  // Nicht mehr "if (...) { await nimmDateistueck" - seit 1.5.2 steht die
+  // Warteschlange dazwischen. Der Zweck ist derselbe: die BEDINGUNG darf nur
+  // istBinaer sein, sonst schluckt der Zweig jede JSON-Nachricht.
+  const zeilen = quelle.split('\n');
+  const von = zeilen.findIndex((z) => z.trim() === 'if (istBinaer) {');
+  assert.ok(von >= 0, 'der Verteiler-Zweig fuer Stuecke wurde nicht gefunden');
+  const bis = zeilen.findIndex((z, i) => i > von && z.trim() === 'return;');
+  const zweig = zeilen.slice(von, bis).join('\n');
+  assert.match(zweig, /nimmDateistueck/, 'der Zweig ruft nimmDateistueck nicht auf');
+
 });
 
 test('der pull-Befehl wird VOR validateCommand behandelt', async () => {

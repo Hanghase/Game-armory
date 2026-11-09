@@ -3,6 +3,47 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.2] - 2026-11-09
+
+### Behoben - der Agent stuerzte beim Ziehen ab
+
+Nach 1.5.1 kam der Pull weiter, aber der Agent **startete sich selbst neu**:
+
+```
+Error [ERR_STREAM_DESTROYED]: Cannot call write after a stream was destroyed
+  at nimmStueck (agent/transferRun.js:76:9)
+  at nimmDateistueck (agent/run.js:243:21)
+  ...
+systemd: Scheduled restart job, restart counter is at 2
+```
+
+Jedes Mal 589824 Bytes, dann Neustart, dann von vorn - eine Endlosschleife,
+die wie ein haengendes Netz aussieht.
+
+**Zwei Ursachen:**
+
+1. **Parallele Schreiber.** `ws` ruft den `message`-Handler fuer JEDE
+   Nachricht auf, ohne auf den vorigen zu warten. Zwei Stuecke, die schneller
+   kommen als das Schreiben dauert → zwei gleichzeitige `write()` auf
+   denselben Strom → `ERR_STREAM_DESTROYED`.
+2. **Kein `.catch`.** Ein Fehler im `message`-Handler ist unbehandelt und
+   beendet den Prozess. systemd startet neu, der Pull faengt von vorn an.
+
+Jetzt laeuft jedes Stueck durch eine **Warteschlange** (Promise-Kette), und
+jeder Fehler wird abgefangen und geloggt statt den Dienst zu toeten.
+
+### Warum das kein Test fand
+
+Die Tests prueften `nimmStueck` einzeln - nie zwei Aufrufe gleichzeitig. Und
+das ist genau das Muster, das `ws` im Betrieb erzeugt. Drei neue Tests lesen
+den Quelltext des Agenten:
+
+- die Stuecke laufen ueber `stueckKette`
+- der Binaer-Zweig benutzt die Kette, nicht direkt `nimmDateistueck`
+- an der Kette haengt ein `.catch`
+
+2 Mutationen, alle gefangen.
+
 ## [1.5.1] - 2026-11-09
 
 ### Behoben - der Pull blieb nach 8 Stuecken stehen

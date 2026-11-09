@@ -107,3 +107,47 @@ test('die Quittung kommt VOR dem Abschluss', () => {
     'die Quittung kommt nach dem Abschluss - beim letzten Stueck wartet die Armory vergebens',
   );
 });
+
+// --- Stuecke duerfen NICHT parallel geschrieben werden --------------------
+//
+// Live am 2026-11-09: der Agent stuerzte waehrend des Pulls ab.
+//
+//   Error [ERR_STREAM_DESTROYED]: Cannot call write after a stream was
+//   destroyed
+//     at nimmStueck (agent/transferRun.js:76:9)
+//
+// 'ws' ruft den message-Handler fuer JEDE Nachricht auf, ohne auf den
+// vorigen zu warten. Zwei Stuecke schneller als das Schreiben = zwei
+// gleichzeitige write() auf denselben Strom. Der Dienst startete neu, der
+// Pull begann von vorn - bei 589824 Bytes, jedes Mal.
+
+test('Stuecke laufen ueber eine Warteschlange, nicht parallel', () => {
+  assert.match(
+    agentQuelle,
+    /stueckKette\s*=\s*stueckKette\s*\n?\s*\.then\(/,
+    'kein Warteschlangen-Kette: zwei Stuecke koennen gleichzeitig schreiben',
+  );
+});
+
+test('der Binaer-Zweig benutzt die Kette, nicht direkt nimmDateistueck', () => {
+  // Zeilenweise schneiden statt mit einer Regex auf Einrueckung - die
+  // Einrueckung hat sich beim Einbau verschoben und der Schnitt ging ins Leere.
+  const zeilen = agentQuelle.split('\n');
+  const von = zeilen.findIndex((z) => z.trim() === 'if (istBinaer) {');
+  assert.ok(von >= 0, 'Binaer-Zweig nicht gefunden');
+  const bis = zeilen.findIndex((z, i) => i > von && z.trim() === 'return;');
+  assert.ok(bis > von, 'Ende des Binaer-Zweigs nicht gefunden');
+  const zweig = zeilen.slice(von, bis).join('\n');
+  assert.match(zweig, /stueckKette/, 'der Zweig ruft nimmDateistueck direkt auf - parallel moeglich');
+});
+
+test('ein Schreibfehler bricht den Agenten nicht um', () => {
+  // Ein unbehandelter Fehler im message-Handler beendet den Prozess. Der
+  // Dienst startet neu - und der Pull faengt von vorn an. Jeder Fehler beim
+  // Stueck muss abgefangen werden.
+  assert.match(
+    agentQuelle,
+    /\.then\(\(\) => nimmDateistueck\(data\)\)\s*\n?\s*\.catch\(/,
+    'kein .catch an der Kette - ein Schreibfehler beendet den Agenten',
+  );
+});
