@@ -41,9 +41,11 @@ test('die Whitelist ist genau diese fünf Aktionen lang', () => {
   // ausgeschrieben und wird nicht gezaehlt: kommt eine Aktion hinzu, steht
   // sie hier im Test - dann ist die Erweiterung eine Entscheidung und kein
   // Versehen.
+  // install kam 2026-11-09 dazu: ein gezogenes Paket auf dem Arsenal
+  // entpacken. Kein Dienstname, sondern pullId + swordId - eigene Pruefung.
   assert.deepEqual(
     [...ALLOWED_ACTIONS],
-    ['status', 'start', 'stop', 'restart', 'update'],
+    ['status', 'start', 'stop', 'restart', 'update', 'install'],
   );
 });
 

@@ -27,7 +27,10 @@ export const ALLOWED_ACTIONS = Object.freeze([
   'restart',
   // Das Fernupdate des Arsenals selbst. Kein Dienstname: es betrifft genau
   // diesen Rechner, nicht eine Unit darauf.
-  'update',
+    'update',
+    // Ein gezogenes Paket auf diesem Arsenal entpacken. Kein Dienstname,
+    // sondern pullId + swordId - eigene Pruefung in validateInstall.
+    'install',
 ]);
 
 // Aktionen, die KEINEN Dienstnamen brauchen.
@@ -39,7 +42,7 @@ export const ALLOWED_ACTIONS = Object.freeze([
 // Ein restart MIT Dienstnamen bleibt trotzdem erlaubt: wer bewusst eine Unit
 // auf dem Arsenal neu starten will, soll das koennen (die Route bietet es
 // nicht an, der Weg ueber die Leitung bleibt aber offen).
-export const OHNE_DIENST = Object.freeze(['status', 'update', 'restart']);
+export const OHNE_DIENST = Object.freeze(['status', 'update', 'restart', 'install']);
 
 // Erlaubte Form eines Dienstnamens (systemd-Unit). Keine Punkte am Anfang,
 // keine Leerzeichen, keine Shell-Metazeichen.
@@ -66,6 +69,15 @@ export function validateCommand(msg) {
   const action = msg.action;
   if (typeof action !== 'string' || !ALLOWED_ACTIONS.includes(action)) {
     return { ok: false, reason: 'bad-action' };
+  }
+
+  // install traegt zwei EIGENE Felder statt eines Dienstnamens. Der Zweig
+  // steht vor der Dienstpruefung, weil ein fehlender Dienst sonst als
+  // 'bad-service' zurueckkaeme - ein Grund, der den wahren Fehler verdeckt.
+  if (action === 'install') {
+    const p = validateInstall({ type: 'install', pullId: msg.pullId, swordId: msg.swordId });
+    if (!p.ok) return { ok: false, reason: p.reason };
+    return { ok: true, action, pullId: p.pullId, swordId: p.swordId, service: null };
   }
 
   const service = msg.service;

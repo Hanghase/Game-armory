@@ -103,12 +103,22 @@ export function sendeBefehl(arsenalId, nachricht) {
 
 // Schickt einen Befehl und liefert die Antwort (Promise).
 // Wird fuer die Routen gebraucht: der Klick im Panel soll ein Ergebnis haben.
-export function frageArsenal(arsenalId, { action, service }) {
+export function frageArsenal(arsenalId, { action, service, pullId, swordId }) {
   const ws = leitungen.get(arsenalId);
   if (!ws) return Promise.resolve({ ok: false, error: 'arsenal-offline' });
 
   const ref = crypto.randomBytes(8).toString('hex');
-  const payload = { type: 'command', action, ref, ...(service ? { service } : {}) };
+  // install traegt pullId + swordId statt eines Dienstnamens. Beide Felder
+  // werden NUR gesetzt, wenn sie da sind - ein undefined wuerde als
+  // JSON-Schluessel mit null ankommen und beim Agenten 'bad-pull' ergeben.
+  const payload = {
+    type: 'command',
+    action,
+    ref,
+    ...(service ? { service } : {}),
+    ...(pullId ? { pullId } : {}),
+    ...(swordId ? { swordId } : {}),
+  };
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {

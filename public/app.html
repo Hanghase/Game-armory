@@ -923,6 +923,18 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
         <p class="hint">Maschinen, die zu dieser Armory gehören. Ein Arsenal
           meldet sich alle 30 Sekunden; bleibt das aus, steht hier Offline.</p>
         <div id="arsenalList" class="arsenal-list">Wird geladen…</div>
+
+        <!-- Installieren: das Pack muss schon auf dem Arsenal liegen (vorher
+             ziehen). Der Name wird hier eingetippt, weil er zum Systembenutzer
+             und zum Ordnernamen wird - ein Tippfehler waere ein neuer Benutzer. -->
+        <div class="arsenal-install">
+          <label for="arsenalPullId">Gezogene Datei</label>
+          <input id="arsenalPullId" type="text" placeholder="Kennung aus dem Ziehen" autocomplete="off">
+          <label for="arsenalSwordId">Sword-Name</label>
+          <input id="arsenalSwordId" type="text" placeholder="z. B. atm11" autocomplete="off">
+          <p class="hint">Entpackt ein bereits gezogenes Pack als Sword auf dem Arsenal.</p>
+        </div>
+
         <div class="modal-foot">
           <button class="ghost" id="arsenalRefresh">Aktualisieren</button>
           <span id="arsenalState" class="hint"></span>

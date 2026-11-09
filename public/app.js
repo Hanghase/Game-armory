@@ -3367,6 +3367,9 @@ function renderArsenals(list) {
         <button class="ghost a-act" data-arsenal-id="${a.id}"
                 data-arsenal-action="update" title="Arsenal auf die neueste Version bringen"
                 ${online ? '' : 'disabled'}>Fernupdate</button>
+                <button class="ghost a-act" data-arsenal-id="${a.id}"
+                        data-arsenal-action="install" title="Gezogenes Pack auf diesem Arsenal entpacken"
+                        ${online ? '' : 'disabled'}>Installieren</button>
       </span>
     </div>`;
   }).join('');
@@ -3378,7 +3381,42 @@ function renderArsenals(list) {
 // nicht "fertig" - der Rechner ist danach kurz weg.
 async function runArsenalAction(id, aktion) {
   const ziel = document.getElementById('arsenalState');
-  if (aktion !== 'update' && aktion !== 'restart') return;
+  if (aktion !== 'update' && aktion !== 'restart' && aktion !== 'install') return;
+
+  // --- Installieren ------------------------------------------------------
+  // Das Pack muss schon auf dem Arsenal liegen (vorher "Ziehen" gedrueckt).
+  // Ohne pullId gibt es nichts zu entpacken - das hier zu sagen ist besser,
+  // als einen 400 zurueckzubekommen, der wie ein Serverfehler aussieht.
+  if (aktion === 'install') {
+    const pullId = (document.getElementById('arsenalPullId')?.value ?? '').trim();
+    const swordId = (document.getElementById('arsenalSwordId')?.value ?? '').trim();
+    if (!pullId) {
+      if (ziel) ziel.textContent = 'Keine gezogene Datei - erst ziehen, dann installieren.';
+      return;
+    }
+    if (!swordId) {
+      if (ziel) ziel.textContent = 'Sword-Name fehlt (z. B. atm11).';
+      return;
+    }
+    if (ziel) ziel.textContent = 'Entpacken angestoßen\u2026';
+    try {
+      const res = await fetch(`/api/arsenals/${id}/command`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'install', pullId, swordId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (ziel) ziel.textContent = res.ok
+        ? `Entpacke ${swordId} auf dem Arsenal\u2026`
+        : (res.status === 409 ? 'Arsenal ist nicht verbunden.' : (data.error ?? 'Fehlgeschlagen'));
+      setTimeout(loadArsenals, 6000);
+    } catch {
+      if (ziel) ziel.textContent = 'Befehl nicht abgesetzt.';
+    }
+    return;
+  }
+
   if (ziel) ziel.textContent = aktion === 'restart' ? 'Neustart angestoßen\u2026' : 'Fernupdate angestoßen\u2026';
   // Neustart: kein Dienstname, die Zeile bleibt wie sie ist. Nach ein paar
   // Sekunden neu laden, damit der Punkt den neuen Zustand zeigt.

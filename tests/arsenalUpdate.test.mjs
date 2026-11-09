@@ -161,8 +161,10 @@ test('die Route bietet update UND restart an - sonst nichts', async () => {
   const m = routen.match(/const ERLAUBTE_AKTIONEN = \[([^\]]+)\]/);
   assert.ok(m, 'ERLAUBTE_AKTIONEN nicht gefunden');
   const erlaubt = m[1].split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean).sort();
-  assert.deepEqual(erlaubt, ['restart', 'update'],
-    'erlaubt sind genau Fernupdate und Neustart des Arsenals');
+  // install kam 2026-11-09 dazu. Es ist der EINZIGE Weg, ein gezogenes Pack
+  // auf einem Arsenal zu entpacken - ohne ihn bliebe die ZIP dort liegen.
+  assert.deepEqual(erlaubt, ['install', 'restart', 'update'],
+    'erlaubt sind Fernupdate, Neustart des Arsenals und install');
 });
 
 test('restart braucht KEINEN Dienstnamen', async () => {

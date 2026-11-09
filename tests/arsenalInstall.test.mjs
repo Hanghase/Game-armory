@@ -124,3 +124,71 @@ test('ein unbekannter pullId liefert einen klaren Grund', () => {
   const rumpf = agentQuelle.slice(i, agentQuelle.indexOf('\n  // --- Verbindung', i));
   assert.match(rumpf, /unbekannt|nicht-gezogen|kein-pull/i, 'unbekannter pullId wird nicht benannt');
 });
+
+// --- install als ACTION im command, nicht als eigener Typ -----------------
+// Der Weg ueber die Leitung ist { type:'command', action, ... } mit einer
+// festen Aktionsliste auf BEIDEN Seiten (Route und Agent). Ein zweiter
+// Nachrichtentyp daneben waere ein zweiter Weg, den die Route nicht kennt -
+// und damit ein Weg, der im Panel nicht existiert.
+
+test('install steht in den erlaubten Aktionen des Agenten', async () => {
+  const { ALLOWED_ACTIONS } = await import('../agent/logic.js');
+  assert.ok(ALLOWED_ACTIONS.includes('install'), 'install fehlt in ALLOWED_ACTIONS');
+});
+
+test('install braucht KEINEN Dienstnamen, sondern pullId und swordId', async () => {
+  const { OHNE_DIENST } = await import('../agent/logic.js');
+  assert.ok(OHNE_DIENST.includes('install'), 'install verlangt faelschlich einen Dienst');
+});
+
+test('validateCommand reicht pullId und swordId fuer install durch', async () => {
+  const { validateCommand } = await import('../agent/logic.js');
+  const r = validateCommand({
+    type: 'command', action: 'install',
+    pullId: 'cc8c7fdc1de778162f61b4822d79d714', swordId: 'atm11',
+  });
+  assert.equal(r.ok, true, `abgelehnt: ${r.reason}`);
+  assert.equal(r.pullId, 'cc8c7fdc1de778162f61b4822d79d714');
+  assert.equal(r.swordId, 'atm11');
+});
+
+test('install ohne pullId wird abgelehnt', async () => {
+  const { validateCommand } = await import('../agent/logic.js');
+  for (const pullId of [undefined, null, '', 'XYZ', '../x']) {
+    const r = validateCommand({ type: 'command', action: 'install', pullId, swordId: 'atm11' });
+    assert.equal(r.ok, false, `akzeptiert: ${JSON.stringify(pullId)}`);
+  }
+});
+
+test('install ohne brauchbaren swordId wird abgelehnt', async () => {
+  const { validateCommand } = await import('../agent/logic.js');
+  for (const swordId of [undefined, '', '../etc', 'a b', 'ATM11']) {
+    const r = validateCommand({
+      type: 'command', action: 'install',
+      pullId: 'cc8c7fdc1de778162f61b4822d79d714', swordId,
+    });
+    assert.equal(r.ok, false, `akzeptiert: ${JSON.stringify(swordId)}`);
+  }
+});
+
+test('die ROUTE kennt install ebenfalls', async () => {
+  // Zwei Seiten eines Protokolls. Was der Agent kann und die Route nicht,
+  // ist im Panel nicht erreichbar - und umgekehrt eine offene Weiterleitung.
+  const route = await readFile(new URL('../app/arsenalRoutes.js', import.meta.url), 'utf8');
+  const m = /const ERLAUBTE_AKTIONEN = \[([^\]]*)\]/.exec(route);
+  assert.ok(m, 'ERLAUBTE_AKTIONEN nicht gefunden');
+  assert.ok(m[1].includes("'install'"), `install fehlt in der Aktionsliste der Route: ${m[1]}`);
+});
+
+test('die Route reicht pullId und swordId weiter, nicht als Dienst', async () => {
+  // "Zwei Seiten eines Protokolls" heisst: was die Route weiterreicht, muss
+  // beim Agenten ankommen. Ein {action:'install'} ohne pullId waere dort
+  // 'bad-pull' - im Panel saehe das wie ein Serverfehler aus.
+  const route = await readFile(new URL('../app/arsenalRoutes.js', import.meta.url), 'utf8');
+  const i = route.indexOf("action === 'install'");
+  assert.ok(i > 0, 'die Route hat keinen install-Zweig');
+  const rumpf = route.slice(i, i + 900);
+  assert.match(rumpf, /pullId/, 'pullId wird nicht weitergereicht');
+  assert.match(rumpf, /swordId/, 'swordId wird nicht weitergereicht');
+  assert.doesNotMatch(rumpf, /service/, 'install schleust sich ueber den Dienst-Pfad');
+});

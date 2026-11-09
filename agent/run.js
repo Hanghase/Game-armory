@@ -83,7 +83,21 @@ function ladeConfig() {
 // Es wird NIE eine Shell benutzt: execFile mit fester Aktionsliste und einem
 // bereits geprueften Dienstnamen. Die Whitelist steht in agent.js.
 
-async function fuehreAus({ action, service }) {
+async function fuehreAus({ action, service, pullId, swordId }) {
+  // install: ein gezogenes Paket entpacken. Laeuft NICHT ueber systemctl und
+  // hat keinen Dienst - es geht an den Helfer. Antwort sofort: das Entpacken
+  // kann Sekunden dauern, und der Aufrufer soll nicht in einen Timeout laufen.
+  if (action === 'install') {
+    entpackeDatei({ type: 'install', pullId, swordId })
+      .catch((err) => log(`install fehlgeschlagen: ${String(err.message ?? err).slice(0, 300)}`));
+    return {
+      ok: true,
+      action,
+      service: null,
+      output: `Entpacken angestoßen (pull ${pullId} -> sword ${swordId}). Ergebnis kommt mit dem naechsten Lebenszeichen.`,
+    };
+  }
+
   // update betrifft das ARSENAL SELBST, nicht eine Unit darauf. Es laeuft
   // darum nicht ueber systemctl, sondern ueber den Update-Ablauf - und der
   // antwortet sofort, weil der Neustart sonst die Antwort mitreisst.

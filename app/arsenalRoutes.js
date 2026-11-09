@@ -31,6 +31,8 @@ import { arsenalState, formatPairingCode, verifyHeartbeat } from './arsenals.js'
 import { istVerbunden, frageArsenal, holeLeitung } from './arsenalSocket.js';
 import { sendePull } from './arsenalTransferSend.js';
 import { readUpload } from './uploads.js';
+// Dieselbe Pruefung wie im Agenten - sonst laufen die zwei Seiten auseinander.
+import { validateInstall } from '../agent/logic.js';
 
 export const arsenalRouter = Router();
 
@@ -122,7 +124,11 @@ arsenalRouter.post('/arsenals/:id/revoke', requirePerm('arsenal.delete'), (req, 
 // nicht die Dienste darauf). Die Bedeutung hat sich geaendert, nicht das Wort.
 // Der Agent kann start/stop weiterhin (eigene Whitelist), die Armory bietet
 // sie nicht mehr an. Weniger Angriffsflaeche ist der Zweck, nicht Bequemlichkeit.
-const ERLAUBTE_AKTIONEN = ['update', 'restart'];
+// install (2026-11-09): ein gezogenes Paket auf dem Arsenal entpacken. Traegt
+// pullId + swordId statt eines Dienstnamens - eigener Zweig weiter unten.
+// Der Kommentar steht AUSSERHALB der Liste: Tests lesen sie als reine
+// Aufzaehlung, und ein Kommentar darin wuerde mitgeparst.
+const ERLAUBTE_AKTIONEN = ['update', 'restart', 'install'];
 
 arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async (req, res) => {
   const id = Number(req.params.id);
@@ -135,6 +141,30 @@ arsenalRouter.post('/arsenals/:id/command', requirePerm('arsenal.update'), async
   if (!ERLAUBTE_AKTIONEN.includes(action)) {
     return res.status(400).json({ error: 'Unbekannte Aktion' });
   }
+  // install braucht keinen Dienst, sondern pullId + swordId. Geprueft wird
+  // hier UND beim Agenten: die Route darf nichts weiterreichen, was sie
+  // selbst nicht versteht - sonst wird sie zur Weiterleitung ungepruefter
+  // Daten. Die Pruefung ist dieselbe (validateInstall), damit beide Seiten
+  // nicht auseinanderlaufen.
+  if (action === 'install') {
+    const { pullId, swordId } = req.body ?? {};
+    const p = validateInstall({ type: 'install', pullId, swordId });
+    if (!p.ok) {
+      return res.status(400).json({ error: 'Ungültiger Install-Befehl', grund: p.reason });
+    }
+    if (!istVerbunden(id)) {
+      return res.status(409).json({ error: 'Arsenal ist nicht verbunden', grund: 'arsenal-offline' });
+    }
+    const ergebnis = await frageArsenal(id, { action: 'install', pullId: p.pullId, swordId: p.swordId });
+    if (ergebnis.ok === false && ergebnis.error) {
+      const status = ergebnis.error === 'timeout' ? 504 : 502;
+      return res.status(status).json({ error: 'Arsenal antwortet nicht', grund: ergebnis.error });
+    }
+    // Angestossen, nicht fertig: das Entpacken kann Sekunden dauern. Das
+    // Ergebnis kommt mit dem naechsten Lebenszeichen.
+    return res.json({ ok: true, action: 'install', pullId: p.pullId, swordId: p.swordId });
+  }
+
   // update und restart betreffen das Arsenal selbst und brauchen keinen
   // Dienstnamen.
   if (action !== 'status' && action !== 'update' && action !== 'restart'

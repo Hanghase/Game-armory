@@ -264,3 +264,58 @@ test('ein Offline-Arsenal bietet kein Fernupdate an', async () => {
   );
   assert.match(block, /online \? '' : 'disabled'/, 'Fernupdate ist nicht abschaltbar');
 });
+
+// --- Install-Knopf: die ZIP liegt auf dem Arsenal, wer entpackt sie? -----
+// Ohne Knopf bleibt die gezogene ZIP auf der Platte liegen und niemand kann
+// daraus einen Sword machen. Der Test haelt den Weg im Panel offen.
+
+test('die Arsenal-Zeile bietet einen Install-Knopf', async () => {
+  const block = await renderBlock();
+  assert.match(block, /data-arsenal-action="install"/, 'kein Install-Knopf in der Zeile');
+});
+
+test('der Install-Knopf ist offline abgeschaltet wie die anderen', async () => {
+  const block = await renderBlock();
+  const i = block.indexOf('data-arsenal-action="install"');
+  assert.ok(i > 0);
+  const zeile = block.slice(i, block.indexOf('>', i) + 1);
+  assert.match(zeile, /online \? '' : 'disabled'/, 'Install-Knopf bleibt ohne Verbindung klickbar');
+});
+
+test('install schickt pullId UND swordId, nicht nur eine Aktion', async () => {
+  // Ein {action:'install'} ohne die beiden Felder waere beim Agenten
+  // 'bad-pull'. Der Knopf muss fragen, WAS entpackt und WIE es heissen soll.
+  const js = await quelle();
+  const i = js.indexOf("aktion === 'install'");
+  assert.ok(i > 0, 'kein install-Zweig in runArsenalAction');
+  const rumpf = js.slice(i, i + 1800);
+  assert.match(rumpf, /pullId/, 'pullId fehlt im Aufruf');
+  assert.match(rumpf, /swordId/, 'swordId fehlt im Aufruf');
+});
+
+test('install laesst sich ohne pullId gar nicht erst abschicken', async () => {
+  // Sonst kaeme ein 400 zurueck, das wie ein Serverfehler aussieht statt wie
+  // "du hast noch nichts gezogen".
+  const js = await quelle();
+  const i = js.indexOf("aktion === 'install'");
+  const rumpf = js.slice(i, i + 1800);
+  assert.match(rumpf, /if \(!pullId\)|if \(!gezogen|keine gezogene/i, 'keine Pruefung auf fehlende pullId');
+});
+
+test('die Eingabefelder fuer pullId und swordId stehen im HTML', async () => {
+  // Der Handler liest sie per getElementById. Fehlen sie, ist value immer ''
+  // und jeder Klick sagt "Keine gezogene Datei" - ohne dass ein Test rot wird,
+  // wenn man nur den JS-Quelltext prueft. Genau dieser Fehler war am
+  // 2026-11-07 schon einmal da (Funktion gruen, Aufrufweg tot).
+  const html = await readFile(new URL('../public/app.html', import.meta.url), 'utf8');
+  for (const id of ['arsenalPullId', 'arsenalSwordId']) {
+    assert.match(html, new RegExp(`id="${id}"`), `Feld ${id} fehlt im HTML`);
+  }
+});
+
+test('die Felder stehen im Arsenale-Tab, nicht irgendwo', async () => {
+  const html = await readFile(new URL('../public/app.html', import.meta.url), 'utf8');
+  const i = html.indexOf('id="arsenalPullId"');
+  const anfang = html.lastIndexOf('id="pTabArsenals"', i);
+  assert.ok(anfang > 0, 'arsenalPullId steht ausserhalb des Arsenale-Tabs');
+});

@@ -3,6 +3,45 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.5.7] - 2026-11-09
+
+### `install` ist im Panel erreichbar - Knopf, Felder, Route
+
+Bis 1.5.6 konnte der Agent entpacken, aber niemand konnte es ihm sagen: die
+`/command`-Route kannte `install` nicht. Der Befehl lief nur, wenn man von
+Hand eine Nachricht an die Leitung schrieb.
+
+Jetzt:
+
+- **Route** `POST /api/arsenals/:id/command` kennt `install`, prueft es mit
+  derselben Funktion wie der Agent (`validateInstall`) und reicht `pullId` +
+  `swordId` weiter. Zwei Seiten, eine Pruefung.
+- **Panel** hat einen Knopf "Installieren" je Arsenal plus zwei Felder
+  (gezogene Datei, Sword-Name). Ohne pullId sagt es "Keine gezogene Datei -
+  erst ziehen, dann installieren" statt einen 400 zu zeigen, der wie ein
+  Serverfehler aussieht.
+- **`frageArsenal`** schickt `pullId`/`swordId` nur, wenn sie da sind - ein
+  undefined kaeme sonst als `null` beim Agenten an.
+- **`fuehreAus`** hat einen `install`-Zweig: anstossen, sofort antworten.
+
+### Zwei Fehler, die die Tests nicht gefangen haben
+
+**1. Kommentar INNERHALB eines Arrays.** `ERLAUBTE_AKTIONEN = ['update',
+'restart', // Kommentar ... 'install']` - die Tests parsen die Liste als
+Text, und der Kommentar wurde zum Element `// Ein gezogenes Pack ... install`.
+Zwei Tests wurden rot, obwohl der Code richtig war. Kommentar aus dem Array
+gezogen.
+
+**2. Felder im HTML vergessen.** Der Handler liest `arsenalPullId` und
+`arsenalSwordId` per `getElementById` - die es nicht gab. Jeder Klick haette
+"Keine gezogene Datei" gesagt. **Der Test prueft nur den JS-Quelltext und war
+gruen.** Genau die Falle aus AGENTS.md ("Funktion gruen, Aufrufweg tot").
+Zwei Tests nachgezogen, die im HTML nachsehen.
+
+### Getestet
+
+406 Tests, 19 Mutationen ueber beide Runden, alle gefangen.
+
 ## [1.5.6] - 2026-11-09
 
 ### Fehler: `install` baute den Dateipfad selbst
