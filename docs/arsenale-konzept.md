@@ -129,13 +129,13 @@ Folgen, die das vereinfachen:
 - Ein Arsenal kennt genau **eine** Armory. Kein Multi-Mandant auf
   Arsenal-Ebene — das hält den Agenten klein und prüfbar.
 
-## Installation: Main oder Arsenal
+## Installation: Armory oder Arsenal
 
 Der Installer fragt beim Start, **was** installiert wird:
 
 ```
-Als Main installieren   (Panel, Benutzer, Racks, Arsenalverwaltung)
-Als Arsenal installieren (Agent, nimmt Befehle der Main an)
+Als Armory installieren  (Panel, Benutzer, Racks, Arsenalverwaltung)
+Als Arsenal installieren (Agent, nimmt Befehle der Armory an)
 ```
 
 Es gibt weiterhin nur einen Installer; er bekommt einen Schalter statt einer
@@ -145,22 +145,22 @@ Web-Panel — es ist nur die ausführende Seite.
 ## Notfall am Arsenal: repair und re-pair
 
 Ein Arsenal hat **kein Web-Interface**, aber ein lokales Kommando, das **ohne
-die Main** funktioniert. Ein Notausgang, der nach Hause telefonieren müsste,
+die Armory** funktioniert. Ein Notausgang, der nach Hause telefonieren müsste,
 wäre im Notfall wertlos.
 
 ```
 arsenal status     Agent läuft? Swords oben? Letztes Lebenszeichen?
 arsenal repair     Neustart, Dienst neu schreiben, Rechte prüfen
-arsenal re-pair    Neu mit der Main koppeln (neuer Kopplungscode)
+arsenal re-pair    Neu mit der Armory koppeln (neuer Kopplungscode)
 ```
 
 **`repair` und `re-pair` sind absichtlich ähnlich.** Es sind die zwei Notfälle
-derselben Lage: das Arsenal ist kaputt, oder es kennt die Main nicht mehr.
+derselben Lage: das Arsenal ist kaputt, oder es kennt die Armory nicht mehr.
 
 Der Haken: ein Buchstabe Unterschied heißt Vertipper, und dann repariert man,
 wo man neu koppeln wollte. Deshalb:
 
-- `re-pair` fragt nach einer Bestätigung und **zeigt vorher**, welche Main
+- `re-pair` fragt nach einer Bestätigung und **zeigt vorher**, welche Armory
   gerade eingetragen ist.
 - `repair` fasst die Kopplung **nicht** an. Das muss ein eigener Test
   festhalten, nicht nur ein Kommentar.
@@ -205,9 +205,9 @@ bleiben Stände liegen.
 
 Der Weg ist schon da: `armory-self-update` macht das heute fürs Panel —
 Tag prüfen, vorher sichern, wechseln, bei Fehler zurückrollen. Das Arsenal
-bekommt dasselbe, ausgelöst durch die Main.
+bekommt dasselbe, ausgelöst durch die Armory.
 
-**Die wichtige Bedingung:** der Rollback darf **nicht** von der Main abhängen.
+**Die wichtige Bedingung:** der Rollback darf **nicht** von der Armory abhängen.
 Geht ein Update schief, muss das Arsenal von selbst auf den alten Stand
 zurück, sonst steht man mit zehn Arsenalen da, von denen drei nicht mehr
 antworten — und ohne Web-Interface kommt man nur per SSH dran. Das Arsenal
@@ -215,7 +215,7 @@ sichert sich vor dem Update selbst und prüft nach dem Neustart, ob es
 antwortet; wenn nicht, rollt es zurück.
 
 **Version muss nicht gleich sein, aber sichtbar.** Das Arsenal meldet seine
-Version im Lebenszeichen. Dann weiß die Main sofort: "dieses Arsenal ist zu
+Version im Lebenszeichen. Dann weiß die Armory sofort: "dieses Arsenal ist zu
 alt für diese Funktion" — statt dass eine Aktion still scheitert. Ein Zwang
 auf identische Versionen wäre bei zehn Arsenalen nicht durchhaltbar.
 
@@ -223,7 +223,7 @@ auf identische Versionen wäre bei zehn Arsenalen nicht durchhaltbar.
 
 - Was ein Arsenal anzeigen darf. Werkzeuge und Zustand sind unbestritten;
   strittig ist, ob Benutzer- und Rechteverwaltung dort sichtbar sein sollen.
-- Ob Arsenale dieselbe Version brauchen wie die Main. Wenn ja, muss der Agent
+- Ob Arsenale dieselbe Version brauchen wie die Armory. Wenn ja, muss der Agent
   sich selbst aktualisieren können — sonst hat man zehn verschiedene Stände.
   (Ein Muster dafür existiert bereits: `armory-self-update`.)
 - Ob Racks auf einem Arsenal angelegt werden dürfen. Wenn ja, entstehen zwei
