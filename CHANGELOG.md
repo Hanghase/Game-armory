@@ -3,6 +3,57 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.2] - 2026-11-09
+
+### Die Versionsregel wird jetzt geprueft, nicht nur aufgeschrieben
+
+Felix, zum zweiten Mal an einem Tag: *"nein ich will nicht solche risigen
+spruenge haben bitte schau das es nicht noch einmal passiert!"*
+
+Er hat recht, und der Grund ist unangenehm: die Regel **stand** schon
+geschrieben (`GAME-ARMORY-NOTES.md`, "Release-Nummern"), und ich habe sie
+danach trotzdem zweimal gebrochen. `1.6.0` wurde als "fertige Faehigkeit"
+getaggt, obwohl sie live nie durchlief; die eigentliche Fertigstellung war
+`1.6.1`, und angesagt war sie nicht.
+
+Eine Regel, die mich nicht aufhaelt, ist keine. Also:
+
+**`tests/versionssprung.test.mjs`**
+
+| Sprung | erlaubt? |
+|---|---|
+| `1.6.0` -> `1.6.1` | ja (eine Korrektur) |
+| `1.5.8` -> `1.5.81` | ja (Nachkomma, Felix' Form) |
+| `1.5.84` -> `1.6.0` | ja, **nur mit Ansage** im Commit davor |
+| `1.6.0` -> `1.6.5` | nein - fuenf Patches |
+| `1.5.8` -> `1.6.1` | nein - zwei Stellen in einem Schritt |
+| `1.5.84` -> `1.7.0` | nein - zwei Nebenstellen |
+
+Geprueft an **zwei** Stellen, weil die erste Luecke hatte:
+
+1. **Tag-Kette** - was schon ausgeliefert ist.
+2. **Arbeitsversion gegen den juengsten Tag** - hier entsteht der Sprung. Ohne
+   diese zweite Pruefung blieb `1.6.1` -> `1.6.9` gruen; live nachgemessen.
+
+Der pre-push-Hook ruft `npm test` und bricht damit bei einem Sprung ab.
+Nachgemessen mit genau diesem Fehler: Hook sagt *"Push abgebrochen - die Tests
+sind rot"*.
+
+Die Altlasten (`1.1.8`->`1.1.92`, `1.3.57`->`1.3.60`, `1.3.60`->`1.3.70`,
+`1.5.4`-`1.5.8`, `1.6.0`->`1.6.1`) stehen einzeln **mit Grund** im Test - sie
+verschwinden nicht, aber ein neuer Verstoss kann nicht in einer pauschalen
+Ausnahme untertauchen.
+
+### Die Reihenfolge, die mich haette aufhalten muessen
+
+1. Erst fertig machen - sie laeuft, **live gesehen**.
+2. Dann ansagen: *"das wird X.Y.0, weil ..."*.
+3. Dann bumpen und taggen.
+
+Steht jetzt auch in `AGENTS.md`, nicht nur in den Projektnotizen.
+
+Dieser Release ist `1.6.2` - ein Patch, wie es sich gehoert.
+
 ## [1.6.1] - 2026-11-09
 
 ### Einsetzen lief nicht - vier Fehler, alle erst live gefunden
