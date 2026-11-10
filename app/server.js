@@ -21,6 +21,7 @@ import { serviceAction, serviceStatus, streamLogs, withReadiness,
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
 import { arsenalRouter } from './arsenalRoutes.js';
+import { adoptRouter } from './adoptroutes.js';
 import { pruefeHandshake, registriere, verarbeiteNachricht, leitungWeg } from './arsenalSocket.js';
 import { getSessionUser, requireAuth, cleanupExpiredSessions,  cleanupLoginAttempts,
 } from './auth.js';
@@ -96,6 +97,10 @@ app.use('/api/auth', authRouter);
 // --- API: Settings, CurseForge, Install & Update ---------------------------
 app.use('/api', installRouter);
 app.use('/api', arsenalRouter);
+// Karte 28 (2026-11-10): bestehende Dienste uebernehmen. Getrennt von
+// installRouter, weil es kein Install ist - es wird nichts heruntergeladen
+// und nichts entpackt, nur vorgefunden und geprueft.
+app.use('/api', adoptRouter);
 
 // --- API: Swords (lesen: jeder Eingeloggte) ------------------------------
 

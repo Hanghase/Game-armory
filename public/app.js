@@ -1140,6 +1140,42 @@ function arsenalLabel(id) {
       b.addEventListener('click', () => saveTheme(b.dataset.themeChoice));
     });
 
+    // "Neues Sword"-Menue (2026-11-10): zwei Wege unter einem Knopf.
+    // Gleiches Muster wie das Kontomenue - ein Klick klappt auf, ein Klick
+    // daneben oder Escape schliesst wieder.
+    (function initNewMenu() {
+      const wrap = document.getElementById('newMenu');
+      const btn = document.getElementById('newMenuBtn');
+      if (!wrap || !btn) return;
+
+      const setOpen = (open) => {
+        wrap.classList.toggle('open', open);
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      };
+
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        setOpen(!wrap.classList.contains('open'));
+      });
+
+      document.addEventListener('click', (ev) => {
+        if (!wrap.classList.contains('open')) return;
+        if (!wrap.contains(ev.target)) setOpen(false);
+      });
+
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        if (!wrap.classList.contains('open')) return;
+        setOpen(false);
+        btn.focus();
+      });
+
+      // Nach einem Klick auf einen Eintrag ist das Menue erledigt.
+      wrap.querySelectorAll('[role="menuitem"]').forEach((item) => {
+        item.addEventListener('click', () => setOpen(false));
+      });
+    })();
+
     // Wird vom Menue unten gesetzt; andere Stellen (Logout, Reload) nutzen es.
     let closeWhoMenu = () => {};
 
@@ -2330,7 +2366,10 @@ function arsenalLabel(id) {
       document.getElementById('who').innerHTML =
         `${me.username}<span class="rolechip">${RANGEN[me.role]}</span>`;
       if (can('sword.create')) {
-        document.getElementById('newRackBtn').style.display = 'inline-block';
+        // Seit 2026-11-10 fuehrt EIN Knopf zu beiden Wegen (Neu bauen /
+        // Bestehenden uebernehmen). Sichtbar wird der Wrapper, nicht der
+        // Knopf darin.
+        document.getElementById('newMenu').style.display = 'block';
       }
       if (can('rack.reload')) {
         document.getElementById('reloadSwordsBtn').style.display = 'inline-block';
@@ -3614,3 +3653,257 @@ async function loadArsenals() {
     if (box) box.innerHTML = '<p class="hint">Liste nicht abrufbar.</p>';
   }
 }
+
+/* ===== Uebernehmen (Karte 28, 2026-11-10) =====
+   Steht hier statt in einer eigenen Datei, weil app.js kein Modul ist
+   und ein Umbau auf ES-Module das ganze Frontend betrifft. */
+
+// Uebernehmen (Karte 28, 2026-11-10): einen laufenden Dienst eintragen.
+//
+// Diese Datei wird von app.js NICHT importiert - ES-Module waeren ein Umbau
+// des ganzen Frontends. Stattdessen haengt sie als eigener Block in app.js.
+// Sie steht hier getrennt, damit der Code lesbar bleibt und die Tests ihn
+// pruefen koennen (tests/adoptPanel.test.mjs liest beide Dateien).
+
+// --- Zustand ---
+
+let adoptKandidat = null;   // der gewaehlte Fund
+let adoptPruefungOk = false;
+
+// --- Kandidaten holen ---
+
+async function ladeAdoptKandidaten() {
+  const box = document.getElementById('adoptKandidaten');
+  if (!box) return;
+  box.innerHTML = '<div class="item"><span class="meta">Wird gesucht…</span></div>';
+
+  const res = await api('/api/adopt/kandidaten');
+  if (res.status !== 200) {
+    box.innerHTML = '<div class="item"><span class="meta">'
+      + esc((res.data && res.data.error) || ('Fehler HTTP ' + res.status)) + '</span></div>';
+    return;
+  }
+
+  const liste = (res.data && res.data.kandidaten) || [];
+  if (liste.length === 0) {
+    box.innerHTML = '<div class="item"><span class="meta">Nichts gefunden, '
+      + 'das sich übernehmen lässt.</span></div>';
+    return;
+  }
+
+  // Jeder Fund bekommt einen Knopf. Kein onclick - CSP verbietet Inline-Skript,
+  // deshalb nach dem Rendern per addEventListener verdrahten.
+  box.innerHTML = liste.map((k, i) => {
+    const lage = k.sicher
+      ? '<span class="badge ok">erkannt</span>'
+      : (k.rackId
+        ? '<span class="badge warn">unsicher</span>'
+        : '<span class="badge">Dienstart unbekannt</span>');
+    const dienste = Array.isArray(k.dienste) && k.dienste.length
+      ? `<div class="meta">${esc(k.dienste.join(', '))}</div>` : '';
+    const grund = k.grund ? `<div class="meta">${esc(k.grund)}</div>` : '';
+    return `<div class="item">
+      <div class="grow">
+        <div><b>${esc(k.label || k.id)}</b> <span class="meta">(${esc(k.quelle)})</span> ${lage}</div>
+        <div class="meta">${esc(k.id)}</div>
+        ${dienste}${grund}
+      </div>
+      <button class="ghost" data-adopt-index="${i}">Auswählen</button>
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('[data-adopt-index]').forEach((b) => {
+    b.addEventListener('click', () => waehleAdoptKandidat(liste[Number(b.dataset.adoptIndex)]));
+  });
+}
+
+// --- Kandidat waehlen: Felder vorbelegen ---
+
+function waehleAdoptKandidat(k) {
+  adoptKandidat = k;
+  adoptPruefungOk = false;
+
+  document.getElementById('adoptForm').style.display = 'block';
+  document.getElementById('adoptId').value = k.id || '';
+  document.getElementById('adoptRack').value = k.rackId || '';
+  document.getElementById('adoptPort').value = '';
+  document.getElementById('adoptVerz').value = '';
+
+  // Nichts ist geprueft, also darf man nichts uebernehmen.
+  document.getElementById('adoptUebernehmen').disabled = true;
+  document.getElementById('adoptPruefung').innerHTML =
+    'Noch nicht geprüft. Port und Arbeitsverzeichnis ausfüllen, dann Prüfen.';
+  document.getElementById('adoptPruefung').className = 'status-box';
+}
+
+// --- Pruefen ---
+
+function adoptEingabe() {
+  return {
+    kandidat: adoptKandidat,
+    id: document.getElementById('adoptId').value.trim(),
+    rackId: document.getElementById('adoptRack').value.trim(),
+    name: document.getElementById('adoptId').value.trim(),
+    port: Number(document.getElementById('adoptPort').value),
+    arbeitsVerzeichnis: document.getElementById('adoptVerz').value.trim(),
+  };
+}
+
+async function pruefeAdopt() {
+  if (!adoptKandidat) return;
+  const box = document.getElementById('adoptPruefung');
+  box.className = 'status-box';
+  box.innerHTML = 'Wird geprüft…';
+
+  const res = await api('/api/adopt/vorschau', {
+    method: 'POST', body: JSON.stringify(adoptEingabe()),
+  });
+
+  if (res.status !== 200) {
+    adoptPruefungOk = false;
+    document.getElementById('adoptUebernehmen').disabled = true;
+    box.className = 'status-box bad';
+    box.innerHTML = esc((res.data && res.data.error) || ('Fehler HTTP ' + res.status));
+    return;
+  }
+
+  const d = res.data;
+  const reihe = (name, p) => {
+    // Ein "unbekannt" ist NICHT bestanden. Deshalb drei Zeichen, nicht zwei.
+    const zeichen = p.ok ? '✅' : (p.unbekannt ? '❔' : '❌');
+    const text = p.ok
+      ? (Array.isArray(p.wert) ? p.wert.join(', ') : String(p.wert ?? 'ok'))
+      : (p.grund || 'fehlgeschlagen');
+    return `<div class="pruefzeile">${zeichen} <b>${esc(name)}</b>: ${esc(text)}</div>`;
+  };
+
+  const namen = {
+    steuerart: 'Steuerart', arbeitsverzeichnis: 'Arbeitsverzeichnis',
+    struktur: 'Struktur', port: 'Port', logquelle: 'Log-Quelle',
+  };
+
+  box.innerHTML = (d.reihenfolge || Object.keys(d.pruefungen))
+    .map((n) => reihe(namen[n] || n, d.pruefungen[n]))
+    .join('');
+
+  adoptPruefungOk = d.ok === true;
+  box.className = 'status-box ' + (adoptPruefungOk ? 'ok' : 'bad');
+  document.getElementById('adoptUebernehmen').disabled = !adoptPruefungOk;
+}
+
+// --- Uebernehmen ---
+
+async function adoptUebernehmen() {
+  if (!adoptKandidat || !adoptPruefungOk) return;
+
+  const btn = document.getElementById('adoptUebernehmen');
+  btn.disabled = true;
+  btn.textContent = 'Wird eingetragen…';
+
+  const res = await api('/api/adopt', {
+    method: 'POST', body: JSON.stringify(adoptEingabe()),
+  });
+
+  btn.textContent = 'Übernehmen';
+
+  if (res.status !== 201 && res.status !== 200) {
+    const d = res.data || {};
+    // Die Pruefungen koennen zwischen Vorschau und Klick anders aussehen
+    // (Port zu, Datei weg). Dann zeigen, was jetzt gilt.
+    if (d.pruefungen) {
+      const box = document.getElementById('adoptPruefung');
+      box.className = 'status-box bad';
+      box.innerHTML = esc(d.error || 'Übernehmen fehlgeschlagen');
+    } else {
+      alert((d.error) || ('Fehler HTTP ' + res.status));
+    }
+    btn.disabled = false;
+    return;
+  }
+
+  const d = res.data || {};
+  let text = `„${d.sword?.name || d.sword?.id}“ wurde eingetragen.`;
+  if (d.herkunft && d.herkunft.hinweis) {
+    text += `\n\nHinweis: die Herkunftsdatei wurde nicht geschrieben — `
+      + `${d.herkunft.hinweis}`;
+  }
+  alert(text);
+
+  document.getElementById('adoptModal').classList.remove('open');
+  await reloadSwords();
+}
+
+// --- Verdrahtung (kein onclick: CSP script-src 'self') ---
+
+const _adoptBtn = document.getElementById('adoptBtn');
+if (_adoptBtn) {
+  _adoptBtn.addEventListener('click', () => {
+    adoptKandidat = null;
+    adoptPruefungOk = false;
+    document.getElementById('adoptForm').style.display = 'none';
+    document.getElementById('adoptUebernehmen').disabled = true;
+    document.getElementById('adoptModal').classList.add('open');
+    ladeAdoptKandidaten();
+  });
+}
+
+const _adoptPruefen = document.getElementById('adoptPruefen');
+if (_adoptPruefen) _adoptPruefen.addEventListener('click', pruefeAdopt);
+
+const _adoptUebernehmen = document.getElementById('adoptUebernehmen');
+if (_adoptUebernehmen) _adoptUebernehmen.addEventListener('click', adoptUebernehmen);
+
+const _adoptAbbrechen = document.getElementById('adoptAbbrechen');
+if (_adoptAbbrechen) {
+  _adoptAbbrechen.addEventListener('click', () => {
+    document.getElementById('adoptModal').classList.remove('open');
+  });
+}
+
+// Aendert jemand die Felder, ist die alte Pruefung nichts mehr wert.
+for (const id of ['adoptId', 'adoptRack', 'adoptPort', 'adoptVerz']) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  el.addEventListener('input', () => {
+    adoptPruefungOk = false;
+    document.getElementById('adoptUebernehmen').disabled = true;
+  });
+}
+
+// ===== Schliessen: Kreuz, Escape, Klick daneben =====
+//
+// Alle Fenster im Panel (2026-11-10). Drei Wege, weil drei Erwartungen:
+// das Kreuz oben rechts, die Escape-Taste, und der Klick auf den dunklen Rand.
+//
+// Kein onclick im HTML - die CSP erlaubt nur 'self'. Deshalb hier verdrahtet,
+// und zwar fuer JEDES .modal, damit ein neues Fenster automatisch mitkommt.
+document.querySelectorAll('.modal').forEach((modal) => {
+  const box = modal.querySelector('.box');
+
+  // Klick auf den Rand: nur wenn das Ziel wirklich der Rand ist. Ein Klick
+  // im Fenster sprudelt sonst hierher und wuerde es schliessen.
+  modal.addEventListener('mousedown', (e) => {
+    if (e.target === modal) modal.classList.remove('open');
+  });
+
+  // Das Kreuz. Es traegt die id des Fensters plus X (adoptModal -> adoptModalX).
+  const x = modal.querySelector('.modal-x');
+  if (x) x.addEventListener('click', () => modal.classList.remove('open'));
+
+  // Was nach dem Schliessen passieren muss, haengt am Fenster: das eine
+  // raeumt Felder auf, das andere bricht einen laufenden Vorgang ab.
+  // Deshalb nur eine Meldung fuer die Aufrufer, kein Sonderfall hier.
+  if (box) {
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); modal.classList.remove('open'); }
+    });
+  }
+});
+
+// Escape auf Dokumentebene: greift auch, wenn der Fokus auf einem Feld
+// ausserhalb des Fensters steht (z.B. nach einem Dialog des Browsers).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const offen = document.querySelector('.modal.open');
+  if (offen) { e.preventDefault(); offen.classList.remove('open'); }
+});

@@ -42,7 +42,10 @@ let swordCache = [];
 let swordErrors = [];    // Ladefehler des letzten loadSwords() - fuer die Diagnose
 let swordWarnings = [];  // weiche Hinweise (z.B. unbekanntes Rack), Sword laedt trotzdem
 
-function validateSword(sword, filename, warnings) {
+// Exportiert seit 2026-11-10 (Karte 28), damit ein Test die Regeln der
+// Adoption GEGEN das Original pruefen kann. Eine Kopie der Regeln ohne
+// Gegenprobe ist keine Zusicherung - sie darf stillschweigend abweichen.
+export function validateSword(sword, filename, warnings) {
   // Audit-Fix 2026-10-30 (D209): Vorher wurde nur auf `undefined` geprueft -
   // `{"id": null}` und `{"control": null}` kamen durch. Ein Sword mit id=null
   // landet im Cache, und alles Folgende (Service-Name, Pfade, Logzeilen) arbeitet

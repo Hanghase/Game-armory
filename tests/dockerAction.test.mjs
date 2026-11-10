@@ -30,7 +30,17 @@ async function quelle() {
 // gegen einen unlesbaren Compose-Pfad getestet: wir koennen die Aktionen nicht
 // wirklich ausfuehren (kein Docker in dieser Pruefung), aber wir koennen
 // beweisen, dass die Aktions-Whitelist greift, BEVOR irgendetwas passiert.
+// Seit 2026-11-10 (Karte 28) erwartet der Helfer den STACK als erstes
+// Argument:  armory-docker-ctl <stack> <aktion> [dienst] [zeilen]
+//
+// Die Umstellung ist Absicht: der Aufrufer waehlt einen NAMEN, nie einen
+// Pfad. Diese zwei Funktionen halten die Absicht sichtbar - `helfer` fuer den
+// echten Stack, `helferRoh` fuer Tests, die die Argumente selbst stellen.
 function helfer(...args) {
+  return helferRoh('nextcloud', ...args);
+}
+
+function helferRoh(...args) {
   return spawnSync('bash', [HELFER, ...args], { encoding: 'utf8', timeout: 20000 });
 }
 
@@ -57,8 +67,11 @@ test('eine unbekannte Aktion wird abgewiesen, bevor Docker angefasst wird', () =
 
 test('start ohne Dienstnamen wird abgewiesen', () => {
   const r = helfer('start');
-  assert.equal(r.status, 4, `start ohne Dienst: erwartet 4, kam ${r.status}`);
-  assert.match(r.stderr, /Dienst nicht erlaubt/);
+  // Seit 2026-11-10 kommt der Stack zuerst; ohne Dienst ist die Argumentzahl
+  // falsch (7). Frueher war es 4, weil die fehlende Dienstliste die erste
+  // Pruefung war. Beides ist eine Ablehnung VOR docker - das ist der Punkt.
+  assert.equal(r.status, 7, `start ohne Dienst: erwartet 7, kam ${r.status}`);
+  assert.match(r.stderr, /Falsche Argumentzahl/);
 });
 
 test('ein Dienst ausserhalb der Whitelist wird abgewiesen', () => {
@@ -75,31 +88,43 @@ test('ein drittes Argument (freie Kommandozeile) wird abgewiesen', () => {
   // den Compose-Fehler ("no such service") ein - die Mutationsprobe blieb
   // gruen, obwohl die Pruefung ausgebaut war. Jetzt wird der EIGENE Code 7
   // verlangt, also die eindeutige Ablehnung durch den Helfer.
+  //
+  // Seit 2026-11-10 ist die Argumentzahl aktionsabhaengig geprueft: restart
+  // nimmt genau `stack aktion dienst`, also drei. Alles darueber ist 7.
   const r = helfer('restart', 'nc-app', '--force-recreate');
   assert.equal(r.status, 7,
     `ueberzaehlige Argumente muessen mit 7 abgewiesen werden, kam ${r.status}`);
-  assert.match(r.stderr, /Zu viele Argumente/);
+
+  // Und mit --force-recreate als ZWEITEM Dienst (der Fall, den der alte Test
+  // in "harmlos aussehend" abdeckte):
+  const r2 = helfer('start', 'nc-app', 'nc-db');
+  assert.equal(r2.status, 7, 'zwei Dienste in einem Aufruf muessen 7 sein');
 });
 
-test('auch ein harmlos aussehendes viertes Argument wird abgewiesen', () => {
-  assert.equal(helfer('start', 'nc-app', 'nc-db').status, 7,
-    'zwei Dienste in einem Aufruf muessen abgewiesen werden');
+test('ein harmlos aussehendes Zahlenargument wird abgewiesen', () => {
+  // 20 koennte als Zeilenzahl (logs) oder Timeout (stop) durchrutschen.
+  // Bei stop/restart nimmt der Helfer KEINE vierte Angabe.
   assert.equal(helfer('stop', 'nc-app', '20').status, 7,
-    'ein Zahlenargument darf nicht als Zeilen/Timeout durchrutschen');
+    'ein Zahlenargument darf nicht als Timeout durchrutschen');
 });
 
-test('der Compose-Pfad steht fest im Skript und kommt nie aus einem Argument', async () => {
+test('die Compose-Datei kommt aus der Tabelle, nie aus einem Argument', async () => {
   const q = await quelle();
-  // Der Pfad MUSS fest zugewiesen sein.
-  assert.match(q, /COMPOSE_FILE="\/opt\/nextcloud\/docker-compose\.yml"/,
-    'die Compose-Datei muss fest im Skript stehen');
+
+  // Seit 2026-11-10 steht der Pfad NICHT mehr als feste Zuweisung im Skript,
+  // sondern in der Stack-Tabelle. Das ist die Erweiterung fuer Karte 28 - aber
+  // die Sicherheitseigenschaft ist dieselbe und wird hier festgehalten:
+  // der Pfad kommt aus dem Skript, niemals aus der Kommandozeile.
+  assert.match(q, /^STACKS="/m, 'die Stack-Tabelle fehlt');
+  assert.match(q, /nextcloud\|\/opt\/nextcloud\/docker-compose\.yml\|/,
+    'der Nextcloud-Stack muss in der Tabelle stehen');
 
   // Er darf NIE aus der Aufrufer-Eingabe kommen. Erster Testversuch war hier
   // falsch: das Muster sprang auf `compose -f "$COMPOSE_FILE"` an, also auf
   // den richtigen Code - ein Test, der immer rot ist, prueft nichts.
   // Jetzt gezielt: kein "$1"/"$2"/"${1}"/"${2}" auf der Compose-Zeile, und
   // die Hilfsfunktion uebergibt ausschliesslich die Variable.
-  const composeZeilen = q.split('\n').filter((z) => /compose\s+-f/.test(z));
+  const composeZeilen = q.split('\n').filter((z) => /compose\s+-f/.test(z) && !/^\s*#/.test(z));
   assert.ok(composeZeilen.length > 0, 'die compose-Hilfsfunktion fehlt');
   for (const z of composeZeilen) {
     assert.match(z, /compose\s+-f\s+"\$COMPOSE_FILE"/,
@@ -107,14 +132,20 @@ test('der Compose-Pfad steht fest im Skript und kommt nie aus einem Argument', a
     assert.ok(!/\$\{?[123]\}?/.test(z),
       `Compose-Datei darf nicht aus einem Argument kommen: ${z.trim()}`);
   }
+
+  // Und der Stackname selbst darf nur ueber pruefe_stack in COMPOSE_FILE
+  // muenden - der Pfad wird aus der Tabelle gelesen, nicht zusammengebaut.
+  assert.match(q, /COMPOSE_FILE="\$\(stack_datei "\$stack"\)"/,
+    'COMPOSE_FILE muss aus stack_datei kommen');
 });
 
 test('die Whitelist prueft exakt, nicht als Teilstring', async () => {
   // Regression: der alte case-Vergleich gegen " nc-app nc-db nc-redis " liess
   // "nc-app nc-db" durch - docker compose bekam daraus ZWEI Dienste.
-  const { spawnSync } = await import('node:child_process');
+  //
+  // Seit 2026-11-10 geht der Aufruf ueber helferRoh, damit der Stack mitgeht.
   for (const dienst of ['nc-app nc-db', 'nc-app  ', ' nc-app', 'nc-app\tnc-db']) {
-    const r = spawnSync('bash', [HELFER, 'stop', dienst], { encoding: 'utf8', timeout: 20000 });
+    const r = helferRoh('nextcloud', 'stop', dienst);
     assert.equal(r.status, 4,
       `"${dienst}" kam durch die Whitelist (rc=${r.status}) - das waere freie Kommandozeile`);
   }
@@ -135,8 +166,10 @@ test('dockerAction ruft den Helfer mit Aktion und Dienst auf', async () => {
     'nc-app', 'restart', { run });
 
   assert.equal(r.ok, true);
+  // Seit 2026-11-10 steht der Stackname VOR der Aktion. Der Pfad geht nie
+  // mit - das bleibt die Sicherheitseigenschaft, nur mit einem Namen davor.
   assert.deepEqual(aufrufe[0],
-    ['sudo', '-n', '/usr/local/bin/armory-docker-ctl', 'restart', 'nc-app']);
+    ['sudo', '-n', '/usr/local/bin/armory-docker-ctl', 'nextcloud', 'restart', 'nc-app']);
 });
 
 test('dockerAction lehnt eine unerlaubte Aktion OHNE Prozessstart ab', async () => {

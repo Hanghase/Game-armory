@@ -30,7 +30,7 @@ test('streamLogs kennt den Typ docker und liest ueber den Helfer', async () => {
   const calls = [];
 
   const h = streamLogs(
-    { control: { type: 'docker' }, logs: { type: 'docker', service: 'nc-app' } },
+    { control: { type: 'docker', compose: '/opt/nextcloud/docker-compose.yml' }, logs: { type: 'docker', service: 'nc-app' } },
     () => {},
     { spawn: (cmd, args) => { calls.push([cmd, ...args]); return child; } },
   );
@@ -49,7 +49,7 @@ test('streamLogs docker leitet die Ausgabe weiter', async () => {
   const teile = [];
 
   streamLogs(
-    { control: { type: 'docker' }, logs: { type: 'docker', service: 'nc-app' } },
+    { control: { type: 'docker', compose: '/opt/nextcloud/docker-compose.yml' }, logs: { type: 'docker', service: 'nc-app' } },
     (d) => teile.push(d),
     { spawn: () => child },
   );

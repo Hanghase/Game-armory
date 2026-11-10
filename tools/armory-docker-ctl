@@ -1,9 +1,9 @@
 #!/bin/bash
 # Game-Armory - Docker-Steuerung (privilegierter Helfer)
 # Wird per sudo vom armory-User aufgerufen. Erlaubt NUR:
-#   - Aktionen: status | ps | logs
-#   - EINE feste Compose-Datei (Pfad steht hier, nie als Argument)
-#   - Dienste aus einer festen Whitelist
+#   - Aktionen: status | ps | logs | start | stop | restart
+#   - Stacks aus einer festen Tabelle (NAME, nie ein Pfad)
+#   - Dienste aus der Dienstliste des jeweiligen Stacks
 #
 # Kein Shell-Durchreichen, keine freien Argumente, kein `docker run`,
 # kein `docker exec`, kein freies `-f`.
@@ -14,10 +14,26 @@
 # root und gibt nur die Auswertung zurueck. Die compose-.env (root:root 600)
 # wird dabei gelesen, ihr Inhalt verlaesst das Skript aber nie.
 #
-# Start/Stop/Restart sind seit 2026-11-07 enthalten - aber nur fuer EINEN
-# Dienst pro Aufruf aus der Whitelist. Status und Logs waren davor belegt
-# (Panel zeigte running, 3/3 Dienste, Log-Stream mit 100 Zeilen), das war die
-# Bedingung in docs/rack-schema.md:179.
+# --- Erweitert 2026-11-10 (Karte 28: bestehende Dienste uebernehmen) --------
+#
+# Vorher war der Helfer an GENAU EINE Compose-Datei gebunden. Fuer das
+# Uebernehmen fremder Stacks muss er mehrere kennen - aber weiterhin nicht
+# beliebige.
+#
+# Deshalb: der Aufrufer waehlt einen NAMEN, niemals einen Pfad.
+#   alt:  armory-docker-ctl <aktion> <dienst> [zeilen]
+#   neu:  armory-docker-ctl <stack> <aktion> [dienst] [zeilen]
+#
+# Der Pfad entsteht ERST hier, aus der Tabelle unten. Ein Pfad aus der
+# Kommandozeile wird nicht angenommen - das ist die Grenze, an der die
+# Sicherheit haengt: wer den Pfad waehlen darf, waehlt, welcher Stack
+# gesteuert wird.
+#
+# Die Tabelle ist bewusst eine feste Liste und kein Verzeichnis-Scan. Ein
+# Scan wuerde jeden Ordner mit einer docker-compose.yml zu einem steuerbaren
+# Ziel machen - auf diesem Host liegt z.B. /root/openclaw/docker-compose.yml,
+# aus dem KEIN Container laeuft (live nachgemessen 2026-11-10). Ein neuer
+# Stack kommt durch einen Eintrag hier hinein, nicht durch bloßes Existieren.
 #
 # Bewusst NICHT enthalten: down, rm, exec, build, run. `down` entfernt den
 # Stack samt Netzwerk, `exec` waere root im Container - beides ist keine
@@ -25,15 +41,33 @@
 
 set -euo pipefail
 
-# --- Feste Bindung an genau einen Stack --------------------------------------
-COMPOSE_FILE="/opt/nextcloud/docker-compose.yml"
-ALLOWED_SERVICES="nc-app nc-db nc-redis"
 ALLOWED_ACTIONS="status ps logs start stop restart"
 
 # Obergrenze fuer Log-Zeilen - verhindert, dass das Panel den Speicher flutet.
 MAX_LINES=2000
 
-action="${1:-}"
+# --- Stack-Tabelle ----------------------------------------------------------
+# Format: <name>|<compose-datei>|<dienste, leerzeichengetrennt>
+#
+# Ein Eintrag mit leeren Diensten bedeutet: die Dienstliste wird aus der
+# Compose-Datei gelesen (docker compose config --services). Das ist der
+# Normalfall fuer einen uebernommenen Stack, dessen Dienste der Betreiber
+# nicht einzeln eintragen will.
+#
+# Die Dienste-Freigabe bleibt trotzdem noetig: was nicht in der Datei steht,
+# kommt nicht durch.
+STACKS="
+nextcloud|/opt/nextcloud/docker-compose.yml|nc-app nc-db nc-redis
+"
+
+# --- Erlaubte Pfad-Wurzel ---------------------------------------------------
+# Auch wenn der Pfad aus der Tabelle kommt: er wird gegen diese Wurzel
+# aufgeloest. Damit faellt ein Symlink auf, der aus /opt herauszeigt.
+ALLOWED_ROOT="/opt"
+
+# --- Argumente --------------------------------------------------------------
+stack="${1:-}"
+action="${2:-}"
 
 # 1) Aktion whitelisten
 case " $ALLOWED_ACTIONS " in
@@ -41,11 +75,85 @@ case " $ALLOWED_ACTIONS " in
   *) echo "Unerlaubte Aktion: ${action}" >&2; exit 2 ;;
 esac
 
-# 2) Compose-Datei muss existieren (sonst ist die Installation kaputt)
-if [[ ! -r "$COMPOSE_FILE" ]]; then
+# --- Stackpruefung, an EINER Stelle -----------------------------------------
+# Dieselbe Zweistufigkeit wie bei pruefe_dienst: erst die Form, dann der
+# exakte Wortvergleich gegen die Tabelle.
+# Ohne die Formpruefung kaeme "nextcloud; rm -rf /" bis zum Wortvergleich -
+# der wuerde zwar ablehnen, aber verlassen wollen wir uns nicht darauf.
+pruefe_stack() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    echo "Stack nicht erlaubt: (fehlt)" >&2
+    exit 9
+  fi
+  if [[ ! "$name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+    echo "Stack nicht erlaubt: $name" >&2
+    exit 9
+  fi
+  local zeile
+  while IFS= read -r zeile; do
+    [[ -z "$zeile" ]] && continue
+    if [[ "${zeile%%|*}" == "$name" ]]; then
+      return 0
+    fi
+  done <<< "$STACKS"
+  echo "Stack nicht erlaubt: $name" >&2
+  exit 9
+}
+
+# Gibt die Compose-Datei eines Stacks aus der Tabelle zurueck.
+stack_datei() {
+  local name="$1" zeile
+  while IFS= read -r zeile; do
+    [[ -z "$zeile" ]] && continue
+    if [[ "${zeile%%|*}" == "$name" ]]; then
+      # Feld 2 ist der Pfad. Mit cut, weil der Pfad kein '|' enthaelt.
+      printf '%s\n' "$zeile" | cut -d'|' -f2
+      return 0
+    fi
+  done <<< "$STACKS"
+  return 1
+}
+
+# Gibt die eingetragene Dienstliste zurueck (Feld 3), kann leer sein.
+stack_dienste() {
+  local name="$1" zeile
+  while IFS= read -r zeile; do
+    [[ -z "$zeile" ]] && continue
+    if [[ "${zeile%%|*}" == "$name" ]]; then
+      printf '%s\n' "$zeile" | cut -d'|' -f3
+      return 0
+    fi
+  done <<< "$STACKS"
+  return 1
+}
+
+pruefe_stack "$stack"
+
+COMPOSE_FILE="$(stack_datei "$stack")"
+
+# --- Pfad aufloesen und gegen die Wurzel pruefen ----------------------------
+# Heute kommt der Pfad aus der Tabelle, also aus dem Skript selbst. Die
+# Aufloesung ist trotzdem noetig: ein Symlink koennte aus /opt herauszeigen,
+# und dann wuerde ein Eintrag "harmlos aussehen", aber woandershin steuern.
+if [[ ! -e "$COMPOSE_FILE" ]]; then
   echo "Compose-Datei nicht lesbar: $COMPOSE_FILE" >&2
   exit 3
 fi
+AUFGELOEST="$(realpath -e "$COMPOSE_FILE" 2>/dev/null || true)"
+if [[ -z "$AUFGELOEST" ]]; then
+  echo "Compose-Datei nicht aufloesbar: $COMPOSE_FILE" >&2
+  exit 3
+fi
+case "$AUFGELOEST" in
+  "$ALLOWED_ROOT"/*) ;;
+  *) echo "Compose-Datei ausserhalb von $ALLOWED_ROOT: $AUFGELOEST" >&2; exit 3 ;;
+esac
+if [[ ! -r "$AUFGELOEST" ]]; then
+  echo "Compose-Datei nicht lesbar: $AUFGELOEST" >&2
+  exit 3
+fi
+COMPOSE_FILE="$AUFGELOEST"
 
 # --- Dienstpruefung, an EINER Stelle -------------------------------------
 # Der alte Weg war ein case-Vergleich gegen " nc-app nc-db nc-redis ".
@@ -66,8 +174,21 @@ pruefe_dienst() {
     echo "Dienst nicht erlaubt: $name" >&2
     exit 4
   fi
+
+  # Die erlaubte Liste kommt aus der Tabelle. Ist sie leer, wird sie aus der
+  # Compose-Datei gelesen - das ist der Fall fuer einen uebernommenen Stack.
+  local liste dienste
+  liste="$(stack_dienste "$stack")"
+  if [[ -z "$liste" ]]; then
+    if ! dienste="$(docker compose -f "$COMPOSE_FILE" config --services 2>&1)"; then
+      echo "Dienstliste nicht lesbar: $dienste" >&2
+      exit 4
+    fi
+    liste="$dienste"
+  fi
+
   local erlaubt
-  for erlaubt in $ALLOWED_SERVICES; do
+  for erlaubt in $liste; do
     if [[ "$name" == "$erlaubt" ]]; then
       return 0
     fi
@@ -79,6 +200,30 @@ pruefe_dienst() {
 compose() {
   docker compose -f "$COMPOSE_FILE" "$@"
 }
+
+# --- Argumentzahl -----------------------------------------------------------
+# Die Zaehlung haengt an der Aktion, weil `status`/`ps` keinen Dienst nehmen
+# und `logs` zusaetzlich die Zeilenzahl.
+case "$action" in
+  status|ps)
+    if [[ $# -gt 2 ]]; then
+      echo "Zu viele Argumente: $action nimmt keinen Dienst" >&2
+      exit 7
+    fi
+    ;;
+  start|stop|restart)
+    if [[ $# -ne 3 ]]; then
+      echo "Falsche Argumentzahl: $stack $action <dienst>" >&2
+      exit 7
+    fi
+    ;;
+  logs)
+    if [[ $# -lt 3 ]] || [[ $# -gt 4 ]]; then
+      echo "Falsche Argumentzahl: $stack logs <dienst> [zeilen]" >&2
+      exit 7
+    fi
+    ;;
+esac
 
 case "$action" in
   status)
@@ -100,13 +245,13 @@ case "$action" in
     ;;
 
   logs)
-    service="${2:-}"
-    lines="${3:-200}"
+    service="${3:-}"
+    lines="${4:-200}"
 
-    # 3) Dienst MUSS aus der Whitelist kommen (kein freier Container-Name)
+    # Dienst MUSS aus der Dienstliste kommen (kein freier Container-Name)
     pruefe_dienst "$service"
 
-    # 4) Zeilenzahl streng numerisch und begrenzt
+    # Zeilenzahl streng numerisch und begrenzt
     if [[ ! "$lines" =~ ^[0-9]+$ ]]; then
       echo "Ungueltige Zeilenzahl: $lines" >&2
       exit 5
@@ -118,18 +263,10 @@ case "$action" in
     compose logs --tail "$lines" --no-color "$service" 2>&1
     ;;
   start|stop|restart)
-    service="${2:-}"
+    service="${3:-}"
 
-    # Dienst MUSS aus der Whitelist kommen - kein freier Container-Name.
+    # Dienst MUSS aus der Dienstliste kommen - kein freier Container-Name.
     pruefe_dienst "$service"
-
-    # Genau EIN Dienst pro Aufruf. Ohne diese Pruefung liesse sich
-    # "restart nc-app --force-recreate" oder ein zweiter Dienst anhaengen -
-    # der Rest waere freie Kommandozeile an docker compose.
-    if [[ $# -ne 2 ]]; then
-      echo "Zu viele Argumente: genau eine Aktion und ein Dienst" >&2
-      exit 7
-    fi
 
     # --timeout nur bei stop/restart: `docker compose start` kennt das Flag
     # NICHT und bricht mit "unknown flag: --timeout" ab (live erwischt

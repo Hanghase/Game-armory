@@ -251,7 +251,17 @@
       align-items: center; justify-content: center; padding: 20px; }
     .modal.open { display: flex; }
     .modal .box { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-      padding: 22px; width: 100%; max-width: 480px; max-height: 80vh; overflow: auto; }
+      padding: 22px; width: 100%; max-width: 480px; max-height: 80vh; overflow: auto;
+      position: relative; }
+    /* Schliessen-Kreuz oben rechts in jedem Fenster. Steht im HTML VOR dem
+       Inhalt, damit die Tastatur es zuerst erreicht - Tab landet sofort
+       auf "Schliessen" statt auf dem letzten Formularfeld. */
+    .modal-x { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; border: 1px solid transparent; border-radius: 8px;
+      color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; padding: 0; }
+    .modal-x:hover { color: var(--text); background: var(--ctl); border-color: var(--border); }
+    .modal-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .modal h3 { margin: 0 0 16px; }
     /* Erklaerender Text unter einer Modal-Ueberschrift. */
     .modal-sub { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); }
@@ -384,7 +394,21 @@
     <h1>Game-Armory</h1>
     <span class="badge" id="versionBadge" title="Version wird geladen…">v–</span>
     <span class="spacer"></span>
-    <button class="ghost" id="newRackBtn" style="display:none;">＋ Neues Sword</button>
+    <!-- Neues Sword (2026-11-10): zwei Wege unter einem Knopf. "Neu bauen"
+         installiert, "Übernehmen" traegt einen laufenden Dienst ein. Beides
+         braucht sword.create - deshalb EIN Knopf statt zweier, und das Menue
+         erscheint nur mit diesem Recht. Kein onclick: CSP erlaubt kein
+         Inline-Skript. -->
+    <div class="menu" id="newMenu" style="display:none;">
+      <button class="ghost" id="newMenuBtn" aria-haspopup="true" aria-expanded="false"
+              title="Neuen Server bauen oder laufenden Dienst eintragen">＋ Neues Sword ▾</button>
+      <div class="menu-list" role="menu">
+        <button type="button" id="newRackBtn" role="menuitem"
+                title="Einen neuen Server installieren">＋ Neu bauen</button>
+        <button type="button" id="adoptBtn" role="menuitem"
+                title="Einen laufenden Dienst in die Armory eintragen">↪ Bestehenden übernehmen</button>
+      </div>
+    </div>
     <!-- Kontomenue: ein Klick auf den Namen klappt die Verwaltung auf.
          Aufbau ueber .menu/.menu-list (dasselbe Muster wie die Sword-Menues). -->
     <div class="menu" id="whoMenu">
@@ -456,6 +480,7 @@
        Zielpfad) - nicht mit dem Sword-Install ("Neuer Server") verwechseln. -->
   <div class="modal" id="rackManageModal">
     <div class="box wide">
+        <button class="modal-x" id="rackManageModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3>Racks verwalten</h3>
       <p class="modal-sub">Eine Schablone für einen Server-Typ: Spiel, Loader,
         Install-Quelle und Zielpfad. Bestehende Server (Swords) bleiben unberührt.</p>
@@ -470,6 +495,7 @@
   <!-- Rack-Editor: Formular für ein einzelnes Rack (neu oder bearbeiten). -->
   <div class="modal" id="rackEditModal">
     <div class="box wide rack-editor">
+        <button class="modal-x" id="rackEditModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3 id="reTitle">Neues Rack</h3>
       <div class="re-grid2">
         <div>
@@ -623,6 +649,7 @@
 
   <div class="modal" id="profileModal">
     <div class="box tabbed">
+        <button class="modal-x" id="profileModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3>Konto &amp; Verwaltung</h3>
       <div class="tabs" id="profileTabs">
         <button class="ghost active" data-ptab="profile">Konto</button>
@@ -982,6 +1009,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
        hier der Eintrag, dort was unmittelbar davor passiert ist. -->
   <div class="modal" id="errorsModal">
     <div class="box wide tabbed">
+        <button class="modal-x" id="errorsModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3>Log &amp; Fehler</h3>
 
       <div class="tabs" id="logTabs">
@@ -1036,9 +1064,61 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
     </div>
   </div>
 
+  <!-- Uebernehmen (Karte 28, 2026-11-10): einen LAUFENDEN Dienst in die Armory
+       holen, ohne ihn zu installieren. Hier wird nichts angelegt, heruntergeladen
+       oder ueberschrieben - nur geprueft und eingetragen.
+       Kein onclick: die CSP erlaubt kein Inline-Skript (server.js:63). -->
+  <div class="modal" id="adoptModal">
+    <div class="box wide">
+        <button class="modal-x" id="adoptModalX" aria-label="Schließen" title="Schließen">&times;</button>
+      <h3>Bestehenden Dienst übernehmen</h3>
+      <p class="hint">Ein Dienst, der schon läuft, wird in die Armory
+        eingetragen. Es wird nichts installiert und nichts überschrieben.
+        Alle fünf Prüfungen müssen stimmen — sonst wird nichts angelegt.</p>
+
+      <h4>1. Gefundene Dienste</h4>
+      <div class="list" id="adoptKandidaten">
+        <div class="item"><span class="meta">Wird gesucht…</span></div>
+      </div>
+
+      <div id="adoptForm" style="display:none;">
+        <h4>2. Angaben ergänzen</h4>
+        <p class="hint">Was die Erkennung nicht wissen kann, steht hier.
+          Ein geratener Port oder ein falsches Verzeichnis wäre schlimmer
+          als kein Eintrag — deshalb lieber nachfragen.</p>
+
+        <div class="row2">
+          <label for="adoptId">Name (wird zur Kennung)</label>
+          <input type="text" id="adoptId" placeholder="z.B. atm11" />
+        </div>
+        <div class="row2">
+          <label for="adoptRack">Rack (Dienstart)</label>
+          <input type="text" id="adoptRack" placeholder="z.B. nextcloud" />
+        </div>
+        <div class="row2">
+          <label for="adoptPort">Port</label>
+          <input type="number" id="adoptPort" placeholder="z.B. 8088" />
+        </div>
+        <div class="row2">
+          <label for="adoptVerz">Arbeitsverzeichnis</label>
+          <input type="text" id="adoptVerz" placeholder="/opt/nextcloud" />
+        </div>
+
+        <h4>3. Prüfung</h4>
+        <div id="adoptPruefung" class="status-box">Noch nicht geprüft.</div>
+        <button class="ghost" id="adoptPruefen">Prüfen</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="ghost" id="adoptAbbrechen">Schließen</button>
+      <button class="primary" id="adoptUebernehmen" disabled>Übernehmen</button>
+    </div>
+  </div>
+
   <!-- Update / Neuer Server: Quelle + Version wählen, dann Fortschritt -->
   <div class="modal" id="updateModal">
     <div class="box wide">
+        <button class="modal-x" id="updateModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3 id="upTitle">Sword aktualisieren</h3>
 
       <div id="upForm">
@@ -1177,6 +1257,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
   <!-- Sword entfernen: Bestaetigung, optional auch Server-Ordner + Welt löschen -->
   <div class="modal" id="removeModal">
     <div class="box">
+        <button class="modal-x" id="removeModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3>Sword entfernen</h3>
       <div class="warn" id="removeWarn"></div>
       <p class="hint">Der Server wird dafür zuerst gestoppt. Danach werden systemd-Unit,
@@ -1195,6 +1276,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
   <!-- EULA nachtragen: explizite Betreiber-Zustimmung, danach eula=true -->
   <div class="modal" id="eulaModal">
     <div class="box">
+        <button class="modal-x" id="eulaModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3>EULA nachtragen</h3>
       <div class="hint" id="eulaSwordInfo" style="margin-bottom:10px;"></div>
       <p class="warn" id="eulaWarn">Ohne akzeptierte EULA startet der Server nicht.</p>
@@ -1214,6 +1296,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
        findet (z.B. Kundenpack mit unbekanntem Dateinamen). Pflichtfeld. -->
   <div class="modal" id="versionModal">
     <div class="box">
+        <button class="modal-x" id="versionModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3>Version eintragen</h3>
       <div class="hint" id="versionSwordInfo" style="margin-bottom:10px;"></div>
       <p>Keine Version automatisch erkannt? Dann hier von Hand eintragen, z.B.
@@ -1251,6 +1334,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
        stylbar ist und "Abbrechen" hier "Später" bedeutet. -->
   <div class="modal" id="confirmModal">
     <div class="box">
+        <button class="modal-x" id="confirmModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3 id="confirmTitle">Best\u00e4tigen</h3>
       <p id="confirmText" style="white-space:pre-line;"></p>
       <div class="modal-foot">
@@ -1264,6 +1348,7 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
        der Code bindet #configCancel/#configSave direkt beim Laden. -->
   <div class="modal" id="configModal">
     <div class="box wide">
+        <button class="modal-x" id="configModalX" aria-label="Schließen" title="Schließen">&times;</button>
       <h3 id="configTitle">Konfiguration</h3>
       <div id="configBody" style="max-height:60vh;overflow:auto;"></div>
       <div class="modal-foot">

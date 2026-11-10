@@ -25,8 +25,38 @@ const SERVICE_CTL = '/usr/local/bin/armory-service-ctl';
 // armory-User ist NICHT in der docker-Gruppe - wer den Socket schreiben
 // darf, ist de facto root. Deshalb liest der Helfer als root und gibt
 // nur die Auswertung zurueck.
+//
+// Erweitert 2026-11-10 (Karte 28): Der Helfer kennt jetzt MEHRERE Stacks
+// (Tabelle im Skript) und nimmt den Stacknamen als erstes Argument:
+//   armory-docker-ctl <stack> <aktion> [dienst] [zeilen]
+// Der Aufrufer waehlt einen NAMEN, nie einen Pfad - wer den Pfad waehlen
+// darf, waehlt, welcher Stack gesteuert wird.
 const DOCKER_CTL = '/usr/local/bin/armory-docker-ctl';
 const DOCKER_SERVICE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+// Ein Stackname ist strenger als ein Dienstname: nur Kleinbuchstaben,
+// Ziffern, _ und -. Dieselbe Form wie pruefe_stack im Helfer.
+const STACK_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+
+/**
+ * Leitet den Stacknamen aus dem Sword ab.
+ *
+ * Der Sword nennt die Compose-Datei (`/opt/nextcloud/docker-compose.yml`),
+ * der Helfer will den Namen (`nextcloud`). Diese Umrechnung gehoert an EINE
+ * Stelle - sonst schickt der Status einen Namen und die Aktion einen Pfad.
+ *
+ * Die Ableitung ist bewusst schlicht: der Verzeichnisname ueber der Datei.
+ * Das ist die Compose-Konvention (`project` heisst wie der Ordner). Stimmt
+ * sie nicht, lehnt der Helfer ab - und das ist besser als raten.
+ */
+export function stackNameAusControl(control) {
+  const compose = control?.compose;
+  if (typeof compose !== 'string' || compose.trim() === '') return null;
+  // .../verzeichnis/docker-compose.yml -> verzeichnis
+  const m = /^\/(?:[^/]+\/)*([^/]+)\/(?:docker-)?compose\.ya?ml$/.exec(compose.trim());
+  if (!m) return null;
+  const name = m[1];
+  return STACK_NAME_RE.test(name) ? name : null;
+}
 
 export async function serviceAction(service, action, deps = {}) {
   const run = deps.run ?? execFileAsync;
@@ -174,7 +204,11 @@ function streamDocker(sword, onData, { lines = 100, spawn: spawnFn = spawn } = {
   if (typeof service !== 'string' || !DOCKER_SERVICE_RE.test(service)) {
     throw new Error(`Ungültiger Docker-Dienst: ${service}`);
   }
-  const child = spawnFn('sudo', ['-n', DOCKER_CTL, 'logs', service, String(lines)]);
+  const stack = stackNameAusControl(sword.control);
+  if (!stack) {
+    throw new Error(`Stack aus compose-Pfad nicht ableitbar: ${sword.control?.compose ?? '(fehlt)'}`);
+  }
+  const child = spawnFn('sudo', ['-n', DOCKER_CTL, stack, 'logs', service, String(lines)]);
   child.stdout.on('data', (c) => onData(c.toString()));
   child.stderr.on('data', (c) => onData(c.toString()));
   return child;
@@ -426,11 +460,16 @@ export async function dockerStatus(control, deps = {}) {
     return { ...leer, error: `Ungültiger compose-Pfad: ${compose ?? '(fehlt)'}` };
   }
 
+  const stack = stackNameAusControl(control);
+  if (!stack) {
+    return { ...leer, error: `Stack aus compose-Pfad nicht ableitbar: ${compose}` };
+  }
+
   let stdout;
   try {
     // Ueber den Helfer, NICHT direkt: der armory-User darf den Docker-Socket
     // nicht ansprechen (siehe Kopf dieser Funktion).
-    ({ stdout } = await run('sudo', ['-n', DOCKER_CTL, 'status']));
+    ({ stdout } = await run('sudo', ['-n', DOCKER_CTL, stack, 'status']));
   } catch (err) {
     return { ...leer, error: (err.stderr || err.message || '').toString().trim() || 'docker compose ps fehlgeschlagen' };
   }
@@ -490,7 +529,12 @@ export async function dockerStatus(control, deps = {}) {
  *
  * @param {string} service  Whitelist-Dienst (nc-app | nc-db | nc-redis)
  * @param {number} [lines]  Zeilen, Standard 200
+ * @param {{control?: object, run?: Function}} [deps]  Steuerdaten und Injektion
  * @returns {Promise<string>} Log-Text oder eine Fehlermeldung als Text
+ *
+ * Seit 2026-11-10 (Karte 28) braucht der Helfer den Stacknamen. Er kommt aus
+ * `deps.control.compose` - nicht aus einem neuen Pflichtparameter, damit die
+ * Signatur fuer bestehende Aufrufer gleich bleibt.
  */
 export async function dockerLogs(service, lines = 200, deps = {}) {
   const run = deps.run ?? execFileAsync;
@@ -500,8 +544,13 @@ export async function dockerLogs(service, lines = 200, deps = {}) {
   }
   const n = Number.isFinite(Number(lines)) ? Math.max(1, Math.min(2000, Number(lines))) : 200;
 
+  const stack = stackNameAusControl(deps.control);
+  if (!stack) {
+    return `Stack aus compose-Pfad nicht ableitbar: ${deps.control?.compose ?? '(fehlt)'}`;
+  }
+
   try {
-    const { stdout } = await run('sudo', ['-n', DOCKER_CTL, 'logs', service, String(n)]);
+    const { stdout } = await run('sudo', ['-n', DOCKER_CTL, stack, 'logs', service, String(n)]);
     return String(stdout ?? '');
   } catch (err) {
     const grund = (err.stderr || err.message || '').toString().trim();
@@ -557,8 +606,16 @@ export async function dockerAction(control, service, action, deps = {}) {
       error: `Dienst gehört nicht zu diesem Stack: ${service} (erwartet: ${erlaubt.join(', ')})` };
   }
 
+  // Seit 2026-11-10 (Karte 28) braucht der Helfer den Stacknamen als erstes
+  // Argument. Fehlt er, darf KEIN Prozess starten - sonst ginge ein Aufruf
+  // mit falscher Argumentfolge an docker compose.
+  const stack = stackNameAusControl(control);
+  if (!stack) {
+    return { ...basis, ok: false, error: `Stack aus compose-Pfad nicht ableitbar: ${compose}` };
+  }
+
   try {
-    const { stdout } = await run('sudo', ['-n', DOCKER_CTL, action, service]);
+    const { stdout } = await run('sudo', ['-n', DOCKER_CTL, stack, action, service]);
     return { ...basis, ok: true, output: String(stdout ?? '') };
   } catch (err) {
     const grund = (err.stderr || err.message || '').toString().trim();

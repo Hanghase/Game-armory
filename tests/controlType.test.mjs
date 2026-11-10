@@ -109,7 +109,11 @@ test('dockerStatus liefert bei Fehler einen Grund statt zu werfen', async () => 
   );
   assert.equal(st.state, 'unknown');
   assert.equal(st.running, false);
-  assert.match(st.error, /no such file/);
+  // Seit 2026-11-10 (Karte 28) prueft dockerStatus den Stacknamen, BEVOR der
+  // Helfer laeuft. Bei /pfad/gibt/es/nicht.yml heisst das Verzeichnis 'es' -
+  // das ist ein gueltiger Name, der Helfer wird also gefragt und liefert den
+  // Fehler. Der Punkt des Tests bleibt derselbe: ein GRUND, kein Wurf.
+  assert.ok(st.error, 'ein Fehler muss einen Grund tragen');
 });
 
 // --- Der Weg zum Helfer (2026-11-07) -----------------------------------------
@@ -156,13 +160,19 @@ test('dockerLogs geht ebenfalls ueber den Helfer und nennt den Dienst', async ()
   const calls = [];
   const fakeRun = async (cmd, args) => { calls.push([cmd, ...args]); return { stdout: 'zeile1\nzeile2' }; };
 
-  const out = await dockerLogs('nc-app', 50, { run: fakeRun });
+  const out = await dockerLogs('nc-app', 50, {
+    run: fakeRun,
+    control: { compose: '/opt/nextcloud/docker-compose.yml' },
+  });
 
   assert.equal(calls[0][0], 'sudo');
   assert.ok(calls[0].includes('/usr/local/bin/armory-docker-ctl'));
   assert.ok(calls[0].includes('logs'));
   assert.ok(calls[0].includes('nc-app'));
   assert.ok(calls[0].includes('50'));
+  // Seit 2026-11-10 (Karte 28) geht der Stackname mit - der Pfad nie.
+  assert.ok(calls[0].includes('nextcloud'),
+    `der Stackname muss mitgehen, kam: ${calls[0].join(' ')}`);
   assert.match(out, /zeile1/);
 });
 

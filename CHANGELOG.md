@@ -3,6 +3,59 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.0] - 2026-11-10
+
+### Ein bestehender Dienst lässt sich übernehmen
+
+Bisher konnte die Armory nur installieren. Ein Dienst, der schon läuft —
+Nextcloud, ein zweiter Spielserver, was auch immer — hatte keinen Platz,
+obwohl an ihm dieselbe Arbeit hängt: starten, stoppen, Logs, Update.
+
+**Erkennung.** Zwei Quellen, beide live gelesen, keine geraten:
+
+- **Docker** über `docker ps --format` mit Labels. Die Compose-Datei allein
+  genügt nicht: `/root/openclaw/docker-compose.yml` deklariert zwei Dienste,
+  es laufen null Container. Wer pro YAML einen Stack annimmt, meldet Geister.
+- **systemd** über `systemctl list-units --type=service`. Die Ausgabe trennt
+  mit Leerzeichen, nicht mit `|` — der erste Parser lieferte 0 Einheiten und
+  hätte jeden Spielserver verschluckt, ohne Fehler.
+
+Auf felsis.de: **12 Kandidaten**. Nextcloud als sicher erkannt, die elf
+systemd-Dienste ehrlich als „Dienstart unbekannt“ — die Armory rät nicht.
+
+**Fünf Prüfungen, alle müssen stimmen:** Steuerart, Arbeitsverzeichnis,
+Struktur, Port, Log-Quelle. **„Unbekannt“ zählt nicht als bestanden** — drei
+Zeichen in der Anzeige (✅ ❔ ❌), nicht zwei. Wer „ich weiß es nicht“ als
+„in Ordnung“ darstellt, hat den Unterschied gelöscht.
+
+**Eintragen** mit Lock, tmp+rename und Gegenprobe gegen das echte
+`validateSword` — ein geschriebener Sword, den der Leser nicht akzeptiert,
+wäre die schlimmere Variante von „nichts geschrieben“.
+
+### Schließen-Kreuz in allen Fenstern
+
+Elf Fenster hatten nur einen Text-Knopf unten. Bei einem langen Formular hieß
+das: scrollen, um zu schließen. Jetzt ein ✕ oben rechts, dazu **Escape** und
+**Klick auf den dunklen Rand** (aber nicht in ein Feld). Weil der Knopf vor
+dem Inhalt steht, landet Tab sofort darauf.
+
+### „Neu bauen“ und „Übernehmen“ unter einem Knopf
+
+Oben rechts war ein Knopf „＋ Neues Sword“, daneben „↪ Übernehmen“ — zwei
+Knöpfe, die dasselbe Recht brauchen und Verschiedenes tun. Jetzt ein Menü
+mit beiden Wegen, nach demselben Muster wie das Kontomenü.
+
+### Der Docker-Helfer nimmt Stack-Namen, keine Pfade
+
+`armory-docker-ctl <stack> <aktion> [dienst] [zeilen]`. Der Stack muss aus
+einer festen Tabelle kommen; der Pfad wird **nie** von der Kommandozeile
+genommen. Live geprüft: `nc-redis` neu gestartet, Nextcloud antwortet vorher
+und nachher mit 302, alle drei Dienste wieder `running`.
+
+### Zahlen
+
+534 Tests, 16 Mutationen eingebaut und alle gefangen.
+
 ## [1.6.3] - 2026-11-09
 
 ### `1.6.0` ist im CHANGELOG als nicht lauffaehig markiert
