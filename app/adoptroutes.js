@@ -14,7 +14,7 @@ import { requirePerm } from './auth.js';
 import { wrapRouter } from './routeWrap.js';
 import { findeKandidaten, erkenneDienstart } from './adopt.js';
 import { pruefeAdoption, PRUEFUNGEN } from './adoptpruefung.js';
-import { baueAdoptiertenSword, schreibeSword, schreibeHerkunft,
+import { baueAdoptiertenSword, baueControl, schreibeSword, schreibeHerkunft,
   markerFuer, pruefeSchreibbar } from './adoptschreiben.js';
 import { getSwords, loadSwords } from './swords.js';
 import { getRack } from './racks.js';
@@ -114,17 +114,35 @@ adoptRouter.post('/adopt', requirePerm('sword.create'), async (req, res) => {
     });
   }
 
-  // 3) Sword bauen und schreiben.
-  const id = body.id ?? kandidat.id;
-  const sword = baueAdoptiertenSword({
-    id,
-    rackId,
-    name: body.name ?? kandidat.label ?? id,
-    port: Number(body.port),
-    control: body.control,
-    logs: body.logs,
-    beschreibung: body.beschreibung,
-  });
+    // 3) control aus dem KANDIDATEN bauen, nicht aus dem Body (2026-11-10).
+    //    Das Panel kennt den Compose-Pfad nicht - er steckt in den quellen der
+    //    Erkennung. Wuerde er aus dem Body kommen, koennte ein Aufrufer einen
+    //    beliebigen Pfad unterschieben.
+    let control;
+    try {
+      control = baueControl(kandidat, body.arbeitsVerzeichnis);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+    if (!control) {
+      return res.status(400).json({
+        error: `Für "${kandidat.id}" ist keine Steuerung ermittelbar - `
+          + 'ohne Compose-Datei kann die Armory ihn nicht starten oder stoppen. '
+          + 'Ein geratener Pfad wäre schlimmer als keiner.',
+      });
+    }
+
+    // 4) Sword bauen und schreiben.
+    const id = body.id ?? kandidat.id;
+    const sword = baueAdoptiertenSword({
+      id,
+      rackId,
+      name: body.name ?? kandidat.label ?? id,
+      port: Number(body.port),
+      control,
+      logs: body.logs,
+      beschreibung: body.beschreibung,
+    });
 
   const vorhandene = getSwords().map((s) => s.id);
   const fehler = pruefeSchreibbar(sword, vorhandene);

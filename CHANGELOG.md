@@ -1,7 +1,33 @@
-# Changelog
-
-Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
+
+## [1.7.11] - 2026-11-11
+
+### Uebernehmen baut die Steuerung, Docker-Racks zulassen
+
+Die Adoption (1.7.0) erkannte einen laufenden Dienst, schrieb aber kein
+`control` ins Sword. Live gemessen: `dockerStatus({})` antwortete
+`state "unknown", "Ungueltiger compose-Pfad: (fehlt)"`. Status lesen und
+start/stop gingen also nur, wenn ein Mensch den Pfad von Hand einsetzte.
+
+**control kommt jetzt aus der Erkennung, nicht aus dem Request.** Das Panel
+kennt den Compose-Pfad gar nicht - es sieht id, label, rackId. Der Pfad
+steckt in `kandidat.quellen`. Wuerde er aus dem Body kommen, koennte ein
+Aufrufer einen beliebigen Pfad unterschieben und `dockerStatus` auf eine
+fremde Datei zeigen lassen. Der Server nimmt ihn aus SEINER Erkennung.
+
+Fehlt der Pfad, gibt es `null` und eine 400 mit Begruendung - nicht geraten.
+Ein falscher Pfad faellt erst beim Start/Stop auf, und dann sucht man an der
+falschen Stelle.
+
+**`installMethod: 'docker'`** ist jetzt erlaubt. Ein laufender Compose-Stack
+wird uebernommen, nicht installiert; deshalb steht `docker` bewusst NICHT in
+den Quell-Typen - es gibt nichts zu laden. Wer ein Docker-Rack anlegt, meint
+"verwalten", nicht "installieren". Ohne diesen Wert wurde ein solches Rack
+als "unbekannte Methode" abgewiesen.
+
+**Tests:** `tests/karte28.test.mjs` haelt die beiden offenen Punkte fest.
+
+rt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
 ## [1.7.1] - 2026-11-11
 

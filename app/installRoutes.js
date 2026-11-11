@@ -980,6 +980,11 @@ const INSTALL_TYPE_FOR_METHOD = {
   zip: 'zip',
   upload: 'upload',
   github: 'github',
+  // Karte 28 (2026-11-10): ein LAUFENDER Compose-Stack wird uebernommen,
+  // nicht installiert. 'docker' hat deshalb keine Quelle, aus der
+  // geladen wird - der Wert steht hier, damit ein Rack mit
+  // installMethod 'docker' nicht als "unbekannte Methode" abgewiesen wird.
+  docker: 'docker',
 };
 
 installRouter.post('/installs', requirePerm('sword.create'), async (req, res) => {

@@ -137,10 +137,21 @@ test('source.type im Schema erlaubt jede Install-Methode des Installers', async 
   assert.ok(block, 'INSTALL_TYPE_FOR_METHOD nicht gefunden');
   const gebraucht = [...block[1].matchAll(/^\s*\w+:\s*'(\w+)'/gm)].map((m) => m[1]);
 
-  for (const typ of gebraucht) {
-    assert.ok(erlaubt.includes(typ),
-      `installRoutes.js bildet source.type "${typ}", das Schema erlaubt es nicht`);
-  }
+    // 'docker' bildet KEINEN source.type (Karte 28, 2026-11-10): ein laufender
+    // Compose-Stack wird uebernommen, nicht geladen. Es gibt nichts, was eine
+    // Quelle haette. Deshalb steht 'docker' auch nicht im Schema-enum - der
+    // Test prueft, dass das so BLEIBT, statt den Wert dort einzutragen.
+    const ohneQuelle = new Set(['docker']);
+
+    for (const typ of gebraucht) {
+      if (ohneQuelle.has(typ)) {
+        assert.ok(!erlaubt.includes(typ),
+          `"${typ}" braucht keine Quelle, steht aber im Schema-enum fuer source.type`);
+        continue;
+      }
+      assert.ok(erlaubt.includes(typ),
+        `installRoutes.js bildet source.type "${typ}", das Schema erlaubt es nicht`);
+    }
 });
 
 // --- Frontend: jede Quelle, die das Schema erlaubt, ist auch waehlbar -----

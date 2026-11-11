@@ -20,6 +20,48 @@ export const SWORDS_DIR = '/opt/game-armory/swords';
 export const INSTANZ_DATEI = 'armory-instance.json';
 
 /**
+ * Baut das control-Objekt aus einem erkannten Kandidaten.
+ *
+ * Warum das hier und nicht im Panel: das Panel kennt den Compose-Pfad gar
+ * nicht - es sieht nur id, label, rackId. Der Pfad steckt in kandidat.quellen.
+ * Wuerde das Panel ihn mitschicken, koennte ein Aufrufer irgendeinen Pfad
+ * unterschieben. Der Server nimmt ihn aus SEINER Erkennung.
+ *
+ * Gibt null zurueck, wenn kein Pfad da ist. Dann wird NICHT geraten: ein
+ * falscher Pfad zeigt dockerStatus auf eine fremde Datei, und das faellt
+ * erst beim Start/Stop auf.
+ */
+export function baueControl(kandidat, arbeitsVerzeichnis) {
+  if (!kandidat || typeof kandidat !== 'object') return null;
+
+  // Nur der Docker-Zweig hat eine Compose-Datei. Eine systemd-Unit hat keine,
+  // und sie braucht auch keine - dort ist control.type 'systemd'.
+  if (kandidat.quelle !== 'docker') {
+    if (kandidat.quelle === 'systemd') {
+      return { type: 'systemd', unit: `${kandidat.id}.service` };
+    }
+    return null;
+  }
+
+  const quellen = Array.isArray(kandidat.quellen) ? kandidat.quellen.filter(Boolean) : [];
+  if (quellen.length === 0) return null;
+
+  // Genau EINE Datei. Zwei waeren ein Zeichen fuer einen Namenskonflikt -
+  // dann lieber nachfragen als eine auswaehlen.
+  if (quellen.length > 1) {
+    throw new Error(`Kandidat ${kandidat.id} hat ${quellen.length} Compose-Dateien `
+      + `(${quellen.join(', ')}) - welche gilt?`);
+  }
+
+  return {
+    type: 'docker',
+    compose: quellen[0],
+    services: Array.isArray(kandidat.dienste) ? [...kandidat.dienste] : [],
+    workingDir: arbeitsVerzeichnis || null,
+  };
+}
+
+/**
  * Was ein uebernommener Sword mindestens braucht.
  * Alles andere kommt aus dem Rack oder bleibt leer.
  */

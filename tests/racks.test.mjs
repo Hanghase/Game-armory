@@ -308,17 +308,38 @@ test('jede Install-Methode hat einen passenden source.type im Code', async () =>
 
   assert.ok(methoden.length >= 5, `unerwartet wenige Methoden: ${methoden.join(', ')}`);
 
-  for (const methode of methoden) {
-    assert.doesNotThrow(
-      () => validateRackDraft(rack({
-        installMethod: methode,
-        source: methode === 'steamcmd'
-          ? { type: 'steam', projectId: null, appId: 1 }
-          : { type: methode, projectId: null },
-        configTemplate: methode === 'github' ? 'test.yaml' : undefined,
-        ...(methode === 'github' ? { source: { type: 'github', projectId: null, url: 'owner/repo' } } : {}),
-      })),
-      `installMethod "${methode}" wird vom Installer bedient, ist aber nicht anlegbar`,
-    );
-  }
+    // 'docker' ist die EINE Methode ohne Quelle (Karte 28, 2026-11-10): ein
+    // laufender Compose-Stack wird uebernommen, nicht geladen. Ein Docker-Rack
+    // hat deshalb KEIN source - es beschreibt nur, wie der Dienst gesteuert
+    // wird. Das wird hier geprueft, nicht uebersprungen: gaebe es doch eine
+    // Quelle, waere das ein Widerspruch.
+    const ohneQuelle = new Set(['docker']);
+
+    for (const methode of methoden) {
+      if (ohneQuelle.has(methode)) {
+        assert.doesNotThrow(
+          () => validateRackDraft(rack({ installMethod: methode })),
+          `installMethod "${methode}" ist nicht anlegbar - sie braucht kein source`,
+        );
+        assert.throws(
+          () => validateRackDraft(rack({
+            installMethod: methode, source: { type: methode, projectId: null },
+          })),
+          `installMethod "${methode}" nimmt ein source an, obwohl es keine Quelle gibt`,
+        );
+        continue;
+      }
+
+      assert.doesNotThrow(
+        () => validateRackDraft(rack({
+          installMethod: methode,
+          source: methode === 'steamcmd'
+            ? { type: 'steam', projectId: null, appId: 1 }
+            : { type: methode, projectId: null },
+          configTemplate: methode === 'github' ? 'test.yaml' : undefined,
+          ...(methode === 'github' ? { source: { type: 'github', projectId: null, url: 'owner/repo' } } : {}),
+        })),
+        `installMethod "${methode}" wird vom Installer bedient, ist aber nicht anlegbar`,
+      );
+    }
 });

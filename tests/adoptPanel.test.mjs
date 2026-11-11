@@ -120,9 +120,14 @@ test('die Route liest dieselben Felder', () => {
   // rackId und arbeitsVerzeichnis werden in bauePruefling() gelesen, nicht
   // direkt im Handler - deshalb hier beide Stellen pruefen. Ein Test, der
   // nur `body.rackId` sucht, waere rot, obwohl der Code stimmt.
-  for (const feld of ['kandidat', 'port', 'logs', 'control']) {
+  // 'control' steht BEWUSST nicht in dieser Liste (2026-11-10): es wird seit
+  // Karte 28 aus dem Kandidaten gebaut, nicht aus dem Body. Ein Aufrufer, der
+  // control mitschickt, koennte einen beliebigen Pfad unterschieben.
+  for (const feld of ['kandidat', 'port', 'logs']) {
     assert.match(route, new RegExp(`body\\.${feld}`), `die Route liest ${feld} nicht`);
   }
+  assert.ok(!/control:\s*body\.control/.test(route),
+    'control kommt aus dem Body - das darf nicht sein');
   const baue = route.slice(route.indexOf('function bauePruefling'));
   for (const feld of ['rackId', 'arbeitsVerzeichnis']) {
     assert.match(baue.slice(0, 800), new RegExp(`eingabe\\.${feld}`),

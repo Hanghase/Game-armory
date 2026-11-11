@@ -68,7 +68,11 @@ const REQUIRED_FIELDS = [...BASE_REQUIRED_FIELDS, ...GAME_REQUIRED_FIELDS];
 const GAMES = ['minecraft', '7d2d', 'teamspeak3', 'teamspeak6', 'satisfactory'];
 const LOADERS = ['vanilla', 'neoforge', 'forge', 'fabric', 'quilt', 'paper', 'spigot', 'purpur', 'native'];
 const TIERS = ['free', 'premium'];
-const INSTALL_METHODS = ['curseforge', 'steamcmd', 'zip', 'upload', 'github'];
+const INSTALL_METHODS = ['curseforge', 'steamcmd', 'zip', 'upload', 'github', 'docker'];
+  // 'docker' (Karte 28, 2026-11-10): ein LAUFENDER Compose-Stack wird
+  // uebernommen, nicht installiert. Deshalb steht 'docker' NICHT in
+  // SOURCE_TYPES - es gibt keine Quelle, aus der geladen wird. Wer ein
+  // Docker-Rack anlegt, meint "verwalten", nicht "installieren".
 // Erlaubte source.type. 'zip' und 'upload' sind die beiden Methoden OHNE
 // entfernte Quelle: der Betreiber stellt das Archiv selbst (2026-11-06).
 // Sie fehlten hier, obwohl installRoutes.js sie bedient (dort :1048 'zip'
