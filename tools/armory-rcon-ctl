@@ -1,0 +1,145 @@
+#!/bin/bash
+# Game-Armory - RCON-Konsole (privilegierter Helfer)
+# Wird per sudo vom armory-User aufgerufen.
+#
+#   armory-rcon-ctl send <server-id> <befehl...>
+#   armory-rcon-ctl players <server-id>
+#   armory-rcon-ctl check <server-id>
+#
+# Schreibt EINEN Konsolen-Befehl in einen Minecraft-Server (ueber RCON) und
+# gibt die Server-Antwort auf stdout aus.
+#
+# ── Grenzen (NICHT lockern) ────────────────────────────────────────────────
+# 1. Der Server muss als Sword registriert sein (swords/<id>.sword.json) und
+#    eine rcon-Sektion besitzen. Kein beliebiger Host, kein beliebiger Port.
+# 2. Der Befehl geht als EIN Argument an den Node-Client (exec ... -- "$cmd").
+#    Es wird keine Shell interpretiert - `;`, `$(...)`, Backticks, `|`, `&`
+#    erreichen nie eine Shell.
+# 3. Zusaetzlich Zeichen-Whitelist: Buchstaben, Ziffern, Leerzeichen und
+#    . _ - : / @ + , ' " ( ) [ ] = % # * ! ?
+#    Bewusst NICHT erlaubt: $ ` | ; & \ > < und Zeilenumbrueche.
+#    Auch > und < sind gesperrt: eine Umleitung wuerde aus dem Befehl
+#    eine Dateioperation machen, falls doch eine Shell dazwischenkommt.
+#    Warum auch & gesperrt ist: `&&` wuerde sonst durchgehen. Ein Minecraft-
+#    Befehl braucht kein kaufmaennisches Und.
+# 4. Befehls-Sperrliste: stop/restart/end gehoeren dem Stop-Knopf in der
+#    Oberflaeche. Ueber die Konsole wuerde ein `stop` die Wartezeit umgehen,
+#    in der die Welt gespeichert wird (scripts-stop-atm10.sh).
+# 5. Laenge begrenzt (Minecraft-Kommandos sind kurz; alles ab 256 Zeichen ist
+#    ein Irrtum oder ein Angriff).
+# 6. Das RCON-Passwort liest DIESES Skript. Es wird nie an den Aufrufer
+#    ausgegeben und nie als Argument sichtbar (ps).
+
+set -euo pipefail
+
+ALLOWED_ACTIONS="send players check"
+SWORDS_DIR="/opt/game-armory/swords"
+DATA_DIR="/opt/game-armory/data"
+NODE_BIN="/usr/bin/node"
+CLIENT="/opt/game-armory/tools/rcon-send.mjs"
+MAX_LEN=256
+
+# Befehle, die NICHT ueber die Konsole gehen (Panel steuert sie selbst).
+FORBIDDEN="stop restart end"
+
+action="${1:-}"
+server="${2:-}"
+shift 2 2>/dev/null || true
+
+case " $ALLOWED_ACTIONS " in
+  *" $action "*) ;;
+  *) echo "Unerlaubte Aktion: $action" >&2; exit 2 ;;
+esac
+
+# Server-ID streng validieren (kein Pfad, keine Punkte, keine Sonderzeichen).
+if [[ ! "$server" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+  echo "Ungültige Server-ID: $server" >&2
+  exit 2
+fi
+
+SWORD="$SWORDS_DIR/$server.sword.json"
+if [[ ! -r "$SWORD" ]]; then
+  echo "Server nicht als Sword registriert: $server" >&2
+  exit 3
+fi
+
+# Sword muss RCON definiert haben - sonst gibt es keinen Weg hinein.
+if ! grep -q '"rcon"' "$SWORD" 2>/dev/null; then
+  echo "Server $server hat keine rcon-Konfiguration im Sword." >&2
+  exit 3
+fi
+
+PW_FILE="$DATA_DIR/$server-rcon.password"
+if [[ ! -r "$PW_FILE" ]]; then
+  echo "RCON-Passwort nicht lesbar: $PW_FILE" >&2
+  exit 4
+fi
+
+# ---- players ---------------------------------------------------------------
+# Fragt die Spielerliste ab. Der Befehl steht FEST im Skript ("list"), der
+# Aufrufer kann keinen eigenen uebergeben - damit ist das ein reiner Lesezugriff
+# und braucht keine Zeichenpruefung.
+# Ausgabe: die Rohzeile von Minecraft, z.B.
+#   There are 2 of a max of 20 players online: Notch, Alex
+# Das Parsen macht der Server (control.js), nicht die Shell.
+if [[ "$action" == "players" ]]; then
+  set +e
+  ANT=$("$NODE_BIN" "$CLIENT" --sword "$SWORD" -- "list" < "$PW_FILE" 2>&1)
+  RC=$?
+  set -e
+  if (( RC != 0 )); then
+    echo "RCON-Abfrage fehlgeschlagen: $ANT" >&2
+    exit "$RC"
+  fi
+  printf '%s\n' "$ANT"
+  exit 0
+fi
+
+if [[ "$action" == "check" ]]; then
+  # Nur pruefen, ob die Voraussetzungen stimmen - keine Verbindung.
+  echo "OK server=$server password=yes"
+  exit 0
+fi
+
+# ---- send -----------------------------------------------------------------
+befehl="$*"
+
+if [[ -z "${befehl// /}" ]]; then
+  echo "Leerer Befehl." >&2
+  exit 2
+fi
+
+# Laenge
+if (( ${#befehl} > MAX_LEN )); then
+  echo "Befehl zu lang (${#befehl} > $MAX_LEN Zeichen)." >&2
+  exit 2
+fi
+
+# Zeichen-Whitelist. Bewusst NICHT erlaubt:  $ ` | ; \ und Zeilenumbrueche -
+# die koennen aus einem Konsolen-Befehl einen Systembefehl machen, falls doch
+# irgendwo eine Shell dazwischenkommt. Ein Minecraft-Befehl braucht keines davon.
+# Reines Bash statt grep: keine Quote-Verschachtelung, keine Ueberraschungen.
+if [[ "$befehl" == *[\$\`\|\;\&\\\>\<]* ]]; then
+  echo "Unzulässige Zeichen im Befehl." >&2
+  exit 2
+fi
+if [[ "$befehl" == *$'\n'* || "$befehl" == *$'\r'* ]]; then
+  echo "Zeilenumbrüche sind im Befehl nicht erlaubt." >&2
+  exit 2
+fi
+
+# Erste Wortkomponente gegen die Sperrliste pruefen.
+first="${befehl%% *}"
+# fuehrenden Slash entfernen (Spieler tippen oft "/stop")
+first="${first#/}"
+first="${first,,}"   # lowercase
+for f in $FORBIDDEN; do
+  if [[ "$first" == "$f" ]]; then
+    echo "Befehl '$first' ist über die Konsole gesperrt (bitte Stop-Knopf verwenden)." >&2
+    exit 5
+  fi
+done
+
+# Ausfuehren: Passwort per stdin an den Node-Client (nicht als Argument -> kein ps-Leak).
+# -- trennt Optionen vom Befehl; der Befehl bleibt EIN Argument.
+exec "$NODE_BIN" "$CLIENT" --sword "$SWORD" -- "$befehl" < "$PW_FILE"

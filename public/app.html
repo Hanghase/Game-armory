@@ -171,7 +171,40 @@
     .api-guide[open] > summary { margin-bottom: 8px; }
     .api-guide ol { margin: 8px 0 8px 18px; padding: 0; }
     .api-guide li { margin: 4px 0; }
+    /* Statuszeile der Sword-Karte.
+
+       Layout: Alles bleibt LINKS beieinander. Die Karte ist breit
+       (grid 1fr), und jede margin-left:auto reisst ein Element an den
+       rechten Rand - dann stehen Status, Laufzeit und Spielerzahl wie
+       drei Inseln in einer leeren Flaeche.
+       Felix (2026-11-11): "irgendwie sieht das alles so auseinander
+       gezogen aus" - das war genau dieser Effekt.
+       Deshalb gibt es in der Statuszeile KEIN margin-left:auto mehr. */
     .state { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 14px; }
+    .state .meta { color: var(--muted); font-size: 12px; }
+
+    /* Spielerzahl in der Statuszeile (seit 2026-11-11, ueberarbeitet nach
+       Felix' Rueckmeldung: nur die Zahl, keine Namen, keine eigene Zeile -
+       die Karte soll nicht fetter werden).
+         .p-low   unter der Haelfte   -> gruen  (Platz ist da)
+         .p-mid   Haelfte bis fast voll -> gelb  (wird eng)
+         .p-full  voll                -> rot    (niemand kommt mehr rein)
+         .p-err   nicht messbar       -> "—"/"?", gedaempft
+
+       Die Farbe folgt der Auslastung (Felix, 2026-11-11) - eine Ampel:
+         unter der Haelfte   -> gruen  (0..9 von 20)    Platz ist da
+         Haelfte bis fast voll -> gelb  (10..19 von 20)  wird eng
+         voll                -> rot    (20 von 20)       niemand kommt mehr rein
+       Grenze genau bei max/2: 10/20 ist NICHT "unter der Haelfte" -> gelb.
+       Die Rechnung macht das Frontend (pcolor), nicht das CSS. */
+    .players { margin-left: 2px; padding-left: 8px; border-left: 1px solid var(--border);
+      font-size: 12.5px; color: var(--muted); flex: none; }
+    .players .pcount { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .players.p-low  .pcount { color: var(--green); }
+    .players.p-mid  .pcount { color: var(--yellow); }
+    .players.p-full .pcount { color: var(--red); }
+    /* nicht messbar: schwach, nicht eingefaerbt - "?" ist keine Auslastung */
+    .players.p-err { opacity: .55; }
     .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
     .dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); }
     .dot.stopped { background: var(--red); }
@@ -186,7 +219,6 @@
     @media (prefers-reduced-motion: reduce) {
       .dot.starting, .dot.stopping { animation: none; }
     }
-    .state .meta { color: var(--muted); font-size: 12px; margin-left: auto; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     /* Dropdown fuer sekundaere Aktionen in der Sword-Karte */
     .menu { position: relative; }
@@ -234,6 +266,14 @@
     .menu-list .menu-check:hover { background: var(--ctl-hover); }
     .menu-list .menu-check input { margin: 0; cursor: pointer; }
     .console-status { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+    /* Konsolen-Eingabe (2026-11-11): Feld + Senden unter der Live-Konsole. */
+    .console-input { display: flex; gap: 8px; margin-top: 10px; align-items: stretch; }
+    .console-input input { flex: 1; min-width: 0; background: var(--sunken);
+      border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px;
+      color: var(--text); font-family: ui-monospace, monospace; font-size: 13px; }
+    .console-input input:focus { outline: none; border-color: var(--accent, #5b8dd6); }
+    .console-input input:disabled { opacity: .55; cursor: not-allowed; }
+    .console-input button { white-space: nowrap; }
     pre#console { background: var(--sunken); border: 1px solid var(--border); border-radius: 10px;
       padding: 14px; height: 340px; overflow: auto; font-size: 12.5px; line-height: 1.5;
       white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; }
@@ -466,6 +506,22 @@
         <span class="console-status" id="consoleStatus">nicht verbunden</span>
       </div>
       <pre id="console">[armory] Wähle ein Sword und klicke "Verbinden".</pre>
+
+      <!-- Konsolen-Eingabe (seit 2026-11-11). Sendet EINEN Befehl an den
+           Server (op, ban, whitelist, save-all ...). Sichtbar nur mit dem
+           Recht sword.console.write (admin+) - das Backend prueft es ohnehin,
+           das Ausblenden hier ist nur Aufraeumen, keine Absicherung.
+           Die Sicherheitspruefung liegt im Helfer armory-rcon-ctl; was hier
+           getippt wird, geht als Text an die Route und von dort an RCON. -->
+      <div class="console-input" id="consoleInputWrap" hidden>
+        <input type="text" id="consoleInput" autocomplete="off" spellcheck="false"
+               placeholder="Befehl eingeben, z.B.  op Notch  ·  ban Griefer Griefing  ·  save-all" />
+        <button id="consoleSend" class="primary">Senden</button>
+      </div>
+      <p class="hint" id="consoleInputHint" hidden style="margin-top:6px;">
+        Pfeil ↑/↓ blättert durch die letzten Befehle. <code>stop</code> und
+        <code>restart</code> gehen nur über die Server-Knöpfe.
+      </p>
     </div>
   </main>
   </div>
@@ -549,6 +605,10 @@
             <option value="zip">zip</option>
             <option value="upload">upload</option>
             <option value="github">github</option>
+            <!-- Karte 28 (2026-11-10): ein laufender Compose-Stack wird
+                 uebernommen, nicht installiert. Ein docker-Rack braucht
+                 deshalb keine Quelle (kein source-Feld). -->
+            <option value="docker">docker</option>
           </select>
         </div>
       </div>

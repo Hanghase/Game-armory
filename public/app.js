@@ -233,8 +233,85 @@
       }
     }
 
-    function fmtSince(ts) {
-      if (!ts) return '';
+    // Farbe nach Auslastung (Felix, 2026-11-11):
+    //   unter der Haelfte      -> 'p-low'  (gruen)
+    //   Haelfte bis fast voll -> 'p-mid'  (gelb)
+    //   voll                  -> 'p-full' (rot)
+    // Grenzen: 10/20 ist gelb (NICHT "unter der Haelfte"), 19/20 gelb, 20/20 rot.
+    //
+    // Unbekannte Zahlen (count/max fehlen oder 0) geben null zurueck - dann
+    // wird NICHTS eingefaerbt. Eine Farbe auf einer geratenen Auslastung
+    // waere schlimmer als keine Farbe.
+    function playerColor(count, max) {
+      // WICHTIG: hier NICHT einfach Number() nehmen. Number(null) ist 0 und
+      // Number('') ist 0 - damit haette "unbekannt" plotzlich die Farbe fuer
+      // "0 Spieler" (gruen) bekommen. Ein Test hat genau das gefangen.
+      // Deshalb: nur echte Zahlen oder Strings, die nach einer Zahl aussehen.
+      const zahl = (v) => {
+        if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+        if (typeof v === 'string' && v.trim() !== '') {
+          const n = Number(v);
+          return Number.isFinite(n) ? n : NaN;
+        }
+        return NaN;   // null, undefined, '', Objekte, boolesche Werte
+      };
+      const c = zahl(count);
+      const m = zahl(max);
+      if (!Number.isFinite(c)) return null;
+      // Ohne Maximum (7d2d liefert keins) gibt es keine Auslastung und damit
+      // keine Ampel. Die Zahl steht trotzdem da - nur eben ohne Farbe.
+      if (!Number.isFinite(m) || m <= 0) return null;
+      if (c >= m) return 'p-full';
+      if (c < m / 2) return 'p-low';
+      return 'p-mid';
+    }
+
+    // Holt die Spielerzahl eines Servers (nur Server mit RCON).
+    //
+    // Anzeige: NUR die Zahl ("0/20"), rechts in der Statuszeile. Keine Namen
+    // und kein Text wie "niemand online" - das macht die Karte breit und
+    // sagt nichts, was die Zahl nicht schon sagt (Felix, 2026-11-11).
+    //
+    // Wichtiger Unterschied, den die Anzeige machen MUSS:
+    //   Ziffer/Ziffer -> gemessen
+    //   "?"           -> Antwort unlesbar (nicht: 0)
+    //   "—"           -> nicht abrufbar (Server aus)
+    // Nie eine 0 zeigen, wo "weiss ich nicht" gilt - das waere eine Luege.
+    async function refreshPlayers(id, el) {
+      const { status, data } = await api(`/api/swords/${id}/players`);
+      const cEl = el.querySelector('.pcount');
+      if (!cEl) return;
+
+      el.classList.remove('p-err', 'p-low', 'p-mid', 'p-full');
+
+      if (status !== 200) {
+        el.classList.add('p-err');
+        cEl.textContent = '—';
+        el.title = data?.error ?? `HTTP ${status}`;
+        return;
+      }
+
+      if (data.count === null || data.count === undefined) {
+        el.classList.add('p-err');
+        cEl.textContent = '?';
+        el.title = data.raw ? 'Server: ' + data.raw : '';
+        return;
+      }
+
+      // Ohne Maximum (7d2d): nur die Zahl, kein "3/?" - der Schraegstrich
+      // ins Leere sieht aus wie ein Fehler. Mit Maximum: "3/20".
+      cEl.textContent = (data.max === null || data.max === undefined)
+        ? String(data.count)
+        : data.count + '/' + data.max;
+      const farbe = playerColor(data.count, data.max);
+      if (farbe) el.classList.add(farbe);
+      // Tooltip: die Namen stehen nur hier, nicht auf der Karte.
+      el.title = data.online && data.online.length
+        ? 'Online: ' + data.online.join(', ')
+        : (data.raw || '');
+    }
+
+    function fmtSince(ts) {      if (!ts) return '';
       const d = new Date(ts * 1000);
       const s = Math.floor((Date.now() - d.getTime()) / 1000);
       if (s < 60) return s + 's';
@@ -286,7 +363,7 @@ function arsenalLabel(id) {
           <h2>${sword.name} <span class="ver ${sword.versionState ? 'v-' + esc(sword.versionState) : 'v-unknown'}" title="${esc(versionTooltip(sword))}">v${esc(sword.installedVersion ?? '—')}${versionHint(sword)}</span>${sword.arsenal ? ` <span class="badge arsenal" title="Dieser Sword läuft nicht auf dieser Armory, sondern auf einem angeschlossenen Arsenal">${esc(arsenalLabel(sword.arsenal))}</span>` : ''}</h2>
           <div class="desc">${sword.description ?? ''}</div>
           <span class="badge ${sword.tier === 'premium' ? 'premium' : ''}">${sword.tier}</span>
-          <div class="state"><span class="dot unknown"></span><span class="label">…</span><span class="meta"></span></div>
+          <div class="state"><span class="dot unknown"></span><span class="label">…</span><span class="meta"></span>${sword.playerCount ? '<span class="players"><span class="pcount"></span></span>' : ''}</div>
           <div class="actions">
             <button data-a="start" ${(!mayStart || sword.locked) ? 'disabled' : ''}>▶ Start</button>
             <button data-a="stop" ${(!editable || sword.locked) ? 'disabled' : ''}>■ Stop</button>
@@ -397,6 +474,18 @@ function arsenalLabel(id) {
         swordsEl.appendChild(card);
         refreshStatus(sword.id, stateEl);
         setInterval(() => refreshStatus(sword.id, stateEl), 10000);
+        // Spielerzahl (nur Server mit RCON). Eigener Takt: list ist billig,
+        // aber 10 s waeren hier zu oft - 20 s reichen und schont das RCON.
+        // playerCount kommt vom Server (canCountPlayers) - EINE Wahrheit fuer
+        // Anzeige und Route. Vorher entschied das Frontend selbst und zeigte
+        // bei TeamSpeak/Nextcloud eine Zahl, die dann als "—" ankam.
+        if (sword.playerCount && can('sword.console.read')) {
+          const pEl = card.querySelector('.players');
+          if (pEl) {
+            refreshPlayers(sword.id, pEl);
+            setInterval(() => refreshPlayers(sword.id, pEl), 20000);
+          }
+        }
       }
 
       // Select NACH dem Aufbau einmal sauber neu befuellen (verhindert
@@ -775,6 +864,9 @@ function arsenalLabel(id) {
       me = res.data.user;
       initProfile();
       loadSwords();
+      // Konsolen-Eingabe haengt am Recht sword.console.write - nach dem
+      // Laden der Rechte neu bestimmen (sonst bleibt sie versteckt).
+      if (typeof konsoleFeldZeigen === 'function') konsoleFeldZeigen();
     }
 
     async function loadSettings() {
@@ -3313,6 +3405,116 @@ document.addEventListener('keydown', (ev) => {
       if (wrap) wrap.classList.remove('open');
       if (btn) btn.setAttribute('aria-expanded', 'false');
     });
+    // ── Konsolen-Eingabe (seit 2026-11-11) ────────────────────────────────
+    //
+    // Sendet EINEN Befehl an den Server (POST /api/swords/:id/console).
+    // Die Sicherheitspruefung (Zeichen, Sperrliste, Laenge) liegt im Helfer
+    // armory-rcon-ctl - das Frontend prueft NICHTS davon selbst, es wuerde
+    // nur eine zweite, abweichende Wahrheit schaffen.
+    //
+    // Sichtbarkeit: das Feld erscheint nur mit dem Recht sword.console.write.
+    // Das Backend prueft unabhaengig davon - Ausblenden ist Aufraeumen, keine
+    // Absicherung.
+    let consoleHistorie = [];
+    let consoleHistoriePos = -1;
+
+    function konsoleFeldZeigen() {
+      const wrap = document.getElementById('consoleInputWrap');
+      const hint = document.getElementById('consoleInputHint');
+      // can() prueft die aufgeloesten Rechte aus /api/auth/me - dieselbe
+      // Quelle, aus der auch das Backend prueft (sword.console.write).
+      const darf = can('sword.console.write');
+      if (wrap) wrap.hidden = !darf;
+      if (hint) hint.hidden = !darf;
+    }
+
+    async function konsoleSenden() {
+      const feld = document.getElementById('consoleInput');
+      const knopf = document.getElementById('consoleSend');
+      const select = document.getElementById('swordSelect');
+      if (!feld || !knopf || !select) return;
+
+      const befehl = feld.value.trim();
+      if (!befehl) return;
+
+      const swordId = select.value;
+      if (!swordId) {
+        toast('Kein Server ausgewaehlt.');
+        return;
+      }
+
+      // Historie merken (nur erfolgreich Gesendetes).
+      knopf.disabled = true;
+      const alt = knopf.textContent;
+      knopf.textContent = '…';
+
+      const { status, data } = await api(`/api/swords/${encodeURIComponent(swordId)}/console`, {
+        method: 'POST',
+        body: JSON.stringify({ befehl }),
+      });
+
+      knopf.disabled = false;
+      knopf.textContent = alt;
+
+      // Befehl + Antwort in die Konsole schreiben (eigene Zeile, damit man
+      // sieht, was man getan hat - der Server-Log zeigt es nur einseitig).
+      pushLog(`> ${befehl}`);
+      if (status === 200) {
+        const antwort = (data && data.antwort) ? data.antwort : '(keine Ausgabe)';
+        pushLog(antwort);
+        // Historie: Doppelte direkt hintereinander nicht zweimal ablegen.
+        if (consoleHistorie[consoleHistorie.length - 1] !== befehl) {
+          consoleHistorie.push(befehl);
+          if (consoleHistorie.length > 50) consoleHistorie = consoleHistorie.slice(-50);
+        }
+        consoleHistoriePos = -1;
+        feld.value = '';
+      } else {
+        pushLog(`[armory] ${(data && data.error) ? data.error : 'Fehler ' + status}`);
+        // Bei Fehlern den Text stehen lassen, damit man ihn korrigieren kann.
+        feld.focus();
+      }
+    }
+
+    const consoleInputEl = document.getElementById('consoleInput');
+    const consoleSendEl = document.getElementById('consoleSend');
+
+    if (consoleSendEl) {
+      consoleSendEl.addEventListener('click', konsoleSenden);
+    }
+
+    if (consoleInputEl) {
+      consoleInputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          konsoleSenden();
+          return;
+        }
+        // Pfeil hoch/runter: durch die Historie blaettern.
+        if (e.key === 'ArrowUp') {
+          if (!consoleHistorie.length) return;
+          e.preventDefault();
+          if (consoleHistoriePos === -1) consoleHistoriePos = consoleHistorie.length - 1;
+          else if (consoleHistoriePos > 0) consoleHistoriePos -= 1;
+          consoleInputEl.value = consoleHistorie[consoleHistoriePos] ?? '';
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          if (consoleHistoriePos === -1) return;
+          e.preventDefault();
+          if (consoleHistoriePos < consoleHistorie.length - 1) {
+            consoleHistoriePos += 1;
+            consoleInputEl.value = consoleHistorie[consoleHistoriePos] ?? '';
+          } else {
+            consoleHistoriePos = -1;
+            consoleInputEl.value = '';
+          }
+        }
+      });
+    }
+
+    konsoleFeldZeigen();
+
     document.getElementById('timestamps').addEventListener('change', renderConsoleAll);
 
     // Auto-Scroll aus, wenn man hochscrollt

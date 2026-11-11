@@ -3,6 +3,65 @@
 Alle nennenswerten Aenderungen an der Game-Armory.
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.1] - 2026-11-11
+
+### Konsolen-Befehle und Spielerzahl im Panel
+
+Zwei kleine Faehigkeiten, die den Server bedienbar machen, ohne sich per
+SSH einzuloggen. Beide sind in diesem Stand und werden zusammen ausgeliefert.
+
+### Konsolen-Eingabe
+
+Der Server laesst sich bedienen, ohne sich per SSH einzuloggen.
+
+**Konsolen-Eingabe.** Ein Eingabefeld unter der Live-Konsole. Befehle gehen
+ueber RCON in den Server: `op`, `ban`, `whitelist`, `save-all`, `time set`,
+`weather` — alles, was Minecraft versteht. Pfeil hoch/runter blaettert durch
+die letzten 50. Die Antwort des Servers steht direkt in der Konsole.
+
+Gesperrt bleiben `stop`, `restart` und `end`: die gehoeren dem Stop-Knopf,
+weil nur er die Speicher-Wartezeit abwartet (`scripts-stop-atm10.sh`).
+Ebenfalls gesperrt: `$ \ ` | ; & > <` — damit aus einem Konsolen-Befehl kein
+Systembefehl wird, falls doch irgendwo eine Shell dazwischenkommt.
+
+Recht: `sword.console.write`, nur `admin` und `superuser`. Das RCON-Passwort
+liest der Helfer; das Panel sieht es nie.
+
+### Spielerzahl auf der Karte
+
+**Spielerzahl.** Rechts in der Statuszeile der Karte, als nackte Zahl.
+Keine Namen auf der Karte — die stehen im Tooltip, sonst wird die Karte breit.
+Die Farbe folgt der Auslastung: unter der Haelfte gruen, Haelfte bis fast
+voll gelb, voll rot.
+
+Zwei Wege, denn die Spiele unterscheiden sich:
+
+- **Minecraft** ueber RCON (`list`). Liefert Zahl und Maximum.
+- **7 Days to Die** ueber Telnet (`lp` = `Total of N in the game`). Das
+  Maximum liefert der Befehl NICHT — es kommt aus der Config, die der Server
+  wirklich laedt. Die steht im `-configfile=`-Argument der Unit, hier
+  `serversettings.xml` statt `serverconfig.xml`. Wer die falsche Datei liest,
+  zeigt einen Wert an, mit dem der Server nicht laeuft.
+
+**Drei Zustaende, die nicht zusammenfallen duerfen:** `0/20` heisst gemessen,
+`?` heisst Antwort unlesbar, `—` heisst nicht abrufbar. Eine 0, wo "weiss ich
+nicht" gilt, waere eine Luege.
+
+**Eine Wahrheit fuer die Anzeige.** Ob eine Karte ueberhaupt eine Zahl zeigt,
+entscheidet der Server (`canCountPlayers`) und schickt es als `playerCount`
+mit. Vorher entschied das Frontend selbst nach "hat ein workingDir" — das
+trifft auch auf TeamSpeak und Nextcloud zu, die dann eine Zahl zeigten, auf
+die die Route mit 400 antwortete: ein Strich ohne Bedeutung.
+
+**Sicherheit Telnet.** 7d2d bindet ohne Passwort nur an das Loopback-
+Interface. Der Helfer prueft das nach (`ss`) und verweigert, wenn der Port
+auf `0.0.0.0` lauscht. Der Befehl steht fest im Client; der Aufrufer uebergibt
+nur die Server-ID.
+
+**Gefunden durch Tests, nicht durch Nachdenken:** `Number(null)` ist `0` —
+damit haette "unbekannt" die Farbe fuer "0 Spieler" (gruen) bekommen. Jetzt
+wird typstrikt geprueft.
+
 ## [1.7.0] - 2026-11-10
 
 ### Ein bestehender Dienst lässt sich übernehmen

@@ -654,3 +654,158 @@ export function dockerReihenfolge(dienste, action) {
   if (action === 'stop') return [...rest, ...abh];
   return [...abh, ...rest];
 }
+
+// ── RCON-Konsole (seit 2026-11-11) ─────────────────────────────────────────
+//
+// Schreibt EINEN Konsolen-Befehl in einen Minecraft-Server (ueber RCON) und
+// gibt die Server-Antwort zurueck.
+//
+// Der Helfer (armory-rcon-ctl) prueft selbst: Sword registriert, rcon im
+// Sword vorhanden, Zeichen-Whitelist (kein $ ` | ; & \ > < und keine
+// Zeilenumbrueche), Befehls-Sperrliste (stop/restart/end), Laenge <= 256.
+// Er liest das RCON-Passwort aus data/<id>-rcon.password - der armory-User
+// und damit das Panel sehen es nie.
+//
+// Warum die Pruefung im Helfer liegt und nicht hier: Diese Datei laeuft als
+// armory und ist damit selbst angreifbar. Wer die Pruefung hier ausbaut,
+// gewinnt nichts, weil der Helfer als root erneut prueft.
+const RCON_CTL = '/usr/local/bin/armory-rcon-ctl';
+const TELNET_CTL = '/usr/local/bin/armory-telnet-ctl';
+
+/**
+ * Sendet einen Konsolen-Befehl an einen Minecraft-Server.
+ *
+ * @param {string} swordId  Server-ID (muss als Sword registriert sein)
+ * @param {string} befehl   z.B. "op Notch", "ban Griefer Griefing", "save-all"
+ * @param {object} [deps]
+ * @returns {Promise<{ok: boolean, antwort?: string, error?: string, code?: number}>}
+ */
+export async function rconBefehl(swordId, befehl, { run = execFileAsync } = {}) {
+  const id = String(swordId ?? '').trim();
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    return { ok: false, error: 'Ungültige Server-ID', code: 2 };
+  }
+  const cmd = String(befehl ?? '');
+  if (!cmd.trim()) {
+    return { ok: false, error: 'Leerer Befehl', code: 2 };
+  }
+
+  try {
+    const { stdout } = await run('sudo', ['-n', RCON_CTL, 'send', id, cmd]);
+    // Minecraft antwortet mit leerem String, wenn der Befehl keine Ausgabe hat.
+    return { ok: true, antwort: String(stdout ?? '').trim() };
+  } catch (err) {
+    // Der Helfer gibt die Begruendung auf stderr aus (z.B. "Unzulaessige
+    // Zeichen im Befehl.", "gesperrt"). exitCode zeigt, WELCHE Pruefung
+    // gegriffen hat: 2 Zeichen/Laenge, 3 Sword, 4 Passwort, 5 gesperrt.
+    const stderr = String(err.stderr ?? '').trim();
+    const code = typeof err.code === 'number' ? err.code : null;
+    const meldung = stderr || err.message;
+
+    // Verbindungsfehler des Clients (Server aus) - klar benennen, damit der
+    // Nutzer nicht "Befehl falsch" liest, wo "Server laeuft nicht" gilt.
+    if (/Verbindung fehlgeschlagen|ECONNREFUSED/i.test(meldung)) {
+      return { ok: false, error: 'Server nicht erreichbar (RCON) – läuft er?', code };
+    }
+    return { ok: false, error: meldung, code };
+  }
+}
+
+// --- Spielerliste ------------------------------------------------------------
+// Holt die Spielerliste ueber RCON ("list") und zerlegt sie in Zahlen + Namen.
+// Minecraft antwortet in zwei Varianten:
+//   There are 0 of a max of 20 players online:
+//   There are 2 of a max of 20 players online: Notch, Alex
+// Aeltere Versionen schreiben "max of 20 players online", ganz alte
+// "There are 2/20 players online". Alle drei werden erkannt; bei einer
+// unbekannten Form gibt es raw zurueck statt einer geratenen Zahl.
+//
+// Der Befehl ist FEST ("list") - hier kommt kein Nutzereingabe an.
+export function parsePlayerList(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return { online: [], count: 0, max: null, raw: '' };
+
+  const m = text.match(/There are\s+(\d+)\s+of a max of\s+(\d+)\s+players online:?\s*(.*)$/is);
+  if (m) {
+    const count = Number(m[1]);
+    const max = Number(m[2]);
+    const rest = String(m[3] ?? '').trim();
+    const online = rest ? rest.split(/,\s*/).map((s) => s.trim()).filter(Boolean) : [];
+    return { online, count, max, raw: text };
+  }
+
+  const alt = text.match(/There are\s+(\d+)\/(\d+)\s+players online:?\s*(.*)$/is);
+  if (alt) {
+    const count = Number(alt[1]);
+    const max = Number(alt[2]);
+    const rest = String(alt[3] ?? '').trim();
+    const online = rest ? rest.split(/,\s*/).map((s) => s.trim()).filter(Boolean) : [];
+    return { online, count, max, raw: text };
+  }
+
+  // Unbekannte Form: keine geratene Zahl, nur der Rohtext.
+  return { online: [], count: null, max: null, raw: text };
+}
+
+export async function serverSpieler(swordId, { run = execFileAsync } = {}) {
+  const id = String(swordId ?? '').trim();
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    return { ok: false, error: 'Ungültige Server-ID', code: 2 };
+  }
+
+  try {
+    const { stdout } = await run('sudo', ['-n', RCON_CTL, 'players', id]);
+    return { ok: true, ...parsePlayerList(stdout) };
+  } catch (err) {
+    const stderr = String(err.stderr ?? '').trim();
+    const code = typeof err.code === 'number' ? err.code : null;
+    const meldung = stderr || err.message;
+    if (/Verbindung fehlgeschlagen|ECONNREFUSED/i.test(meldung)) {
+      return { ok: false, error: 'Server nicht erreichbar (RCON) – läuft er?', code };
+    }
+    return { ok: false, error: meldung, code };
+  }
+}
+
+// --- 7 Days to Die: Spielerzahl ueber Telnet --------------------------------
+// 7d2d hat kein RCON. Der Befehl "lp" (= listplayers) antwortet:
+//   Total of 0 in the game
+// Bei Spielern haengt 7d2d die Liste an - die Form habe ich hier NICHT
+// belegen koennen (niemand war online). Deshalb wird die Zahl gelesen und
+// der Rest als raw mitgegeben; die Namen werden NICHT geraten.
+export function parse7d2dPlayers(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return { online: [], count: null, max: null, raw: '' };
+
+  // Der Helfer stellt das Maximum aus der Config voran:
+  //   MAXPLAYERS=8
+  //   Total of 0 in the game
+  // Der Telnet-Befehl selbst liefert es NICHT - ohne diese Zeile gaebe es
+  // keine Ampel (kein Verhaeltnis ohne Nenner).
+  const mm = text.match(/^MAXPLAYERS=(\d+)/im);
+  const max = mm ? Number(mm[1]) : null;
+
+  const m = text.match(/Total of\s+(\d+)\s+in the game/i);
+  if (!m) return { online: [], count: null, max, raw: text };
+  return { online: [], count: Number(m[1]), max, raw: text };
+}
+
+export async function telnetSpieler(swordId, { run = execFileAsync } = {}) {
+  const id = String(swordId ?? '').trim();
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    return { ok: false, error: 'Ungültige Server-ID', code: 2 };
+  }
+
+  try {
+    const { stdout } = await run('sudo', ['-n', TELNET_CTL, 'players', id]);
+    return { ok: true, ...parse7d2dPlayers(stdout) };
+  } catch (err) {
+    const stderr = String(err.stderr ?? '').trim();
+    const code = typeof err.code === 'number' ? err.code : null;
+    const meldung = stderr || err.message;
+    if (/Verbindung fehlgeschlagen|ECONNREFUSED|Zeitueberschreitung/i.test(meldung)) {
+      return { ok: false, error: 'Server nicht erreichbar (Telnet) – läuft er?', code };
+    }
+    return { ok: false, error: meldung, code };
+  }
+}

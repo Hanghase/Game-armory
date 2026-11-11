@@ -1,0 +1,144 @@
+#!/bin/bash
+# Game-Armory - Spielerzahl ueber die 7DTD-Telnet-Schnittstelle
+# Wird per sudo vom armory-User aufgerufen.
+#
+#   armory-telnet-ctl players <server-id>
+#
+# ── Warum Telnet und nicht RCON ────────────────────────────────────────────
+# 7 Days to Die hat kein RCON. Es bietet:
+#   - WebDashboard (HTTP)   -> in serverconfig.xml AUS (WebDashboardEnabled=false)
+#   - Telnet-Konsole        -> AN, Port 8081
+# Der Befehl "lp" (= listplayers) liefert die Spielerzahl:
+#   Total of 0 in the game
+#
+# ── Grenzen (NICHT lockern) ────────────────────────────────────────────────
+# 1. Der Befehl steht FEST im Node-Client ("lp"). Der Aufrufer kann KEINEN
+#    eigenen Befehl uebergeben - kein shell-Freitext, keine Zeichenpruefung
+#    noetig, weil keine Eingabe durchkommt.
+# 2. Nur Server, die als Sword registriert sind UND in ihrer serverconfig.xml
+#    TelnetEnabled=true und einen TelnetPort haben. Kein beliebiger Host.
+# 3. Nur Loopback. Ein Telnet-Port auf 0.0.0.0 waere ein offenes
+#    Admin-Interface - der Helfer verbindet ausschliesslich 127.0.0.1.
+# 4. Ein Passwort wird NIE uebergeben: 7d2d bindet ohne Passwort
+#    ausschliesslich an das Loopback-Interface (so steht es in der
+#    serverconfig.xml). Ist der Port trotzdem weit offen oder ein Passwort
+#    gesetzt, verweigert der Helfer - dann muss der Mensch ran.
+
+set -euo pipefail
+
+ALLOWED_ACTIONS="players check"
+SWORDS_DIR="/opt/game-armory/swords"
+NODE_BIN="/usr/bin/node"
+CLIENT="/opt/game-armory/tools/telnet-players.mjs"
+
+action="${1:-}"
+server="${2:-}"
+
+case " $ALLOWED_ACTIONS " in
+  *" $action "*) ;;
+  *) echo "Unerlaubte Aktion: $action" >&2; exit 2 ;;
+esac
+
+if [[ ! "$server" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+  echo "Ungültige Server-ID: $server" >&2
+  exit 2
+fi
+
+SWORD="$SWORDS_DIR/$server.sword.json"
+if [[ ! -r "$SWORD" ]]; then
+  echo "Server nicht als Sword registriert: $server" >&2
+  exit 3
+fi
+
+# Spielverzeichnis + serverconfig.xml aus dem Sword (control.workingDir).
+GAMEDIR=$("$NODE_BIN" -e '
+  const fs=require("fs");
+  try {
+    const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const d=s?.control?.workingDir || "";
+    process.stdout.write(String(d));
+  } catch { process.stdout.write(""); }
+' "$SWORD")
+
+if [[ -z "$GAMEDIR" ]]; then
+  echo "Server $server hat kein control.workingDir im Sword." >&2
+  exit 3
+fi
+
+# WELCHE Config liest der Server WIRKLICH?
+#
+# 7d2d startet mit `-configfile=<datei>`. Ohne diesen Parameter nimmt es
+# serverconfig.xml - aber die Unit hier uebergibt serversettings.xml. Die
+# beiden koennen auseinanderlaufen; dann waere jeder Wert aus der falschen
+# Datei geraten. Deshalb wird der Parameter aus der laufenden Kommandozeile
+# gelesen (ueber den Service), nicht angenommen.
+#
+# Fallback: serverconfig.xml, wenn kein -configfile gesetzt ist.
+CFGNAME=$("$NODE_BIN" -e '
+  const fs = require("fs");
+  const unit = process.argv[1];
+  let arg = "";
+  try {
+    // ExecStart aus der systemd-Unit lesen; dort steht -configfile=...
+    const txt = fs.readFileSync(unit, "utf8");
+    const m = txt.match(/-configfile=([^\s"]+)/);
+    if (m) arg = m[1];
+  } catch {}
+  process.stdout.write(arg);
+' "/etc/systemd/system/${server}.service" 2>/dev/null || true)
+[[ -n "${CFGNAME:-}" ]] || CFGNAME="serverconfig.xml"
+
+CFG="$GAMEDIR/$CFGNAME"
+if [[ ! -r "$CFG" ]]; then
+  echo "Config nicht lesbar: $CFG" >&2
+  exit 3
+fi
+
+# Hoechstspielerzahl fuer die Ampel. Steht direkt in der Config.
+MAXPLAYERS=$(grep -oiE '<property name="ServerMaxPlayerCount"[^>]*value="[0-9]+"' "$CFG" \
+  | grep -oE 'value="[0-9]+"' | grep -oE '[0-9]+' | head -1)
+
+# Telnet muss an sein, sonst gibt es keinen Weg hinein.
+if ! grep -qiE '<property name="TelnetEnabled"[^>]*value="true"' "$CFG"; then
+  echo "Telnet ist in der serverconfig.xml nicht aktiviert ($server)." >&2
+  exit 4
+fi
+
+# Port aus der Config lesen (nicht raten).
+PORT=$(grep -oiE '<property name="TelnetPort"[^>]*value="[0-9]+"' "$CFG" \
+  | grep -oE 'value="[0-9]+"' | grep -oE '[0-9]+' | head -1)
+if [[ -z "${PORT:-}" ]] || (( PORT < 1 || PORT > 65535 )); then
+  echo "Kein gueltiger TelnetPort in der serverconfig.xml ($server)." >&2
+  exit 4
+fi
+
+# Gesetztes Passwort: dann koennten wir uns nicht anmelden - klar sagen,
+# statt eine leere Antwort als "0 Spieler" auszugeben.
+PASSWORT=$(grep -oiE '<property name="TelnetPassword"[^>]*value="[^"]*"' "$CFG" \
+  | sed -E 's/.*value="([^"]*)".*/\1/' | head -1)
+if [[ -n "${PASSWORT:-}" ]]; then
+  echo "Telnet verlangt ein Passwort - der Helfer unterstuetzt das nicht (bewusst)." >&2
+  exit 4
+fi
+
+# Sicherheitsnetz: der Port MUSS auf Loopback lauschen. Ein Telnet ohne
+# Passwort auf 0.0.0.0 waere ein offenes Admin-Interface im Netz.
+if command -v ss >/dev/null 2>&1; then
+  if ! ss -tln 2>/dev/null | grep -q "127.0.0.1:$PORT"; then
+    echo "Telnet-Port $PORT lauscht nicht auf 127.0.0.1 - verweigert ($server)." >&2
+    exit 4
+  fi
+fi
+
+if [[ "$action" == "check" ]]; then
+  echo "OK server=$server telnet=127.0.0.1:$PORT config=$CFGNAME max=${MAXPLAYERS:-?}"
+  exit 0
+fi
+
+# ---- players ---------------------------------------------------------------
+# Das Maximum kennt nur die Config - der Telnet-Befehl "lp" liefert es nicht.
+# Deshalb als eigene Zeile mit Marker; die Spielerzahl kommt vom Client.
+if [[ -n "${MAXPLAYERS:-}" ]]; then
+  echo "MAXPLAYERS=$MAXPLAYERS"
+fi
+exec "$NODE_BIN" "$CLIENT" --host 127.0.0.1 --port "$PORT" -- "lp"

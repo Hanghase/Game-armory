@@ -8,6 +8,7 @@ import cookieParser from 'cookie-parser';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { join, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { loadSwords, getSwords, getSword, setVersionCheck } from './swords.js';
@@ -17,7 +18,7 @@ import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './p
 import { loadRacks, getRack } from './racks.js';
 import { serviceAction, serviceStatus, streamLogs, withReadiness,
   controlKind, dockerStatus, dockerAction,
-  dockerReihenfolge } from './control.js';
+  dockerReihenfolge, rconBefehl, serverSpieler, telnetSpieler } from './control.js';
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
 import { arsenalRouter } from './arsenalRoutes.js';
@@ -105,7 +106,9 @@ app.use('/api', adoptRouter);
 // --- API: Swords (lesen: jeder Eingeloggte) ------------------------------
 
 app.get('/api/swords', requireAuth, (req, res) => {
-  res.json(getSwords());
+  // playerCount: darf die Karte eine Spielerzahl anzeigen? Server-seitig
+  // entschieden (canCountPlayers), damit Anzeige und Route nie widersprechen.
+  res.json(getSwords().map((sw) => ({ ...sw, playerCount: canCountPlayers(sw) })));
 });
 
 app.get('/api/swords/:id', requireAuth, (req, res) => {
@@ -276,6 +279,147 @@ server.on('upgrade', (req, socket, head) => {
       : null;
   if (!ziel) { socket.destroy(); return; }
   ziel.handleUpgrade(req, socket, head, (ws) => ziel.emit('connection', ws, req));
+});
+
+// POST /api/swords/:id/console  { befehl: "op Notch" }   (seit 2026-11-11)
+//
+// Schreibt genau EINEN Konsolen-Befehl in den Server und gibt die Antwort
+// zurueck. Die Pruefung (Zeichen, Sperrliste, Laenge, Passwort) liegt im
+// Helfer armory-rcon-ctl - siehe rconBefehl() in control.js.
+//
+// Recht: sword.console.write (admin + superuser, NICHT friend/moderator).
+// Ein Konsolen-Befehl kann Spieler aussperren (ban) oder Rechte vergeben (op).
+app.post('/api/swords/:id/console', requireAuth, async (req, res) => {
+  if (!roleHasPerm(req.user.role, 'sword.console.write')) {
+    return res.status(403).json({ error: 'Keine Berechtigung fuer Konsolen-Befehle' });
+  }
+
+  const sword = getSword(req.params.id);
+  if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
+  if (sword.locked) return res.status(403).json({ error: 'Lizenz erforderlich', locked: true });
+
+  // Nur Server mit RCON - sonst gibt es keinen Weg, einen Befehl zu senden.
+  if (!sword.rcon) {
+    return res.status(400).json({
+      error: 'Dieser Server hat keine rcon-Konfiguration im Sword',
+    });
+  }
+
+  const befehl = typeof req.body?.befehl === 'string' ? req.body.befehl : '';
+  if (!befehl.trim()) {
+    return res.status(400).json({ error: 'Kein Befehl übergeben' });
+  }
+
+  const ergebnis = await rconBefehl(sword.id ?? req.params.id, befehl);
+
+  if (!ergebnis.ok) {
+    // 403 fuer die Sperrliste (Recht/Policy), 400 fuer ungueltige Eingabe,
+    // 502 wenn der Server nicht antwortet. So sieht das Frontend, ob es
+    // den Befehl aendern soll oder ob der Server das Problem ist.
+    let status = 400;
+    if (ergebnis.code === 5) status = 403;
+    else if (/nicht erreichbar|RCON/i.test(ergebnis.error ?? '')) status = 502;
+    return res.status(status).json({ error: ergebnis.error });
+  }
+
+  return res.json({ ok: true, antwort: ergebnis.antwort ?? '' });
+});
+
+// Hat das Spielverzeichnis eine serverconfig.xml? Nur dann ist es 7d2d.
+// Bewusst mit existSync statt Ausnahme: fehlendes Recht oder fehlende Datei
+// sind hier dasselbe Ergebnis - "kein 7d2d".
+function hasServerConfig(workingDir) {
+  try {
+    return existsSync(join(String(workingDir), 'serverconfig.xml'));
+  } catch {
+    return false;
+  }
+}
+
+// Kann fuer dieses Sword die Spielerzahl abgefragt werden?
+//
+// Diese Frage muss EINMAL beantwortet werden, nicht zweimal verschieden.
+// Vorher entschied das Frontend nach "hat ein workingDir" - das trifft aber
+// auch auf TeamSpeak und Nextcloud zu, also erschien dort eine Zahl, die
+// Route antwortete 400 und die Karte zeigte "—". Ein Strich ohne Bedeutung.
+//
+// Deshalb: der Server sagt es, das Frontend glaubt ihm.
+//   mit rcon              -> ja  (Minecraft, "list")
+//   mit serverconfig.xml  -> ja  (7d2d, "lp" ueber Telnet)
+//   sonst                 -> nein (gar keine Zeile auf der Karte)
+function canCountPlayers(sword) {
+  if (sword?.rcon) return true;
+  const wd = sword?.control?.workingDir;
+  return Boolean(wd) && hasServerConfig(wd);
+}
+
+// GET /api/swords/:id/players   (seit 2026-11-11)
+//
+// Spielerzahl eines Servers. Zwei Wege, je nach Spiel:
+//   rcon im Sword    -> Minecraft, Befehl "list"
+//   kein rcon        -> 7 Days to Die, Befehl "lp" ueber Telnet
+//   beides nicht     -> 400 mit klarer Meldung
+//
+// Die Befehle stehen im jeweiligen Helfer fest, es kommt KEINE Nutzereingabe
+// durch - reiner Lesezugriff. Siehe serverSpieler()/telnetSpieler() in
+// control.js.
+//
+// Recht: sword.console.read (ab friend) - wer die Live-Konsole sehen darf,
+// darf auch wissen, wieviele Spieler da sind. Kein Schreibrecht noetig.
+//
+// Antwort:
+//   { ok: true, online: ["Notch"], count: 1, max: 20, raw: "...", via: "rcon" }
+//   { ok: false, error: "Server nicht erreichbar (RCON) – läuft er?", ... }
+//
+// Wichtig: 0 Spieler und "weiss ich nicht" muessen unterscheidbar bleiben.
+// count ist bei unlesbarer Antwort null, nicht 0.
+app.get('/api/swords/:id/players', requireAuth, async (req, res) => {
+  if (!roleHasPerm(req.user.role, 'sword.console.read')) {
+    return res.status(403).json({ error: 'Keine Berechtigung fuer die Konsole' });
+  }
+
+  const sword = getSword(req.params.id);
+  if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
+  if (sword.locked) return res.status(403).json({ error: 'Lizenz erforderlich', locked: true });
+
+  const id = sword.id ?? req.params.id;
+  let ergebnis;
+  let via;
+  if (sword.rcon) {
+    ergebnis = await serverSpieler(id);
+    via = 'rcon';
+  } else if (canCountPlayers(sword)) {
+    // Kein RCON, aber ein Spielverzeichnis MIT serverconfig.xml: 7d2d-Fall.
+    // Der Helfer prueft selbst, ob Telnet an ist und ob der Port auf
+    // Loopback lauscht - ist das nicht so, kommt eine klare Meldung (exit 4).
+    //
+    // Die Config-Pruefung hier ist noetig, weil JEDE systemd-Sword ein
+    // workingDir hat (auch TeamSpeak). Ohne sie liefe TS in den Telnet-
+    // Helfer und meldete "serverconfig.xml nicht lesbar" - eine Meldung,
+    // die nach einem kaputten 7d2d klingt, statt nach "hier gibt es nichts
+    // zu zaehlen".
+    ergebnis = await telnetSpieler(id);
+    via = 'telnet';
+  } else {
+    return res.status(400).json({
+      error: 'Für diesen Server gibt es keine Abfrage der Spielerzahl',
+    });
+  }
+
+  if (!ergebnis.ok) {
+    let status = 400;
+    if (/nicht erreichbar|RCON|Telnet/i.test(ergebnis.error ?? '')) status = 502;
+    return res.status(status).json({ error: ergebnis.error });
+  }
+
+  return res.json({
+    ok: true,
+    online: ergebnis.online,
+    count: ergebnis.count,
+    max: ergebnis.max,
+    raw: ergebnis.raw,
+    via,
+  });
 });
 
 function parseCookies(header = '') {

@@ -32,6 +32,7 @@ export const PERMISSIONS = [
   { perm: 'sword.config.read',      label: 'Config lesen',              group: 'Config & Konsole' },
   { perm: 'sword.config.write',     label: 'Config schreiben',          group: 'Config & Konsole' },
   { perm: 'sword.console.read',     label: 'Live-Konsole lesen',        group: 'Config & Konsole' },
+  { perm: 'sword.console.write',    label: 'Konsolen-Befehle senden',   group: 'Config & Konsole' },
   // Sword-Lebenszyklus
   { perm: 'sword.upload',           label: 'Sword-Dateien hochladen',    group: 'Sword-Lebenszyklus' },
   { perm: 'sword.create',           label: 'Sword installieren',         group: 'Sword-Lebenszyklus' },
@@ -121,6 +122,10 @@ const ADMIN_PERMS = [
   'sword.delete',
   'sword.eula',
   'user.email',         // E-Mail eines Nutzers setzen (Reset-Ziel)
+  // Konsolen-Befehle senden (op/ban/whitelist/save-all ...) - seit 2026-11-11.
+  // Bewusst NICHT an moderator/friend: ein Konsolen-Befehl kann Spieler
+  // aussperren (ban) oder Rechte vergeben (op). friend hat nur console.read.
+  'sword.console.write',
 ];
 
 // superuser: ALLES (wird hier nur zur Vollstaendigkeit/Doku gelistet; der
@@ -139,11 +144,15 @@ export const DEFAULT_MATRIX = {
 // wird eine aeltere DB-Version deterministisch auf diese Soll-Belegung
 // nachgezogen - aber NUR fuer Seed-Zeilen (Betreiber-Aenderungen bleiben).
 // 6 (2026-10-31): Recht system.logs aufgenommen (Logs & Fehlerprotokoll).
+// 6 (2026-10-31): Recht system.logs aufgenommen (Logs & Fehlerprotokoll).
+// 7 (2026-11-11): Recht sword.console.write aufgenommen (Konsolen-Befehle
+//   senden: op/ban/whitelist/save-all). Nur admin+superuser - ein
+//   Konsolen-Befehl kann Spieler aussperren (ban) oder Rechte vergeben (op).
 // Ohne Erhoehung bliebe die Seed-Belegung in bestehenden DBs auf dem alten
 // Stand: superuser bekommt neue Rechte zwar immer (FIXED_ROLES -> PERM_NAMES),
 // aber die Matrix-Anzeige und die 'seed'-Zeilen anderer Rollen wuerden den
 // neuen Katalogeintrag nicht kennen.
-export const PERMISSIONS_SEED_VERSION = 6;
+export const PERMISSIONS_SEED_VERSION = 7;
 
 // --- Migration / Init (deterministisch, selbstheilend, idempotent) ---------
 // Mechanismus (Begruendung):
