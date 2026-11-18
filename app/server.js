@@ -18,7 +18,7 @@ import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './p
 import { loadRacks, getRack } from './racks.js';
 import { serviceAction, serviceStatus, streamLogs, withReadiness,
   controlKind, dockerStatus, dockerAction,
-  dockerReihenfolge, rconBefehl, serverSpieler, telnetSpieler } from './control.js';
+  dockerReihenfolge, rconBefehl, serverSpieler, telnetSpieler, ts6Befehl } from './control.js';
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
 import { arsenalRouter } from './arsenalRoutes.js';
@@ -298,10 +298,13 @@ app.post('/api/swords/:id/console', requireAuth, async (req, res) => {
   if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
   if (sword.locked) return res.status(403).json({ error: 'Lizenz erforderlich', locked: true });
 
-  // Nur Server mit RCON - sonst gibt es keinen Weg, einen Befehl zu senden.
-  if (!sword.rcon) {
+  // Zwei Wege in den Server: RCON (Minecraft) oder ServerQuery (TeamSpeak 6).
+  // TeamSpeak kennt kein RCON - dort laeuft die Konsole ueber ServerQuery.
+  const viaRcon = Boolean(sword.rcon);
+  const viaQuery = Boolean(sword.query);
+  if (!viaRcon && !viaQuery) {
     return res.status(400).json({
-      error: 'Dieser Server hat keine rcon-Konfiguration im Sword',
+      error: 'Dieser Server hat weder rcon- noch query-Konfiguration im Sword',
     });
   }
 
@@ -310,7 +313,9 @@ app.post('/api/swords/:id/console', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Kein Befehl übergeben' });
   }
 
-  const ergebnis = await rconBefehl(sword.id ?? req.params.id, befehl);
+  const ergebnis = viaRcon
+    ? await rconBefehl(sword.id ?? req.params.id, befehl)
+    : await ts6Befehl(sword.id ?? req.params.id, befehl);
 
   if (!ergebnis.ok) {
     // 403 fuer die Sperrliste (Recht/Policy), 400 fuer ungueltige Eingabe,
@@ -318,7 +323,7 @@ app.post('/api/swords/:id/console', requireAuth, async (req, res) => {
     // den Befehl aendern soll oder ob der Server das Problem ist.
     let status = 400;
     if (ergebnis.code === 5) status = 403;
-    else if (/nicht erreichbar|RCON/i.test(ergebnis.error ?? '')) status = 502;
+    else if (/nicht erreichbar|RCON|ServerQuery/i.test(ergebnis.error ?? '')) status = 502;
     return res.status(status).json({ error: ergebnis.error });
   }
 

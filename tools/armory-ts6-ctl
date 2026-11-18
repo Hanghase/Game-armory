@@ -1,0 +1,149 @@
+#!/bin/bash
+# Game-Armory - TeamSpeak-6-ServerQuery-Konsole (privilegierter Helfer)
+# Wird per sudo vom armory-User aufgerufen.
+#
+#   armory-ts6-ctl send <server-id> <befehl...>
+#   armory-ts6-ctl check <server-id>
+#
+# Schreibt EINEN ServerQuery-Befehl in einen TeamSpeak-6-Server (ueber HTTP-
+# WebQuery) und gibt die Server-Antwort auf stdout aus.
+#
+# TeamSpeak kennt KEIN RCON. Die Schnittstelle heisst ServerQuery; in TS6
+# laeuft sie ausschliesslich ueber HTTP (JSON) oder SSH. Raw-Query (telnet,
+# Port 10011) wurde mit TS6 abgeschafft - ein "raw enable" in der Config
+# startet keinen Listener. Nicht danach suchen, es gibt ihn nicht.
+#
+# ── Grenzen (NICHT lockern) ────────────────────────────────────────────────
+# 1. Der Server muss als Sword registriert sein (swords/<id>.sword.json) und
+#    eine query-Sektion besitzen. Kein beliebiger Host, kein beliebiger Port.
+# 2. Der Befehl geht als EIN Argument an den Node-Client (exec ... -- "$cmd").
+#    Es wird keine Shell interpretiert.
+# 3. Zeichenpruefung wie beim RCON-Helfer: nur Buchstaben, Ziffern, Leerzeichen
+#    und . _ - : / @ + , ' " ( ) [ ] = % # * ! ?
+#    Bewusst NICHT erlaubt: $ ` | ; & \ > < und Zeilenumbrueche.
+#    Zusaetzlich gesperrt: ? und & - in einer URL wuerden sie aus einem
+#    Befehlsnamen eine andere Route oder einen zusaetzlichen Parameter machen.
+# 4. Befehls-Sperrliste: alles, was den Server beendet oder den Prozess
+#    umstartet. Das gehoert dem Stop-Knopf, nicht der Konsole.
+# 5. Laenge begrenzt (ServerQuery-Befehle sind kurz).
+# 6. Der API-Key wird von DIESEM Skript gelesen. Er wird nie an den Aufrufer
+#    ausgegeben und nie als Argument sichtbar (ps).
+
+set -euo pipefail
+
+ALLOWED_ACTIONS="send check"
+SWORDS_DIR="/opt/game-armory/swords"
+DATA_DIR="/opt/game-armory/data"
+NODE_BIN="/usr/bin/node"
+CLIENT="/opt/game-armory/tools/ts6-query.mjs"
+MAX_LEN=256
+
+# Befehle, die NICHT ueber die Konsole gehen (Panel steuert sie selbst).
+# Sperrliste: alles, was den Server oder die Instanz beenden/zerstoeren kann.
+#
+# Am 2026-11-12 hat diese Liste versagt: "serverprocessstop" stand nicht drauf,
+# die Konsole hat den TS6-Server damit beendet (serverprocessstop -> "ok", Unit
+# inactive, VirtualServer 1 "stopped" im Journal). Belegt, nicht vermutet.
+#
+# Deshalb jetzt: nicht nur die Namen, die ich kenne, sondern auch die Familie.
+# Der Helfer prueft exakt UND per Muster - ein neuer Alias darf nicht wieder
+# durchrutschen.
+FORBIDDEN="serverstop serverprocessstop quit exit shutdown stop kill
+servershutdown instanceexit instancestop instancekill"
+
+# Muster-Sperre zusaetzlich zum exakten Namen: jeder Befehl, der auf "stop",
+# "quit", "exit", "shutdown" oder "kill" endet, ist gesperrt. Das faengt
+# kuenftige Schreibweisen ab, ohne dass jemand die Liste nachpflegen muss.
+FORBIDDEN_MUSTER='^(.*(stop|quit|exit|shutdown|kill))$'
+
+action="${1:-}"
+server="${2:-}"
+shift 2 2>/dev/null || true
+
+case " $ALLOWED_ACTIONS " in
+  *" $action "*) ;;
+  *) echo "Unerlaubte Aktion: $action" >&2; exit 2 ;;
+esac
+
+# Server-ID streng validieren (kein Pfad, keine Punkte, keine Sonderzeichen).
+if [[ ! "$server" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+  echo "Ungültige Server-ID: $server" >&2
+  exit 2
+fi
+
+# ---- Sperrliste (VOR der Server-Pruefung) --------------------------------
+# Der Befehlstext steht hier schon fest, weil die Sperre ihn braucht.
+befehl="$*"
+
+# Die Sperre haengt nicht davon ab, ob der Server registriert ist. Sie steht
+# deshalb zuerst: so laesst sie sich mit einer beliebigen ID pruefen, ohne dass
+# ein echter Server erreichbar sein muss.
+first="${befehl%% *}"
+first="${first#/}"
+first="${first,,}"
+gesperrt=0
+for f in $FORBIDDEN; do
+  if [[ "$first" == "$f" ]]; then
+    gesperrt=1
+    break
+  fi
+done
+# Zusatzpruefung per Muster (siehe FORBIDDEN_MUSTER oben).
+if (( gesperrt == 0 )) && [[ "$first" =~ $FORBIDDEN_MUSTER ]]; then
+  gesperrt=1
+fi
+if (( gesperrt == 1 )); then
+  echo "Befehl '$first' ist über die Konsole gesperrt (bitte Stop-Knopf verwenden)." >&2
+  exit 5
+fi
+
+SWORD="$SWORDS_DIR/$server.sword.json"
+if [[ ! -r "$SWORD" ]]; then
+  echo "Server nicht als Sword registriert: $server" >&2
+  exit 3
+fi
+
+# Sword muss eine query-Sektion definiert haben - sonst gibt es keinen Weg hinein.
+if ! grep -q '"query"' "$SWORD" 2>/dev/null; then
+  echo "Server $server hat keine query-Konfiguration im Sword." >&2
+  exit 3
+fi
+
+KEY_FILE="$DATA_DIR/$server-query.apikey"
+if [[ ! -r "$KEY_FILE" ]]; then
+  echo "ServerQuery-API-Key nicht lesbar: $KEY_FILE" >&2
+  exit 4
+fi
+
+if [[ "$action" == "check" ]]; then
+  # Nur pruefen, ob die Voraussetzungen stimmen - keine Verbindung.
+  echo "OK server=$server apikey=yes"
+  exit 0
+fi
+
+# ---- send -----------------------------------------------------------------
+
+if [[ -z "${befehl// /}" ]]; then
+  echo "Leerer Befehl." >&2
+  exit 2
+fi
+
+if (( ${#befehl} > MAX_LEN )); then
+  echo "Befehl zu lang (${#befehl} > $MAX_LEN Zeichen)." >&2
+  exit 2
+fi
+
+# Zeichen-Whitelist. Wie beim RCON-Helfer: keine Shell-Metazeichen.
+# `?` und `&` zusaetzlich gesperrt - sie haben in einer URL Bedeutung
+# (Query-String, Parametertrenner) und wuerden die Route veraendern.
+if [[ "$befehl" == *[\$\`\|\;\&\\\>\<\?]* ]]; then
+  echo "Unzulässige Zeichen im Befehl." >&2
+  exit 2
+fi
+if [[ "$befehl" == *$'\n'* || "$befehl" == *$'\r'* ]]; then
+  echo "Zeilenumbrüche sind im Befehl nicht erlaubt." >&2
+  exit 2
+fi
+
+# Ausfuehren: Key per stdin an den Node-Client (nicht als Argument -> kein ps-Leak).
+exec "$NODE_BIN" "$CLIENT" --sword "$SWORD" -- "$befehl" < "$KEY_FILE"

@@ -671,6 +671,7 @@ export function dockerReihenfolge(dienste, action) {
 // gewinnt nichts, weil der Helfer als root erneut prueft.
 const RCON_CTL = '/usr/local/bin/armory-rcon-ctl';
 const TELNET_CTL = '/usr/local/bin/armory-telnet-ctl';
+const TS6_CTL = '/usr/local/bin/armory-ts6-ctl';
 
 /**
  * Sendet einen Konsolen-Befehl an einen Minecraft-Server.
@@ -805,6 +806,56 @@ export async function telnetSpieler(swordId, { run = execFileAsync } = {}) {
     const meldung = stderr || err.message;
     if (/Verbindung fehlgeschlagen|ECONNREFUSED|Zeitueberschreitung/i.test(meldung)) {
       return { ok: false, error: 'Server nicht erreichbar (Telnet) – läuft er?', code };
+    }
+    return { ok: false, error: meldung, code };
+  }
+}
+
+// --- TeamSpeak 6: ServerQuery -----------------------------------------------
+// TeamSpeak kennt kein RCON. Die Schnittstelle heisst ServerQuery und laeuft
+// in TS6 ausschliesslich ueber HTTP (JSON) oder SSH. Hier: HTTP auf
+// 127.0.0.1:10080, nur loopback.
+//
+// Der TS6-Client blockt bewusst Ports wie 10080 nicht - er ist ein eigener
+// Client (http.request), kein fetch. Siehe tools/ts6-query.mjs.
+//
+// WICHTIG: TeamSpeak-Befehle heissen anders als Minecraft-Befehle. "list"
+// gibt es nicht, die Spielerliste heisst "clientlist". Die Befehle gehen
+// unveraendert an den Server - der Helfer prueft Zeichen und Sperrliste.
+//
+// Recht: sword.console.write (admin + superuser) - ein TS-Befehl kann
+// Clients kicken oder bannen.
+export async function ts6Befehl(swordId, befehl, { run = execFileAsync } = {}) {
+  const id = String(swordId ?? '').trim();
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    return { ok: false, error: 'Ungültige Server-ID', code: 2 };
+  }
+  const cmd = String(befehl ?? '');
+  if (!cmd.trim()) {
+    return { ok: false, error: 'Leerer Befehl', code: 2 };
+  }
+
+  try {
+    const { stdout } = await run('sudo', ['-n', TS6_CTL, 'send', id, cmd]);
+    return { ok: true, antwort: String(stdout ?? '').trim() };
+  } catch (err) {
+    const stderr = String(err.stderr ?? '').trim();
+    const code = typeof err.code === 'number' ? err.code : null;
+    const meldung = stderr || err.message;
+
+    // Verbindungsfehler klar benennen, damit der Nutzer nicht "Befehl falsch"
+    // liest, wo "Server laeuft nicht" gilt.
+    // WICHTIG: der Client meldet Verbindungsprobleme mit mehreren Wortlauten.
+    // "Verbindung fehlgeschlagen" (unser Text), "fetch failed"/"bad port"
+    // (Node/undici), ECONNREFUSED (Kernel). Alle muessen als "Server nicht
+    // erreichbar" gelten - sonst macht die Route daraus ein 400 und der Nutzer
+    // liest "Befehl falsch", wo in Wahrheit die Verbindung scheitert.
+    // Genau das ist am 2026-11-12 passiert (Felix sah "HTTP 400" bei clientlist).
+    if (/Verbindung fehlgeschlagen|ECONNREFUSED|fetch failed|bad port|Zeitüberschreitung|Zeitueberschreitung/i.test(meldung)) {
+      return { ok: false, error: 'Server nicht erreichbar (ServerQuery) – läuft er?', code };
+    }
+    if (/invalid api key|invalid apikey/i.test(meldung)) {
+      return { ok: false, error: 'ServerQuery-API-Key ungültig oder abgelaufen', code };
     }
     return { ok: false, error: meldung, code };
   }
