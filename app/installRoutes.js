@@ -42,7 +42,7 @@ import { serviceStatus } from './control.js';
 import { loadRacks, getRacks, getRack, getRackDiagnostics, createRack, updateRack, deleteRack, RackError } from './racks.js';
 import { readConfig, writeConfig, SUPPORTED_GAMES } from './configEditor.js';
 import { installFromZip, installFromCurseForge, installFromSteam, downloadGithubAsset, installFromTarball, acceptEulaForRack, InstallerError } from './installer.js';
-import { updateFromZip, updateFromCurseForge, updateFromSteam, getUpdateState, UpdaterError } from './updater.js';
+import { updateFromZip, updateFromCurseForge, updateFromSteam, updateFromGithub, getUpdateState, UpdaterError } from './updater.js';
 import { removeSword, SwordDeleteError } from './swordDelete.js';
 import { setPendingRestart, clearPendingRestart } from './pendingRestart.js';
 import { getVersion } from './version.js';
@@ -940,6 +940,11 @@ installRouter.post('/swords/:id/update', requirePerm('sword.update'), async (req
       return res.status(400).json({ error: 'zipPath nicht gefunden (muss im Upload-Verzeichnis liegen)' });
     }
     start = () => updateFromZip(sword, zipPath, { onLog, keepConfigs: body.keepConfigs });
+  } else if (body.type === 'github') {
+    // Muss VOR dem Steam-Zweig stehen: ein GitHub-Rack kann ebenfalls eine
+    // appId-Schluesselaehnlichkeit haben, und body.type ist die eindeutigere
+    // Aussage als ein mitgeschicktes Feld.
+    start = () => updateFromGithub(sword, { repo: body.repo, assetPattern: body.assetPattern, onLog, keepConfigs: body.keepConfigs });
   } else if (body.type === 'steam' || body.appId) {
     // Steam-Update (2026-10-31). Das Panel schickte diesen Zweig schon immer
     // ({type:'steam', rackId, appId, branch}), die Route kannte ihn nicht -
@@ -949,7 +954,7 @@ installRouter.post('/swords/:id/update', requirePerm('sword.update'), async (req
   } else if (body.modId || sword.update?.projectId) {
     start = () => updateFromCurseForge(sword, { modId: body.modId, fileId: body.fileId, onLog, keepConfigs: body.keepConfigs });
   } else {
-    return res.status(400).json({ error: 'Quelle fehlt: {uploadId}, {zipPath}, {type:steam} oder {modId, fileId}' });
+    return res.status(400).json({ error: 'Quelle fehlt: {uploadId}, {zipPath}, {type:steam}, {modId, fileId} oder {type:github}' });
   }
 
   // 202 sofort, Job im Hintergrund.

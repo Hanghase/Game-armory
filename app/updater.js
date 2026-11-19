@@ -15,7 +15,7 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, readdir, readFile, stat, writeFile, access, open } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile, access, open, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 
 import { extractToTemp, replacePackContents } from './pack.js';
@@ -26,7 +26,7 @@ import { getMod, getFiles, getDownloadUrl, downloadFile } from './curseforge.js'
 import { getRack } from './racks.js';
 import { setInstalledVersion } from './swords.js';
 import { readSteamBuildId } from './versionCheck.js';
-import { STEAM_HELPER } from './installer.js';
+import { STEAM_HELPER, downloadGithubAsset } from './installer.js';
 
 // Privilegierter Install-Helfer (per sudo, eng gefasste Rechte in /etc/sudoers.d/armory).
 // Notwendig, weil die Armory als 'armory' laeuft, die Instanz-Daten aber dem
@@ -322,6 +322,40 @@ export async function waitForDone(sword, { timeoutMs = 180_000, pollMs = 3000, l
 }
 
 // --- Warten bis Service inaktiv ---------------------------------------------
+
+// Repo-Pfad aus einer GitHub-URL ("https://github.com/owner/repo" -> "owner/repo").
+// downloadGithubAsset erwartet den Kurzpfad, das Rack traegt die volle URL.
+// Regex identisch zu versionCheck.js:142 - eine Stelle, ein Format.
+function repoPath(url) {
+  const m = String(url ?? '').match(/github\.com\/([^/]+)\/([^/?#]+)/i);
+  if (!m) return null;
+  return `${m[1]}/${m[2].replace(/\.git$/i, '')}`;
+}
+
+// Neuestes Release samt Assets holen - ohne Download. Eigene Funktion, weil
+// downloadGithubAsset() die API-Abfrage und den Download in einem Schritt macht;
+// hier soll der Server aber erst gestoppt werden, wenn ein neues Release
+// wirklich existiert. Ein Stop fuer "nichts zu tun" waere unnoetiger Ausfall.
+//
+// Bewusst /releases?per_page=1 statt /releases/latest: der TS6-Repo markiert
+// Releases nicht als latest, dort liefert /releases/latest ein 404 (Lehre aus
+// versionCheck.js:11). /releases?per_page=1 sortiert nach Erstellungsdatum.
+async function getLatestGithubRelease(url) {
+  const repo = repoPath(url);
+  if (!repo) return null;
+  const api = `https://api.github.com/repos/${repo}/releases?per_page=1`;
+  try {
+    const res = await fetch(api, {
+      headers: { 'User-Agent': 'game-armory/0.1', Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) return null;
+    const list = await res.json();
+    return Array.isArray(list) && list.length > 0 ? list[0] : null;
+  } catch {
+    return null;
+  }
+}
 
 async function waitForInactive(service, { timeoutMs = 60_000, pollMs = 2000, log = () => {} } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -756,5 +790,170 @@ export async function updateFromCurseForge(sword, { modId, fileId, onLog = () =>
   } finally {
     // Download liegt im workingDir des Instanz-Users -> ueber den Helfer weg.
     await runHelper('cleanup-path', [tmpZip], { log });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GitHub-Binary-Update (2026-11-19)
+//
+// Warum eine eigene Funktion und nicht runUpdate():
+//   runUpdate() ist auf Minecraft-Packs zugeschnitten: es sichert 'world/',
+//   prueft Neoforge-Versionsketten und wartet auf den Log-Marker "Done (".
+//   Ein binaeres Release (TeamSpeak 6: tsserver + .so-Dateien) hat keine Welt,
+//   kein Neoforge und keinen solchen Marker. Ein Wiederverwenden haette
+//   bedeutet, all das mit if-Zweigen zu umbauen - und jeden Minecraft-Pfad
+//   mitzutesten.
+//
+// Was passiert:
+//   1) Release-Tag von GitHub holen (gleiche Quelle wie der Erstinstall)
+//   2) Ist das Asset schon installiert? -> nichts tun, ehrlich melden
+//   3) Server stoppen (konsistenter Stand fuer Backup)
+//   4) Backup der Datendateien als tar.gz (Pfade kommen aus dem SWORD, nicht
+//      fest im Code: ein anderes binaeres Rack hat andere Dateien)
+//   5) Asset laden + entpacken
+//   6) NUR die Release-Dateien tauschen. Nicht im Release enthaltene Pfade
+//      (files/, *.sqlitedb, *.yaml, licensekey.dat, ssh_host_rsa_key) bleiben
+//      unberuehrt - replace-tree kopiert nur, was in der Quelle liegt.
+//   7) Server starten, Zustand melden
+//
+// Sicherheit: das Asset kommt von aussen. downloadGithubAsset prueft den Namen
+// (sanitizeAssetName) und extractToTemp prueft das Archiv (Tar-Slip, Links).
+export async function updateFromGithub(sword, { repo = null, assetPattern = null, onLog = () => {}, keepConfigs } = {}) {
+  const swordId = sword.id;
+  const service = sword.control?.service;
+  const workingDir = sword.control?.workingDir;
+  if (!service || !workingDir) throw new UpdaterError('Sword hat keinen Service/workingDir definiert.');
+
+  const rack = sword.rack ? getRack(sword.rack) : null;
+  const sourceUrl = repo ?? sword.update?.url ?? rack?.source?.url ?? null;
+  const pattern = assetPattern ?? rack?.source?.assetPattern ?? null;
+  if (!sourceUrl) throw new UpdaterError('Keine GitHub-Repo-URL bekannt (weder am Sword noch am Rack).');
+  if (!pattern) throw new UpdaterError('Kein assetPattern bekannt (weder am Sword noch am Rack).');
+
+  // Release-Tag und Asset-Liste holen - OHNE Download. Erst wissen, ob es
+  // ueberhaupt etwas Neues gibt, dann den Server stoppen. Ein Stop fuer ein
+  // Update, das gar nicht stattfindet, waere ein unnoetiger Ausfall.
+  const latest = await getLatestGithubRelease(sourceUrl);
+  if (!latest) throw new UpdaterError(`GitHub-Release nicht abrufbar: ${sourceUrl}`);
+
+  const asset = (latest.assets ?? []).find((a) => a.name === pattern)
+    ?? (latest.assets ?? []).find((a) => a.name.endsWith(pattern));
+  if (!asset) {
+    throw new UpdaterError(
+      `Asset "${pattern}" fehlt im Release ${latest.tag_name}. `
+      + `Vorhanden: ${(latest.assets ?? []).map((a) => a.name).join(', ')}`,
+    );
+  }
+
+  const installed = sword.installedVersion ?? null;
+  const newVersion = String(latest.tag_name ?? '').replace(/^v/, '');
+  if (installed && newVersion && installed === newVersion) {
+    onLog(`[update] Schon auf ${installed} - kein Update nötig.`);
+    return { ok: true, skipped: true, reason: 'already-current', installedVersion: installed, newVersion };
+  }
+
+  const startedAt = Date.now();
+  setState(swordId, { phase: 'starting', progress: 0, message: `Update auf ${newVersion} gestartet`, startedAt, finishedAt: null, error: null });
+
+  const result = { swordId, fromVersion: installed, toVersion: newVersion, backup: null, filesChanged: null, started: false };
+  let stopped = false;
+  let tmpRoot = null;
+  let dlPath = null;
+
+  try {
+    // 1) Stoppen - VOR dem Backup. Ein laufender Server schreibt in seine DB
+    //    (bei TS6 die *.sqlitedb + WAL); ein tar waehrenddessen ist kein
+    //    konsistenter Schnitt.
+    setState(swordId, { phase: 'stopping', progress: 5, message: 'Dienst wird gestoppt' });
+    const stop = await serviceAction(service, 'stop');
+    if (!stop.ok) throw new UpdaterError(`Dienst konnte nicht gestoppt werden: ${stop.error || 'unbekannter Fehler'}`);
+    const inactive = await waitForInactive(service, { log: onLog });
+    if (!inactive) throw new UpdaterError('Dienst wurde nicht rechtzeitig inaktiv.');
+    stopped = true;
+
+    // 2) Backup der Datendateien (Pfade aus dem Sword; der Erstinstall legt
+    //    update.keep fest, z.B. [configFile, 'files', 'sql']). Fehlt die Liste,
+    //    wird NICHTS gesichert - das ist bewusst laut, nicht still.
+    setState(swordId, { phase: 'backup', progress: 15, message: 'Backup wird erstellt' });
+    const keepPaths = Array.isArray(sword.update?.keep) ? sword.update.keep : [];
+    if (keepPaths.length > 0) {
+      result.backup = await createBackup(workingDir, {
+        id: swordId, paths: keepPaths, log: onLog,
+        keepGenerations: sword.update?.keepGenerations ?? 2, label: 'update',
+      });
+    } else {
+      onLog('[update] WARNUNG: Sword nennt kein update.keep - kein Backup der Datendateien.');
+    }
+
+    // 3) Asset laden
+    setState(swordId, { phase: 'downloading', progress: 30, message: `Lade ${asset.name} (${newVersion})` });
+    dlPath = await downloadGithubAsset({ repo: repoPath(sourceUrl), assetPattern: pattern, log: onLog });
+
+    // 4) Entpacken
+    setState(swordId, { phase: 'extracting', progress: 50, message: 'Archiv wird entpackt' });
+    const ex = await extractToTemp(dlPath, { id: swordId, log: onLog });
+    tmpRoot = ex.tmpRoot;
+
+    // 5) Nur die Release-Dateien tauschen. replace-tree kopiert die Quelle
+    //    ueber das Ziel - was im Release fehlt, bleibt stehen. Genau das ist
+    //    hier gewollt: files/, DB, Configs, Keys sind nicht im Release.
+    setState(swordId, { phase: 'applying', progress: 70, message: 'Release-Dateien werden ersetzt' });
+    const rep = await runHelper('replace-tree', [swordId, workingDir, ex.sourceDir], { log: onLog });
+    if (!rep.ok) throw new UpdaterError(`Release-Dateien konnten nicht ersetzt werden: ${rep.stderr || rep.error}`);
+    result.filesChanged = await listSourcePaths(ex.sourceDir, '');
+    onLog(`[update] ${Array.isArray(result.filesChanged) ? result.filesChanged.length : 0} Einträge ersetzt.`);
+
+    // 6) Starten
+    setState(swordId, { phase: 'starting', progress: 85, message: 'Dienst wird gestartet' });
+    const start = await serviceAction(service, 'start');
+    result.started = start.ok;
+    if (!start.ok) onLog(`[update] Start-Warnung: ${start.error}`);
+
+    // 7) Version im Sword fortschreiben - ueber setInstalledVersion, nicht per
+    //    writeFile (sonst bleibt der Modul-Cache veraltet und das Panel zeigt
+    //    weiter die alte Zahl; Lehre vom 2026-11-07).
+    if (newVersion && result.started) {
+      try {
+        await setInstalledVersion(swordId, { version: newVersion, source: 'github-release', by: null });
+        onLog(`[update] Version im Sword aktualisiert: ${newVersion} (github-release)`);
+      } catch (err) {
+        onLog(`[update] Warnung: Version konnte nicht fortgeschrieben werden: ${err.message}`);
+      }
+    }
+
+    const summary = {
+      backup: result.backup?.file ?? null,
+      backupIncluded: result.backup?.included ?? [],
+      fromVersion: installed,
+      toVersion: newVersion,
+      filesChanged: result.filesChanged,
+      started: result.started,
+    };
+    if (!result.started) {
+      setState(swordId, { phase: 'done', progress: 100, message: 'Update angewendet, aber Dienststart FEHLGESCHLAGEN - bitte Log prüfen.', finishedAt: Date.now(), error: null, result: summary });
+    } else {
+      setState(swordId, { phase: 'done', progress: 100, message: `Update auf ${newVersion} abgeschlossen`, finishedAt: Date.now(), error: null, result: summary });
+    }
+    return { ok: true, ...result };
+  } catch (err) {
+    // Wir haben gestoppt - die Instanz darf nicht down bleiben.
+    if (stopped && !result.started) {
+      onLog('[update] Fehler - Dienst wird wieder gestartet (Wiederherstellung).');
+      const rec = await serviceAction(service, 'start');
+      if (!rec.ok) onLog(`[update] WARNUNG: Wiederstart fehlgeschlagen: ${rec.error}`);
+      else result.started = true;
+    }
+    setState(swordId, { phase: 'error', progress: 100, message: `Update fehlgeschlagen: ${err.message}`, finishedAt: Date.now(), error: err.message, result: {
+      backup: result.backup?.file ?? null,
+      backupIncluded: result.backup?.included ?? [],
+      fromVersion: installed,
+      toVersion: newVersion,
+      started: result.started,
+    } });
+    throw err;
+  } finally {
+    // Temp gehoert dem Instanz-User - 'armory' kann es nicht loeschen.
+    if (tmpRoot) await runHelper('cleanup-path', [tmpRoot], { log: onLog }).catch(() => {});
+    if (dlPath) await rm(dlPath, { force: true }).catch(() => {});
   }
 }

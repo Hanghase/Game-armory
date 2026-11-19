@@ -1611,6 +1611,8 @@ function arsenalLabel(id) {
       document.getElementById('upTabUpload').style.display = tab === 'upload' ? 'block' : 'none';
       const steamTab = document.getElementById('upTabSteam');
       if (steamTab) steamTab.style.display = tab === 'steam' ? 'block' : 'none';
+      const ghTab = document.getElementById('upTabGithub');
+      if (ghTab) ghTab.style.display = tab === 'github' ? 'block' : 'none';
       document.querySelectorAll('#upTabs button').forEach((b) => {
         b.classList.toggle('active', b.dataset.tab === tab);
       });
@@ -1801,6 +1803,14 @@ function arsenalLabel(id) {
       const rack = (upMode === 'update' && upSword)
         ? (racksCache.find((r) => r.id === upSword.rack) ?? selectedRack)
         : selectedRack;
+      if (tab === 'github') {
+        // GitHub-Rack (z.B. TeamSpeak 6): Repo und Dateiname stehen im Rack,
+        // das Panel muss sie nur mitschicken. Der Server prueft sie erneut -
+        // was hier steht, ist keine Zusicherung.
+        if (!rack) throw new Error('Bitte zuerst ein Rack auswählen.');
+        if (!rack.source?.url) throw new Error('Das gewählte Rack hat keine GitHub-URL.');
+        return { type: 'github', rackId: rack.id, repo: rack.source.url, assetPattern: rack.source.assetPattern };
+      }
       if (tab === 'steam') {
         if (!rack) throw new Error('Bitte zuerst ein Rack auswählen.');
         const appId = rack.source?.appId;
@@ -2058,6 +2068,21 @@ function arsenalLabel(id) {
       // CurseForge. Ein 7d2d (Steam-Rack) oeffnete deshalb mit dem falschen Tab,
       // obwohl applyRackTabs ihn korrekt aktiviert hatte - live gemeldet.
       // Jetzt denselben Tab nehmen, den das Rack erlaubt.
+      // GitHub-Racks: im Tab zeigen, WOHER geladen wird. Eine leere Box mit
+      // "—" waere eine Frage ohne Antwort - Repo und Dateiname stehen im Rack.
+      const ghRepo = document.getElementById('upGhRepo');
+      const ghHint = document.getElementById('upGhHint');
+      if (ghRepo) {
+        if (swordRack?.installMethod === 'github' && swordRack.source?.url) {
+          ghRepo.textContent = swordRack.source.url.replace(/^https?:\/\/github\.com\//, '');
+          if (ghHint) ghHint.textContent = swordRack.source.assetPattern
+            ? 'Datei: ' + swordRack.source.assetPattern
+            : 'Die Datei wird direkt vom Projekt geladen.';
+        } else {
+          ghRepo.textContent = '—';
+          if (ghHint) ghHint.textContent = 'Dieses Rack hat keine GitHub-Quelle.';
+        }
+      }
       upTab(tabsForRack(swordRack)[0]);
       renderPreflight(sword, stateInfo);
       document.getElementById('updateModal').classList.add('open');
@@ -2687,7 +2712,7 @@ function arsenalLabel(id) {
     // Install-Methode eines Racks -> zugehoeriger Tab.
     // EINE Quelle: ein Rack kann nur seinen eigenen Weg installieren.
     const METHOD_TO_TAB = {
-      curseforge: 'cf', steamcmd: 'steam', zip: 'zip', upload: 'upload', github: 'zip',
+      curseforge: 'cf', steamcmd: 'steam', zip: 'zip', upload: 'upload', github: 'github',
     };
 
     // Tab-Leiste an das gewaehlte Rack anpassen: nur der erlaubte Tab ist
