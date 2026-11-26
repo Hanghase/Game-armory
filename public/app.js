@@ -2238,11 +2238,11 @@ function arsenalLabel(id) {
       const d = dockerStand;
       const steps = [
         'Prüfen, ob ein frisches DB-Backup existiert – sonst Abbruch, bevor etwas angefasst wird',
-        'Alte <code class="pathhint">docker-compose.yml</code> sichern und das laufende Image als <code class="pathhint">&lt;tag&gt;-preupdate</code> markieren',
+        'Alte <code class="pathhint">docker-compose.yml</code> sichern und das laufende Image als <code class="pathhint">alt-preupdate</code> markieren',
         'Neuen Image-Tag in die Compose-Datei schreiben',
         'Image ziehen (<code class="pathhint">docker compose pull</code>)',
         bleibt.length
-          ? 'Nur <code class="pathhint">' + esc(dockerDienst ?? 'den Dienst') + '</code> neu erstellen - ' +
+          ? 'Nur <code class="pathhint">' + esc(dockerDienst ?? 'den Dienst') + '</code> neu erstellen – ' +
             esc(bleibt.join(', ')) + ' laufen weiter'
           : 'Container neu erstellen',
         'Nextcloud hebt beim Start die Datenbank auf das neue Schema',
