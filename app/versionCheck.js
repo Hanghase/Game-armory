@@ -147,36 +147,56 @@ export function repoFromUrl(url) {
   return null;
 }
 
-// Tags lesen, nicht Releases.
+// Releases lesen, nicht Tags (2026-11-26).
 //
-// Warum: Viele Projekte setzen Tags, aber legen kein Release dazu an. Ein Tag
-// ist der Stand, den man ausliefert - das Release ist nur die Verpackung drum
-// herum. /releases/latest liefert in dem Fall 404, und die Pruefung meldete
-// "unbekannt", obwohl die Version da war.
+// Vorgeschichte: Die Pruefung las /tags, weil viele Projekte Tags ohne Release
+// anlegen und /releases/latest dann 404 liefert. Fuer TeamSpeak 6 war das aber
+// genau falsch herum: der Repo fuehrt seine Tags um (v6.0.0-beta14 ->
+// v6.0.0/beta8). Der erste Tag hatte damit ein Format, das nicht als Version
+// lesbar ist ("/"), und die Pruefung meldete dauerhaft "unknown" - obwohl das
+// echte Release v6.0.0-beta14 da war. Installiert und verfuegbar waren am
+// 2026-11-26 sogar dieselbe Version.
 //
-// /tags listet beide Faelle: Tag mit Release und Tag ohne. Wir nehmen den
-// ersten Eintrag; GitHub sortiert nach Committer-Datum, der erste ist also der
-// neueste Tag. Sortiert wird nachher noch einmal gegen `installed`.
+// Der Updater (updater.js getLatestGithubRelease) holt seit dem Binary-Update
+// seine Version aus /releases?per_page=1, und die Route schickt Rack und repo
+// mit (installRoutes.js). Die Pruefung nimmt jetzt dieselbe Quelle - sonst
+// zeigt das Panel "unbekannt", waehrend der Update-Knopf korrekt "schon
+// aktuell" sagt.
+//
+// /releases/latest wird weiter NICHT benutzt: der TS6-Repo markiert Releases
+// nicht als latest, dort kommt 404.
 export async function checkGithub({ repo, installed }) {
   if (!repo) return { state: 'unknown', reason: 'kein GitHub-Repo im Rack', installed: installed ?? null };
   try {
-    const tags = await fetchJson(`https://api.github.com/repos/${repo}/tags`, {
+    const releases = await fetchJson(`https://api.github.com/repos/${repo}/releases?per_page=5`, {
       Accept: 'application/vnd.github+json',
     });
-    // Ein Tag ist kein Vertrag. Projekte benennen Tags um (TeamSpeak 6:
-    // v6.0.0-beta13.1 -> v6.0.0/beta8). Danach passt das Format nicht mehr zur
-    // installierten Version, und ein String-Vergleich wuerde "outdated"
-    // melden, obwohl nichts veraltet ist. Lieber "unknown" mit Grund.
-    if (!Array.isArray(tags) || tags.length === 0) {
-      return { state: 'unknown', reason: 'keine Tags im Repository', installed: installed ?? null };
-    }
-    const tag = tags[0]?.name ?? null;
-    if (!tag) return { state: 'unknown', reason: 'Tag ohne Namen', installed: installed ?? null };
+    // Neuestes Release mit lesbarem Tag nehmen, nicht stur das erste: ein
+    // Release mit unlesbarem Tag wuerde sonst die ganze Pruefung blockieren.
+    const release = (Array.isArray(releases) ? releases : [])
+      .find((r) => r && typeof r.tag_name === 'string' && isVersionLike(r.tag_name));
+    const first = Array.isArray(releases) ? releases[0]?.tag_name ?? null : null;
 
-    // Der Tag muss ein Versionsformat haben, sonst ist kein Vergleich moeglich.
-    // Beispiel TeamSpeak 6: v6.0.0-beta13.1 wurde umbenannt zu v6.0.0/beta8.
-    // Ein String-Vergleich wuerde hier "outdated" melden, obwohl installiert
-    // und verfuegbar dieselbe Version sind. "weiss nicht" ist die Wahrheit.
+    if (!release) {
+      // Nichts Lesbares gefunden. Zwei ehrliche Gruende unterscheiden, damit
+      // der Betreiber weiss, wo er schauen muss.
+      if (Array.isArray(releases) && releases.length === 0) {
+        return { state: 'unknown', reason: 'keine Releases im Repository (nur Tags)', installed: installed ?? null };
+      }
+      if (Array.isArray(releases) && releases.length > 0) {
+        return {
+          state: 'unknown',
+          reason: `Tag-Format nicht auswertbar: ${first ?? 'unbekannt'}`,
+          installed: installed ?? null,
+          available: first,
+        };
+      }
+      return { state: 'unknown', reason: 'GitHub-Antwort ohne Release-Liste', installed: installed ?? null };
+    }
+
+    const tag = release.tag_name;
+    // Der Tag muss ein Versionsformat haben, sonst ist kein Vergleich moeglich
+    // (siehe isVersionLike oben).
     if (!isVersionLike(tag)) {
       return {
         state: 'unknown',
@@ -190,7 +210,7 @@ export async function checkGithub({ repo, installed }) {
       state: cmp === 'equal' ? 'current' : 'outdated',
       installed: installed ?? null,
       available: tag,
-      source: 'github-tag',
+      source: 'github-release',
     };
   } catch (err) {
     // 404 heisst hier: privates Repository oder falscher Name. Das ist ein

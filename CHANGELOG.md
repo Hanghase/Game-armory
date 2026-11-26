@@ -1,5 +1,43 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.14] - 2026-11-26
+
+### Versionspruefung liest das Release, nicht den Tag
+
+Gefragt: "wir haben doch die Tage die Updatemoeglichkeit von Teamspeak ueber
+Github gemacht, wir koennen doch so auch pruefen ob es neue Updates gibt?"
+Kann man - nur sagte die Pruefung fuer TeamSpeak 6 dauerhaft "unbekannt".
+
+**Befund (Sword `teamspeak6`, 2026-11-26):** `installedVersion 6.0.0-beta14`,
+`versionState unknown`, `reason "keine Soll-Version eingetragen"`. Die Pruefung
+las `/tags` und nahm den ersten Tag. Der Repo benennt seine Tags seit
+`v6.0.0/beta3` um (`v6.0.0/beta8`, `v6.0.0/beta7`, ...); die alten
+`v6.0.0-beta14` stehen darunter. Der Schraegstrich ist kein Versionstrenner,
+also `isVersionLike()` false, also "unknown" - obwohl installiert und
+verfuegbar dieselbe Version waren. Der Updater holt seine Version laengst aus
+`/releases?per_page=1`.
+
+**Drei Stellen geaendert:**
+
+1. `checkGithub()` liest `/releases?per_page=5` und nimmt den neuesten Release
+   mit lesbarem Tag. Ein unlesbarer Tag oben blockiert nicht mehr die ganze
+   Pruefung. `source` heisst jetzt `github-release` (war `github-tag`).
+   `/releases/latest` bleibt draussen: der Repo markiert Releases nicht als
+   latest, dort kommt 404.
+2. `runVersionChecks()` (Automatik in `server.js`) uebergab **kein** Rack. Damit
+   wich der taegliche Lauf vom Panel-Knopf ab: Knopf "aktuell", Automatik "kein
+   GitHub-Repo im Rack".
+3. `swords/teamspeak6.sword.json` sagte `update.source "url"` mit
+   `projectId "teamspeak/teamspeak6-server"` - ein Widerspruch, der den
+   Dispatcher in den manual-Zweig schickte. Jetzt `"github"`.
+
+**Live gemessen** (echter Sword + echtes Rack, 2026-11-26):
+`{ state: "current", installed: "6.0.0-beta14", available: "v6.0.0-beta14" }`
+
+**Tests:** `tests/githubVersionCheck.test.mjs` (8 Faelle, zwei Mutationsproben
+belegt: Quelle zurueck auf `/tags` -> rot, Rack-Parameter weg -> rot).
+Suite: 631 pass, 0 fail.
+
 ## [1.7.11] - 2026-11-11
 
 ### Uebernehmen baut die Steuerung, Docker-Racks zulassen

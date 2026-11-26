@@ -727,7 +727,10 @@ export { app };
     for (const sword of getSwords()) {
       try {
         const installDir = sword.control?.workingDir ?? null;
-        const r = await checkSwordVersion(sword, { installDir });
+        // Das Rack muss mit: der Sword kennt oft nur source/projectId, das
+        // Rack traegt url/appId. Ohne Rack meldete TS6 "kein GitHub-Repo im
+        // Rack" - der Automatik-Lauf wich damit vom Knopf ab (2026-11-26).
+        const r = await checkSwordVersion(sword, { rack: getRack(sword.rack), installDir });
         await setVersionCheck(sword.id, {
           state: r.state,
           available: r.available ?? null,
