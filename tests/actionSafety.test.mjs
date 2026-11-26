@@ -251,6 +251,57 @@ let eigenerServer = null;
 let EIGEN = null;
 
 process.env.ARMORY_TEST_APP = '1';
+
+// --- Attrappe fuer dockerAction, VOR dem Import von server.js -------------
+//
+// FEHLER VOM 2026-11-26, live gemessen: die Endpunkt-Tests weiter unten
+// schickten echte POSTs an /api/swords/nextcloud/{start,stop,restart}. Der
+// Test-Server nutzt den ECHTEN Handler mit dem ECHTEN dockerAction - also lief
+// `sudo -n armory-docker-ctl nextcloud start|stop|restart` gegen den laufenden
+// Produktions-Stack. Zwischen 06:16 und 06:19 wurden nc-app/nc-db/nc-redis
+// mehrfach gestoppt und neu gestartet, waehrend `npm test` lief, obwohl der
+// Kommentar an dieser Stelle "hier wird NICHTS gestartet" behauptete.
+//
+// Ein Test, der die Produktion anfasst, ist kein Test. Deshalb wird
+// dockerAction ersetzt, BEVOR server.js die Route bindet. Reihenfolge ist
+// hier alles: eine Attrappe nach dem Import greift nicht (erster Versuch,
+// Zaehler blieb leer, der echte Stack lief).
+const DOCKER_AUFRUFE = [];
+let dockerAttrappeAktiv = false;
+
+async function mitDockerAttrappe() {
+  if (dockerAttrappeAktiv) return true;
+  try {
+    const { mock } = await import('node:test');
+    // Ohne das Flag --experimental-test-module-mocks (in package.json
+    // gesetzt) gibt es mock.module nicht - dann laufen die Steuertests nicht.
+    if (typeof mock?.module !== 'function') return false;
+    const { fileURLToPath } = await import('node:url');
+    const controlPfad = fileURLToPath(new URL('../app/control.js', import.meta.url));
+    const echt = await import(controlPfad);
+    mock.module(controlPfad, {
+      // Absoluter Pfad und alle echten Exporte: mit '../app/control.js' bzw.
+      // nur mit dockerAction bricht der Import in server.js ab
+      // ("does not provide an export named 'serviceAction'").
+      exports: {
+        ...echt,
+        // Bewusst kein Verhalten nachbilden - nur mitschreiben und Erfolg
+        // melden. Die Steuerung selbst ist in dockerAction.test.mjs geprueft.
+        async dockerAction(control, service, action) {
+          DOCKER_AUFRUFE.push({ service, action });
+          return { ok: true, action, service, output: '(Attrappe)' };
+        },
+      },
+    });
+    dockerAttrappeAktiv = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const attrappeVerfuegbar = await mitDockerAttrappe();
+
 const serverMod = await import('../app/server.js');
 assert.ok(serverMod.app, 'server.js muss im Test-Modus die Express-App exportieren');
 
@@ -313,21 +364,37 @@ async function mitSession(fn) {
 // pruefbar, aber ein echter start/stop wuerde den laufenden Nextcloud-Stack
 // anfassen - in einem Testlauf nicht akzeptabel. Was hier zaehlt: die
 // Antwortform, die JSON-Form und dass eine unerlaubte Aktion abprallt.
+//
+// KORREKTUR 2026-11-26: dieser Absatz behauptete das Falsche. Die Tests
+// schickten echte POSTs, der Handler rief das echte dockerAction, und damit
+// wurde der laufende Nextcloud-Stack waehrend `npm test` mehrfach neu
+// gestartet (live belegt, 06:16-06:19). Jetzt steht die Modul-Attrappe oben
+// vor dem Import; ohne sie laufen diese drei Tests nicht.
 for (const aktion of ['start', 'stop', 'restart']) {
-  test(`Endpunkt: docker-Sword ${aktion} antwortet als JSON mit der Steuerart`, async () => {
+  test(`Endpunkt: docker-Sword ${aktion} antwortet als JSON mit der Steuerart`, async (t) => {
+    if (!attrappeVerfuegbar) {
+      return t.skip('mock.module fehlt - kein echter Stack-Aufruf im Test');
+    }
+    const vorher = DOCKER_AUFRUFE.length;
     const resp = await mitSession((headers) =>
       fetch(`${EIGEN}/api/swords/nextcloud/${aktion}`, { method: 'POST', headers }));
 
-    // 200 = Stack wurde angesprochen, 500 = Helfer meldete einen Fehler.
-    // Beides ist eine echte Antwort; 400 waere "gar nicht erst versucht".
-    assert.ok([200, 500].includes(resp.status),
-      `docker-${aktion} muss beantwortet werden (200/500), kam ${resp.status}`);
+    assert.equal(resp.status, 200,
+      `docker-${aktion} muss beantwortet werden, kam ${resp.status}`);
     const body = await resp.json();
     assert.equal(body.kind, 'docker', 'die Antwort nennt die Steuerart');
     assert.equal(body.action, aktion);
     assert.equal(typeof body.ok, 'boolean');
     assert.ok(Array.isArray(body.services), 'die Antwort nennt die angesprochenen Dienste');
     assert.ok(body.services.length > 0, 'mindestens ein Dienst muss versucht worden sein');
+
+    // Der Punkt, der vorher fehlte: die Route hat die Steuerung WIRKLICH
+    // aufgerufen - genau einmal je Dienst. Ein doppelter Aufruf (der Fehler,
+    // der den Stack in Schleife brachte) faellt hier auf.
+    const neu = DOCKER_AUFRUFE.slice(vorher);
+    const dienste = body.services.map((s) => s.service ?? s);
+    assert.deepEqual(neu, dienste.map((dienst) => ({ service: dienst, action: aktion })),
+      'je Dienst genau ein Aufruf, in der Reihenfolge der Antwort');
     assert.ok(!JSON.stringify(body).includes('undefined'),
       `kein "undefined" in der Antwort: ${JSON.stringify(body).slice(0, 200)}`);
   });
@@ -343,6 +410,9 @@ test('Endpunkt: docker-Sword lehnt "down" ab (Route kennt nur start|stop|restart
 });
 
 test('Endpunkt: docker-Sword liefert JSON, keine HTML-Fehlerseite', async () => {
+  // Auch dieser Test geht durch die Steuerroute - ohne Attrappe wuerde er den
+  // echten nc-Stack stoppen.
+  if (!attrappeVerfuegbar) return;
   const resp = await mitSession((headers) =>
     fetch(`${EIGEN}/api/swords/nextcloud/stop`, { method: 'POST', headers }));
   assert.match(resp.headers.get('content-type') ?? '', /application\/json/,
@@ -353,6 +423,7 @@ test('Endpunkt: docker-Aufruf liefert eine Antwort, nie HTML', async () => {
   // Vorher pruefte dieser Test, dass eine Ablehnung (400) keinen
   // Neustart-Merker aufraeumt. Mit der Freigabe ist das hinfällig - wichtig
   // bleibt: ein Docker-Aufruf darf nie in eine HTML-Fehlerseite laufen.
+  if (!attrappeVerfuegbar) return;
   const resp = await mitSession((headers) =>
     fetch(`${EIGEN}/api/swords/nextcloud/restart`, { method: 'POST', headers }));
   assert.match(resp.headers.get('content-type') ?? '', /application\/json/,

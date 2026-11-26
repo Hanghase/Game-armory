@@ -1,5 +1,44 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.16] - 2026-11-26
+
+### Die Testsuite hat Nextcloud neugestartet - jetzt nicht mehr
+
+**Symptom:** Am 26.11. zwischen 06:16:10 und 06:17:29 liefen rund 80 Aufrufe
+`sudo armory-docker-ctl nextcloud start|stop|restart` als root; `nc-app`,
+`nc-db` und `nc-redis` wurden vier Runden lang gestoppt und neu gestartet.
+
+**Ursache:** `tests/actionSafety.test.mjs` schickte echte POSTs auf
+`/api/swords/nextcloud/{start,stop,restart}` an einen Test-Server, der den
+echten Handler mit dem echten `dockerAction` nutzt. Der Kommentar ueber dem
+Block behauptete seit 2026-11-07 das Gegenteil ("hier wird NICHTS gestartet").
+
+Der Kommentar ist ersetzt, der Test ist es auch:
+
+**`dockerAction` wird per `node:test` `mock.module` ersetzt**, bevor
+`app/server.js` importiert wird. Die Route bindet die Attrappe, ein echter
+Stack-Aufruf ist damit unmoeglich; die Attrappe schreibt jeden Aufruf mit.
+
+Drei Fallen dabei (alle live erlebt, im Test kommentiert):
+
+- Attrappe **vor** dem Import setzen - danach greift sie nicht, der Zaehler
+  bleibt leer und die echte Funktion laeuft.
+- **Absoluter Pfad** (`fileURLToPath(new URL('../app/control.js', ...))`);
+  der relative Pfad greift nicht.
+- `exports: { ...echt, dockerAction }` - nur `dockerAction` zu ersetzen bricht
+  den Import in `server.js` ("no export named 'serviceAction'").
+
+Ohne das Flag `--experimental-test-module-mocks` (jetzt in `npm test` und
+`npm run test:watch`) werden die drei Steuertests **uebersprungen** statt
+scharf zu laufen - nie wieder still gegen die Produktion.
+
+**Mutationsprobe:** Route so veraendert, dass jeder Dienst zweimal
+angesprochen wird -> 3 von 3 Steuertests rot (21/24). Zurueckgebaut: 24/24,
+Gesamtsuite 643/643. Die drei Tests laufen jetzt in 2 ms statt ~21 s - sie
+hatten vorher wirklich auf Container gewartet.
+
+Befund ausfuehrlich in `GAME-ARMORY-NOTES.md`.
+
 ## [1.7.15] - 2026-11-26
 
 ### Nextcloud-Version pruefen: Docker-Quelle

@@ -1,14 +1,14 @@
 {
   "name": "game-armory",
-  "version": "1.7.15",
+  "version": "1.7.16",
   "license": "AGPL-3.0-only",
   "description": "Game-Armory - Gameserver Control Panel",
   "type": "module",
   "main": "app/server.js",
   "scripts": {
     "start": "node app/server.js",
-    "test": "node --test \"tests/**/*.test.mjs\"",
-    "test:watch": "node --test --watch \"tests/**/*.test.mjs\""
+    "test": "node --experimental-test-module-mocks --test \"tests/**/*.test.mjs\"",
+    "test:watch": "node --experimental-test-module-mocks --test --watch \"tests/**/*.test.mjs\""
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
