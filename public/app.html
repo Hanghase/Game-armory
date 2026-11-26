@@ -1205,6 +1205,25 @@ durchgelassen und der Vorfall geloggt (fail-open).</p>
           <button class="ghost" data-tab="upload">ZIP hochladen</button>
           <button class="ghost" data-tab="steam">Steam</button>
           <button class="ghost" data-tab="github">GitHub-Release</button>
+          <button class="ghost" data-tab="docker">Docker-Image</button>
+        </div>
+
+        <div id="upTabDocker" style="display:none;">
+          <h4>Docker-Image aktualisieren</h4>
+          <p class="hint">Der Container wird aus dem offiziellen Image neu erstellt.
+            Die Datenbank und der Cache laufen dabei weiter — nur der Dienst
+            <code class="pathhint" id="upDkService">—</code> wird ersetzt.</p>
+          <div class="status-box" id="upDkBox">
+            <div class="grow">
+              <div id="upDkStand"><span class="meta">Wird geprüft…</span></div>
+              <div id="upDkBackup" class="meta"></div>
+            </div>
+          </div>
+          <div id="upDkWarn" class="warn" style="display:none;"></div>
+          <p class="hint" id="upDkHint">
+            Ein Update zieht das Datenbankschema mit hoch. Ein Zurück auf das alte
+            Image ist danach nicht mehr möglich — der Rückweg ist das Backup.
+          </p>
         </div>
 
         <div id="upTabGithub" style="display:none;">

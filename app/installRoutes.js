@@ -38,7 +38,7 @@ import { searchModpacks, getFiles, CurseForgeError, verifyApiKey } from './curse
 import { requirePerm, requireAuth, requireRole } from './auth.js';
 import { getSword, getSwords, loadSwords, getSwordDiagnostics, setInstalledVersion, setVersionCheck, setTargetVersion, setSwordProjectId } from './swords.js';
 import { checkSwordVersion } from './versionCheck.js';
-import { serviceStatus } from './control.js';
+import { serviceStatus, dockerImageUpdate } from './control.js';
 import { loadRacks, getRacks, getRack, getRackDiagnostics, createRack, updateRack, deleteRack, RackError } from './racks.js';
 import { readConfig, writeConfig, SUPPORTED_GAMES } from './configEditor.js';
 import { installFromZip, installFromCurseForge, installFromSteam, downloadGithubAsset, installFromTarball, acceptEulaForRack, InstallerError } from './installer.js';
@@ -951,6 +951,25 @@ installRouter.post('/swords/:id/update', requirePerm('sword.update'), async (req
     // jeder Steam-Klick endete in "Quelle fehlt". App-ID und Branch kommen aus
     // dem RACK; body.appId dient nur als Vorabpruefung fuer eine klare Meldung.
     start = () => updateFromSteam(sword, { onLog, keepConfigs: body.keepConfigs });
+  } else if (body.type === 'docker') {
+    // Docker-Image-Update (2026-11-26). Das Panel hat einen eigenen Endpunkt
+    // (/docker-update), der SYNCHRON antwortet - hier steht der Zweig trotzdem,
+    // weil dieser Pfad der dokumentierte Update-Weg des Panels ist. Ein 400
+    // "Quelle fehlt" waere die falsche Antwort auf eine vollstaendige Anfrage.
+    //
+    // Bewusst NICHT als Hintergrund-Job: der Helfer laeuft 1-2 Minuten und
+    // antwortet dann. Ein 202 mit Statuspfad waere eine Fortschrittsanzeige
+    // ohne Fortschritt - der Helfer meldet keine Zwischenschritte.
+    if (typeof body.tag !== 'string' || !/^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9]+)?$/.test(body.tag)) {
+      return res.status(400).json({ error: `Ungültiger Image-Tag: ${body.tag ?? '(fehlt)'}` });
+    }
+    const dienste = Array.isArray(sword.control?.services) ? sword.control.services : [];
+    const dienst = typeof body.dienst === 'string' ? body.dienst : dienste[0];
+    if (!dienst) {
+      return res.status(400).json({ error: 'Kein Dienst im Docker-Stack definiert (Feld services fehlt)' });
+    }
+    const ergebnis = await dockerImageUpdate(sword.control, dienst, 'apply', body.tag);
+    return res.status(ergebnis.ok ? 200 : 500).json(ergebnis);
   } else if (body.modId || sword.update?.projectId) {
     start = () => updateFromCurseForge(sword, { modId: body.modId, fileId: body.fileId, onLog, keepConfigs: body.keepConfigs });
   } else {

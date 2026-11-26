@@ -1,5 +1,51 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.21] - 2026-11-26
+
+### Der Updater war fertig, aber im Panel nicht erreichbar
+
+**Befund (Felix, live):** *"ich kann das update nicht ui technisch durchfuehren,
+ohne das ich eine Zip hochlade"*. Stimmt - v1.7.20 hat Helfer, Funktion und
+zwei Endpunkte gebaut, aber keinen Weg in der Oberflaeche. Der Update-Dialog
+kennt nur `cf/zip/upload/steam/github`; das Nextcloud-Rack hat
+`installMethod: docker`, und der Docker-Tab existierte nicht.
+
+Das ist der Fehler, den ich mir merken muss: **"bau den Updater" heisst nicht
+"bau eine URL".** Ein Endpunkt ohne Knopf ist keine Funktion.
+
+**Neu: Docker-Tab im Update-Dialog** (`public/app.html`, `public/app.js`)
+
+- `data-tab="docker"` + `#upTabDocker`; `METHOD_TO_TAB.docker = 'docker'`
+  sorgt dafuer, dass das Rack den Tab ueberhaupt auswaehlt
+- Beim Oeffnen fragt `dockerTabLaden()` den Stand: `Installiert X → verfügbar Y`
+  plus Alter des letzten DB-Backups
+- Der Start-Knopf ist **gesperrt**, wenn kein Update ansteht oder kein Backup
+  existiert - sonst klickt der Nutzer in eine Ablehnung des Helfers, deren
+  Grund er erst danach liest
+- Warnung vor dem Start: "~1–2 Minuten nicht erreichbar, die Datenbank wird
+  auf das neue Schema gehoben"
+- `buildSource` schickt `{type:'docker', dienst, tag}` - keine Datei, kein Pfad
+- Eigener Zweig in `startAction`: der Helfer antwortet erst, wenn der Container
+  wieder laeuft. Kein 202, kein Polling - und ein ausdrueckliches `return`
+  danach, damit der Zweig nicht in den Fortschrittspfad faellt, der hier nie
+  etwas meldet.
+
+**Server:** die allgemeine Update-Route (`POST /swords/:id/update`) kennt jetzt
+ebenfalls `body.type === 'docker'`. Ohne den Zweig antwortete sie auf eine
+vollstaendige Anfrage mit "Quelle fehlt".
+
+**Tests:** `tests/dockerUpdateUi.test.mjs` (8 Faelle). Mutationsproben:
+Tab-Button entfernt (1 rot), `METHOD_TO_TAB` ohne docker (1), Stand wird nie
+geholt (1), Knopf nie gesperrt (1), Server-Zweig weg (1), `return` nach dem
+POST weg (1).
+
+Die `return`-Probe war zuerst **gruen**: der Test suchte `/return;/` im Zweig,
+und dort steht auch der `catch`-Rueckweg. Nach Verschaerfung auf die
+Reihenfolge (Toast → `reloadSwords()` → `return`) greift sie. Zweiter Fall
+derselben Lehre wie in 1.7.20: **Anwesenheit eines Wortes ist keine Pruefung
+seiner Verwendung - und Anwesenheit an EINER Stelle ist keine Pruefung der
+Richtigen.**
+
 ## [1.7.20] - 2026-11-26
 
 ### Nextcloud-Update aus dem Panel - ohne selbst docker zu duerfen

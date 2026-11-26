@@ -1613,9 +1613,68 @@ function arsenalLabel(id) {
       if (steamTab) steamTab.style.display = tab === 'steam' ? 'block' : 'none';
       const ghTab = document.getElementById('upTabGithub');
       if (ghTab) ghTab.style.display = tab === 'github' ? 'block' : 'none';
+      const dkTab = document.getElementById('upTabDocker');
+      if (dkTab) dkTab.style.display = tab === 'docker' ? 'block' : 'none';
+      if (tab === 'docker') dockerTabLaden();
       document.querySelectorAll('#upTabs button').forEach((b) => {
         b.classList.toggle('active', b.dataset.tab === tab);
       });
+    }
+
+    // --- Docker-Tab: Stand holen und anzeigen ------------------------------
+    // Fragt beim Oeffnen des Tabs den Helfer (GET /api/swords/:id/docker-update).
+    // Faellt die Abfrage aus, steht das da - statt einer leeren Box, die wie
+    // "kein Update" aussieht.
+    let dockerStand = null;      // Antwort des Helfers, fuer buildSource
+    let dockerDienst = null;     // welcher Dienst (nc-app)
+    async function dockerTabLaden(neu = true) {
+      const standEl = document.getElementById('upDkStand');
+      const backupEl = document.getElementById('upDkBackup');
+      const warnEl = document.getElementById('upDkWarn');
+      const startBtn = document.getElementById('upStart');
+      if (!standEl || !upSword) return;
+      if (neu) {
+        dockerStand = null;
+        standEl.innerHTML = '<span class="meta">Wird geprüft…</span>';
+        backupEl.textContent = '';
+        warnEl.style.display = 'none';
+        if (startBtn) startBtn.disabled = true;
+      }
+      let d;
+      try {
+        const r = await api(`/api/swords/${upSword.id}/docker-update`);
+        if (r.status !== 200) throw new Error(r.data?.error ?? ('HTTP ' + r.status));
+        d = r.data.info;
+      } catch (err) {
+        standEl.innerHTML = '<span class="meta">Prüfung fehlgeschlagen: ' + esc(err.message) + '</span>';
+        if (startBtn) startBtn.disabled = true;
+        return;
+      }
+      dockerStand = d;
+      dockerDienst = d.service;
+      document.getElementById('upDkService').textContent = d.service ?? '—';
+      standEl.textContent = 'Installiert: ' + (d.currentTag ?? '—') +
+        (d.updateAvailable ? '  →  verfügbar: ' + (d.latestTag ?? '—') : '  (aktuell)');
+      backupEl.textContent = d.backupPath
+        ? 'Letztes DB-Backup: ' + d.backupAgeHours + ' h alt (' + d.backupPath.split('/').pop() + ')'
+        : 'Kein DB-Backup gefunden';
+      // Ohne Backup gibt es keinen Rueckweg - der Helfer lehnt dann ab, und
+      // der Knopf soll das vorher zeigen, nicht erst nach dem Klick.
+      if (!d.backupPath) {
+        warnEl.style.display = 'block';
+        warnEl.textContent = '⚠ Ohne DB-Backup lehnt der Helfer das Update ab ' +
+          '(ein Image-Downgrade ist danach nicht möglich).';
+      } else if (d.updateAvailable) {
+        warnEl.style.display = 'block';
+        warnEl.textContent = '⚠ ' + upSword.name + ' ist für ~1–2 Minuten nicht erreichbar. ' +
+          'Die Datenbank wird auf das neue Schema gehoben.';
+      } else {
+        warnEl.style.display = 'none';
+      }
+      if (startBtn) {
+        startBtn.disabled = !d.updateAvailable || !d.backupPath;
+        startBtn.textContent = d.updateAvailable ? 'Update auf ' + d.latestTag + ' starten' : 'Bereits aktuell';
+      }
     }
 
     // --- Upload-Tab: Datei wählen, prüfen, per XHR mit Fortschritt senden ---
@@ -1785,6 +1844,15 @@ function arsenalLabel(id) {
     }
 
     function buildSource(tab) {
+      // Docker (2026-11-26): kein Archiv, kein Pfad - der Helfer liest das
+      // Image selbst aus der Compose-Datei. Was hier durchkommt, ist nur der
+      // Ziel-Tag; der Server validiert ihn erneut und der Helfer nochmal.
+      if (tab === 'docker') {
+        if (!dockerStand) throw new Error('Stand noch nicht geladen - bitte kurz warten.');
+        if (!dockerStand.updateAvailable) throw new Error('Das Image ist bereits aktuell.');
+        if (!dockerStand.backupPath) throw new Error('Ohne DB-Backup ist kein Update möglich.');
+        return { type: 'docker', dienst: dockerStand.service, tag: dockerStand.latestTag };
+      }
       if (tab === 'zip') {
         const path = document.getElementById('zipPath').value.trim();
         if (!path) throw new Error('Bitte den Serverpfad zur ZIP angeben.');
@@ -2045,6 +2113,12 @@ function arsenalLabel(id) {
       document.getElementById('upPreflight').style.display = 'none';
       const resBox = document.getElementById('upResult');
       if (resBox) { resBox.style.display = 'none'; document.getElementById('upResultText').innerHTML = ''; }
+      // Docker-Stand (2026-11-26) gilt pro Sword - beim Oeffnen verwerfen,
+      // sonst zeigt der naechste Sword den Tag des vorigen.
+      dockerStand = null;
+      dockerDienst = null;
+      const startBtnInit = document.getElementById('upStart');
+      if (startBtnInit) { startBtnInit.disabled = false; startBtnInit.textContent = 'Update starten'; }
       document.getElementById('cfQuery').value = '';
       document.getElementById('zipPath').value = '';
       resetUpload();
@@ -2385,6 +2459,36 @@ function arsenalLabel(id) {
       try { source = buildSource(tab); }
       catch (err) { toast(err.message); return; }
 
+      // Docker-Update laeuft ueber einen eigenen Endpunkt: der Helfer antwortet
+      // erst, wenn der Container wieder laeuft (kein 202/Polling). Deshalb hier
+      // ein eigener Zweig - sonst wuerde er auf einen Fortschrittspfad warten,
+      // den es nicht gibt.
+      if (upMode === 'update' && source.type === 'docker') {
+        const btn = document.getElementById('upStart');
+        btn.disabled = true;
+        btn.textContent = 'Update läuft…';
+        const standEl = document.getElementById('upDkStand');
+        if (standEl) standEl.innerHTML = '<span class="meta">Image wird gezogen und Container neu erstellt… (1–2 Minuten)</span>';
+        try {
+          const { status, data } = await api(`/api/swords/${upSword.id}/docker-update`, {
+            method: 'POST', body: JSON.stringify({ dienst: source.dienst, tag: source.tag }),
+          });
+          if (status !== 200) throw new Error(data?.error ?? ('HTTP ' + status));
+          toast(upSword.name + ' auf ' + source.tag + ' aktualisiert.');
+          // Modal schliessen und Liste neu laden - die Versionsanzeige kommt
+          // vom Server, nicht aus dem lokalen Zustand.
+          document.getElementById('updateModal')?.classList.remove('open');
+          await reloadSwords();
+          return;   // wichtig: NICHT in den 202/Zweig darunter fallen
+        } catch (err) {
+          btn.disabled = false;
+          if (standEl) standEl.textContent = '';
+          toast('Update fehlgeschlagen: ' + err.message);
+          await dockerTabLaden(false);
+          return;
+        }
+      }
+
       const btn = document.getElementById('upStart');
       btn.disabled = true;
       try {
@@ -2713,6 +2817,9 @@ function arsenalLabel(id) {
     // EINE Quelle: ein Rack kann nur seinen eigenen Weg installieren.
     const METHOD_TO_TAB = {
       curseforge: 'cf', steamcmd: 'steam', zip: 'zip', upload: 'upload', github: 'github',
+      // docker (2026-11-26): ein Stack mit gepinntem Image. Die Quelle ist das
+      // Image selbst, kein hochgeladenes Archiv - deshalb ein eigener Tab.
+      docker: 'docker',
     };
 
     // Tab-Leiste an das gewaehlte Rack anpassen: nur der erlaubte Tab ist
