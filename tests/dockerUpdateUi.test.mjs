@@ -205,3 +205,55 @@ test('Ein Dienst-Rack mit Docker-Sword zeigt genau Upload und Docker', async () 
   assert.deepEqual(tabs, ['ARCHIVE_TAB', 'docker'],
     'Docker-Stacks sollen nur Archiv und Docker-Image anbieten - keine unmoeglichen Wege');
 });
+
+// --- Kein Sword verliert seinen Weg (2026-11-26) -----------------------------
+//
+// Felix: "du hast fuer alle anderen Swords gerade die update moeglichkeit
+// genommen". Die Sorge ist berechtigt - der Docker-Zweig greift frueh und
+// koennte mit einem falschen Praedikat alles auf ['upload','docker'] ziehen.
+// Dieser Test fuehrt tabsForStack mit den ECHTEN Sword- und Rack-Dateien aus
+// und verlangt fuer jeden Stack seinen angestammten Weg.
+
+test('Kein Sword verliert seinen Update-Weg an den Docker-Zweig', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const q = await js();
+  const start = q.indexOf('function tabsForStack'), ende = q.indexOf('function tabsForRack');
+  const fx = new Function("const ARCHIVE_TAB='upload'; const METHOD_TO_TAB={docker:'docker',github:'github',steamcmd:'steam',curseforge:'cf',zip:'zip',upload:'upload'};\n"
+    + q.slice(start, ende) + '\nreturn tabsForStack;')();
+
+  const lade = async (ordner, endung) => {
+    const out = {};
+    for (const n of (await readdir(new URL(`../${ordner}/`, import.meta.url))).filter((x) => x.endsWith(endung))) {
+      out[n.replace(endung, '')] = JSON.parse(await readFile(new URL(`../${ordner}/${n}`, import.meta.url), 'utf8'));
+    }
+    return out;
+  };
+  const racks = await lade('racks', '.rack.json');
+  const swords = await lade('swords', '.sword.json');
+
+  for (const [id, sw] of Object.entries(swords)) {
+    if (!sw.rack) continue;                       // Schema-Datei
+    const tabs = fx(sw, racks[sw.rack] ?? null);
+    const quelle = sw.update?.source;
+    if (quelle === 'docker') {
+      assert.deepEqual(tabs, ['upload', 'docker'], `${id}: Docker-Stack ohne Docker-Tab`);
+      continue;
+    }
+    const erwartet = { steam: 'steam', github: 'github', curseforge: 'cf' }[quelle];
+    if (erwartet) {
+      assert.ok(tabs.includes(erwartet),
+        `${id}: der Tab "${erwartet}" fuer update.source="${quelle}" fehlt - `
+        + `sichtbar waeren nur ${JSON.stringify(tabs)}`);
+      assert.equal(tabs[0], erwartet, `${id}: "${erwartet}" muss der erste (aktive) Tab sein`);
+      assert.ok(!tabs.includes('docker'), `${id}: ein Docker-Tab auf einem systemd-Stack ist falsch`);
+    }
+  }
+});
+
+test('Die Neu-Anlage waehlt den Tab ueber dieselbe Funktion', async () => {
+  const q = await js();
+  // Zwei Stellen fuer dieselbe Frage laufen auseinander - genau das war
+  // der Fehler vom 2026-11-24. selectRack darf METHOD_TO_TAB nicht selbst lesen.
+  assert.match(q, /applyRackTabs\(rack\);\s*\n\s*upTab\(tabsForStack\(null, rack\)\[0\]\);/,
+    'selectRack waehlt den Tab noch auf eigene Faust');
+});

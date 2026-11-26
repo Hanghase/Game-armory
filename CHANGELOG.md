@@ -1,5 +1,43 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.25] - 2026-11-26
+
+### Vorher/Nachher gemessen: kein Sword verliert seinen Weg
+
+**Befund (Felix):** *"wenn du nichts in der app.js weg genommen hast, aber in
+der ui fehlen fuer die anderen swords jetzt die jeweiligen update wege"*.
+
+Berechtigte Sorge, und ich hatte sie mit einer Tabelle beantwortet, die nur
+die Rueckgabe von `tabsForStack` zeigte - nicht, was dabei *verloren geht*.
+Ein Test, der eine Liste ausgibt, beweist nicht, dass sie vollstaendig ist.
+
+**Jetzt gemessen, v1.7.16 gegen HEAD, echte Sword- und Rack-Dateien:**
+
+| Sword | v1.7.16 | jetzt | gleich? |
+|---|---|---|---|
+| 7d2d | steam, upload | steam, upload | ja |
+| atm10 | cf, upload | cf, upload | ja |
+| atm11 | cf, upload | cf, upload | ja |
+| teamspeak6 | github, upload | github, upload | ja |
+| nextcloud | **cf, zip, upload, steam** | upload, docker | Absicht |
+
+Vier von fuenf unveraendert. Der ZIP-Weg auf einen Compose-Stack war der
+einzige, der wegfaellt - und er konnte dort nie funktionieren.
+
+**Gefunden dabei:** `selectRack()` (Neu-Anlage) waehlte den Tab noch auf
+eigener Faust per `METHOD_TO_TAB[rack.installMethod] ?? 'cf'`, direkt nach
+`applyRackTabs()`. Dieselbe Doppelquelle, nur an einer dritten Stelle. Jetzt
+`upTab(tabsForStack(null, rack)[0])`.
+
+**Neuer Test** `tests/dockerUpdateUi.test.mjs`: laeuft ueber ALLE
+`swords/*.sword.json` und verlangt je nach `update.source`, dass der passende
+Tab sichtbar, an erster Stelle und kein Docker-Tab vorhanden ist (ausser bei
+Docker-Stacks). Wer einen Zweig falsch verallgemeinert, faellt hier auf.
+
+Mutationsproben (4, alle rot): Docker-Zweig greift fuer jeden Stack (1),
+Docker-Zweig greift nie (3 - dann fehlt Nextcloud), `selectRack` wieder auf
+`METHOD_TO_TAB` (1), Zweig liefert nur das Archiv (4).
+
 ## [1.7.24] - 2026-11-26
 
 ### Der Docker-Tab existierte, hing aber am falschen Objekt

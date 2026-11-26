@@ -2994,7 +2994,7 @@ function arsenalLabel(id) {
         el.style.borderColor = el.dataset.id === id ? 'var(--accent)' : '';
       });
       applyRackTabs(rack);
-      upTab(METHOD_TO_TAB[rack.installMethod] ?? 'cf');
+      upTab(tabsForStack(null, rack)[0]);
       const rootEl = document.getElementById('nrRoot');
       if (rootEl) rootEl.value = rack.defaultRoot ?? '';
       const portEl = document.getElementById('nrPort');
