@@ -1,5 +1,61 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.20] - 2026-11-26
+
+### Nextcloud-Update aus dem Panel - ohne selbst docker zu duerfen
+
+**Anlass:** Felix' Frage, ob sich Nextcloud direkt im Docker-Compose-Stack
+aktualisieren laesst. Antwort: ja, `nc-app` ist ein einzelnes gepinntes Image
+und der Rest des Stacks laeuft weiter. Aber der Weg dorthin hat eine Falle,
+die kein `docker compose pull` kennt.
+
+**Die Falle:** Ein Nextcloud-Container bringt eine neue Version *mit* und zieht
+beim ersten Start das DB-Schema hoch (`occ upgrade` laeuft im Entrypoint).
+Danach ist ein Image-Downgrade **nicht** moeglich - die DB ist weiter als der
+Code, Nextcloud verweigert den Start. Der Rueckweg ist also nicht das alte
+Image, sondern ein DB-Backup **vor** dem Update. Genau das erzwingt der neue
+Helfer: ohne DB-Backup (hoechstens 14 Tage alt) bricht er ab, bevor er irgendetwas
+anfasst.
+
+**Neu: `/usr/local/bin/armory-docker-update`** (privilegiert, wie
+`armory-docker-ctl` - der `armory`-User bleibt aus der `docker`-Gruppe):
+
+- `check <stack>` - liest nur: Image-Zeile aus dem Compose, hoechste passende
+  Version von Docker Hub, Alter des letzten DB-Backups. Antwort als JSON.
+- `apply <stack> <tag>` - sichert Compose-Kopie und markiert das alte Image als
+  `<tag>-preupdate`, zieht das neue, erstellt **nur** den einen Dienst neu
+  (`--no-deps`: `nc-db` und `nc-redis` laufen weiter). Bricht ab bei fehlendem
+  oder altem Backup, falscher Variante (`-fpm` statt `-apache`) oder
+  ungueltigem Tag.
+
+Bewusst **kein** automatisches Rollback nach Zeit: ein zurueckgespieltes
+DB-Backup ueberschreibt alles, was seit dem Backup geschrieben wurde. Das muss
+eine bewusste Entscheidung bleiben, kein Automatismus.
+
+**Panel:**
+
+- `GET /api/swords/:id/docker-update` - Stand abfragen
+- `POST /api/swords/:id/docker-update` - Update anwenden, Body `{tag}`.
+  Sperre pro Sword gegen einen zweiten Klick waehrend des laufenden Updates.
+  Berechtigung: `restart` - wer neu starten darf, darf auch das Image wechseln.
+
+Bewusst **nicht** in `DOCKER_ACTIONS` aufgenommen: `dockerAction(..., 'apply')`
+wird abgelehnt. Ein Code-Wechsel unter laufenden Daten soll den umstaendlicheren
+Weg nehmen.
+
+`nc-documentserver` (`onlyoffice/documentserver:latest`) bleibt aussen vor:
+`latest` hat keine Version, die man vergleichen koennte - `check` verweigert
+dort mit klarer Meldung statt zu raten.
+
+**Tests:** `tests/dockerImageUpdate.test.mjs` (10 Faelle) - Tag-Injection,
+`apply` ueber den alten Weg, Berechtigung, Doppelklick-Sperre, und ob die Route
+die Funktion wirklich aufruft. Mutationsproben: Tag-Pruefung aus (2 rot),
+Dienst-Whitelist aus (1), Aktion-Pruefung aus (1), GET-Berechtigung aus (1),
+Doppelklick-Sperre aus (1), GET- und POST-Aufruf ersetzt (je 1).
+
+Zwei Proben waren zuerst **gruen** - der Test suchte das Wort im Ausschnitt,
+statt die Pruefzeile im Wortlaut zu verlangen. Nach Verschaerfung greifen alle.
+
 ## [1.7.19] - 2026-11-26
 
 ### Der Erstinstaller schrieb eine Update-Quelle, die es nicht gibt

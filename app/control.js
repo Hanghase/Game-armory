@@ -561,6 +561,20 @@ export async function dockerLogs(service, lines = 200, deps = {}) {
 /** Aktionen, die der Helfer fuer einen Docker-Stack kennt. */
 const DOCKER_ACTIONS = ['start', 'stop', 'restart'];
 
+// Image-Update (2026-11-26). Eigener Helfer, eigener Zweig: `apply` zieht ein
+// Image und erstellt den Container neu - das ist keine Serversteuerung mehr,
+// sondern ein Wechsel des Codes unter laufenden Daten. Deshalb NICHT in
+// DOCKER_ACTIONS aufgenommen: wer `dockerAction(..., 'apply')` aufruft, bekommt
+// "Nicht erlaubt", und der Weg ist bewusst umstaendlicher.
+//
+// Den Rueckweg (DB-Backup vor dem Update) prueft der Helfer selbst - die
+// Anwendung kann ihn nicht vergessen, weil sie ihn nicht kennt.
+const DOCKER_UPDATE_CTL = '/usr/local/bin/armory-docker-update';
+// Ziel-Tag: nur Ziffern, Punkte und ein optionales Variant-Suffix.
+// Kein Schraegstrich, kein Leerzeichen, kein Semikolon - der Wert landet in
+// der Compose-Datei. Dieselbe Form wie im Helfer (dort nochmal geprueft).
+const IMAGE_TAG_RE = /^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9]+)?$/;
+
 /**
  * Start/Stop/Restart eines Docker-Dienstes ueber den engen Helfer.
  *
@@ -620,6 +634,87 @@ export async function dockerAction(control, service, action, deps = {}) {
   } catch (err) {
     const grund = (err.stderr || err.message || '').toString().trim();
     return { ...basis, ok: false, error: grund || `docker compose ${action} fehlgeschlagen` };
+  }
+}
+
+/**
+ * Image-Update eines Docker-Dienstes: pruefen, was es gibt bzw. anwenden.
+ *
+ * Zwei Aktionen, bewusst weit auseinander:
+ *
+ *   dockerImageUpdate(control, dienst, 'check')
+ *     -> liest nur. Fragt Docker Hub, liefert den Stand als JSON.
+ *        Kein Container wird beruehrt.
+ *
+ *   dockerImageUpdate(control, dienst, 'apply', '35.0.3-apache')
+ *     -> zieht das Image und erstellt den Container neu. Der Helfer
+ *        verweigert, wenn kein frisches DB-Backup vorliegt: ein
+ *        Nextcloud-Update zieht das DB-Schema hoch, und ein Downgrade des
+ *        Images laeuft danach nicht mehr. Der Rueckweg ist das Backup,
+ *        nicht das alte Image.
+ *
+ * Der Tag wird HIER gegen ein enges Muster geprueft (er landet in der
+ * Compose-Datei) UND im Helfer nochmal. Eine Pruefung in der Anwendung
+ * schuetzt den Helfer nicht - der Helfer muss eigenstaendig streng bleiben,
+ * weil der armory-User ihn auch direkt aufrufen koennte.
+ *
+ * @param {{compose: string, services?: string[]}} control
+ * @param {string} service  z.B. nc-app
+ * @param {'check'|'apply'} action
+ * @param {string|null} [tag]  Ziel-Image-Tag (nur bei apply)
+ * @param {{run?: Function}} [deps]
+ */
+export async function dockerImageUpdate(control, service, action, tag = null, deps = {}) {
+  const run = deps.run ?? execFileAsync;
+  const basis = { action, service };
+
+  if (!['check', 'apply'].includes(action)) {
+    return { ...basis, ok: false, error: `Nicht erlaubt: ${action} (erlaubt: check, apply)` };
+  }
+
+  const stack = stackNameAusControl(control);
+  if (!stack) {
+    return { ...basis, ok: false,
+      error: `Stack aus compose-Pfad nicht ableitbar: ${control?.compose ?? '(fehlt)'}` };
+  }
+
+  if (typeof service !== 'string' || !DOCKER_SERVICE_RE.test(service)) {
+    return { ...basis, ok: false, error: `Dienst nicht erlaubt: ${service ?? '(fehlt)'}` };
+  }
+
+  const dienste = Array.isArray(control?.services) ? control.services : [];
+  if (!dienste.includes(service)) {
+    return { ...basis, ok: false,
+      error: `Dienst gehört nicht zu diesem Stack: ${service} (erwartet: ${dienste.join(', ') || 'keine'})` };
+  }
+
+  const args = ['-n', DOCKER_UPDATE_CTL, stack, action];
+  if (action === 'apply') {
+    if (typeof tag !== 'string' || !IMAGE_TAG_RE.test(tag)) {
+      return { ...basis, ok: false, error: `Ungültiger Image-Tag: ${tag ?? '(fehlt)'}` };
+    }
+    args.push(tag);
+  }
+
+  // Das Update kann ein paar Minuten brauchen (Pull + Neustart). Kein
+  // Zeitlimit hier: execFileAsync hat keines, und ein kuenstliches Limit
+  // wuerde den Container in einem halbfertigen Zustand zuruecklassen.
+  try {
+    const { stdout } = await run('sudo', args);
+    const ausgabe = String(stdout ?? '');
+    if (action === 'check') {
+      // Der Helfer gibt eine JSON-Zeile aus. Ist sie kaputt, ist das ein
+      // Fehler wert - nicht als leeres Ergebnis durchreichen.
+      try {
+        return { ...basis, ok: true, info: JSON.parse(ausgabe) };
+      } catch {
+        return { ...basis, ok: false, error: `Antwort des Helfers nicht lesbar: ${ausgabe.slice(0, 200)}` };
+      }
+    }
+    return { ...basis, ok: true, output: ausgabe };
+  } catch (err) {
+    const grund = (err.stderr || err.message || '').toString().trim();
+    return { ...basis, ok: false, error: grund || `docker update ${action} fehlgeschlagen` };
   }
 }
 

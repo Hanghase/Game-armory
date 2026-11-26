@@ -17,7 +17,7 @@ import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
 import { loadRacks, getRack } from './racks.js';
 import { serviceAction, serviceStatus, streamLogs, withReadiness,
-  controlKind, dockerStatus, dockerAction,
+  controlKind, dockerStatus, dockerAction, dockerImageUpdate,
   dockerReihenfolge, rconBefehl, serverSpieler, telnetSpieler, ts6Befehl } from './control.js';
 import { authRouter } from './authRoutes.js';
 import { installRouter } from './installRoutes.js';
@@ -252,6 +252,72 @@ app.post('/api/swords/:id/:action(start|stop|restart)', requireAuth, async (req,
 
   res.status(result.ok ? 200 : 500).json(result);
 });
+
+// Image-Update fuer Docker-Stacks (2026-11-26).
+//
+// Zwei Routen statt einer mit Aktion im Body: `check` ist ein reines Lesen,
+// `apply` wechselt den Code unter laufenden Daten. Getrennte Routen macht im
+// Log und in der Berechtigungspruefung sichtbar, was gemeint ist - und ein
+// Panel-Fehler, der versehentlich POSTet, kann nicht "aus Versehen applyen",
+// weil die URL das Wort apply enthalten muss.
+//
+// Berechtigung: UPDATE_PERM entspricht dem restart-Recht. Wer einen Dienst
+// neu starten darf, darf auch dessen Image wechseln - beides nimmt den Dienst
+// fuer ~1 Minute weg. Eine eigene, strengere Stufe waere hier Theater.
+app.get('/api/swords/:id/docker-update', requireAuth, async (req, res) => {
+  if (!roleHasPerm(req.user.role, ACTION_PERM.restart)) {
+    return res.status(403).json({ error: 'Keine Berechtigung' });
+  }
+  const sword = getSword(req.params.id);
+  if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
+  if (controlKind(sword) !== 'docker') {
+    return res.status(400).json({ error: 'Kein Docker-Stack' });
+  }
+  const dienste = Array.isArray(sword.control?.services) ? sword.control.services : [];
+  const dienst = typeof req.query.dienst === 'string' ? req.query.dienst : dienste[0];
+  if (!dienst) {
+    return res.status(400).json({ error: 'Kein Dienst im Docker-Stack definiert (Feld services fehlt)' });
+  }
+  const result = await dockerImageUpdate(sword.control, dienst, 'check');
+  return res.status(result.ok ? 200 : 500).json(result);
+});
+
+app.post('/api/swords/:id/docker-update', requireAuth, async (req, res) => {
+  if (!roleHasPerm(req.user.role, ACTION_PERM.restart)) {
+    return res.status(403).json({ error: 'Keine Berechtigung' });
+  }
+  const sword = getSword(req.params.id);
+  if (!sword) return res.status(404).json({ error: 'Sword nicht gefunden' });
+  if (controlKind(sword) !== 'docker') {
+    return res.status(400).json({ error: 'Kein Docker-Stack' });
+  }
+  const dienste = Array.isArray(sword.control?.services) ? sword.control.services : [];
+  const dienst = typeof req.body?.dienst === 'string' ? req.body.dienst : dienste[0];
+  const tag = req.body?.tag;
+  if (!dienst) {
+    return res.status(400).json({ error: 'Kein Dienst im Docker-Stack definiert (Feld services fehlt)' });
+  }
+  // Ein zweiter Klick waehrend eines laufenden Updates muesste den halben
+  // Zustand ueberschreiben - der Helfer wuerde beim zweiten `apply` ein
+  // bereits gezogenes Image neu erstellen. Deshalb eine Sperre pro Sword,
+  // die erst nach Abschluss wieder frei ist.
+  if (laeufendeDockerUpdates.has(sword.id)) {
+    return res.status(409).json({ error: 'Für dieses Sword läuft bereits ein Image-Update' });
+  }
+  laeufendeDockerUpdates.add(sword.id);
+  try {
+    const result = await dockerImageUpdate(sword.control, dienst, 'apply', tag);
+    return res.status(result.ok ? 200 : 500).json(result);
+  } finally {
+    laeufendeDockerUpdates.delete(sword.id);
+  }
+});
+
+// Laufende Image-Updates je Sword (siehe POST /api/swords/:id/docker-update).
+// Ein Update dauert ~1-2 Minuten; ein zweiter Klick in dieser Zeit wuerde den
+// Zwischenstand ueberschreiben. Bewusst im Prozess und nicht in der DB: nach
+// einem Panel-Neustart gibt es kein laufendes Update mehr, das zu sperren waere.
+const laeufendeDockerUpdates = new Set();
 
 // --- WebSocket: Live-Logs (login-pflichtig) -------------------------------
 
