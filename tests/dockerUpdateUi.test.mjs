@@ -146,3 +146,62 @@ test('openUpdateModal merkt sich den Lauf-Zustand fuer den Preflight', async () 
   const q = await js();
   assert.match(q, /upStateInfo = stateInfo;/, 'upStateInfo wird nicht gesetzt');
 });
+
+// --- Der Tab muss am STACK haengen, nicht am Rack (2026-11-26) ---------------
+//
+// Live gemeldet: "da steht aber kein Dockertab". Ursache: tabsForRack() las
+// rack.installMethod - und ein Dienst-Rack hat dieses Feld gar nicht
+// (racks.js:58 verbietet es bei kind 'service'). Nextclouds Rack hat
+// installMethod null, also fiel die Wahl auf cf/zip/upload/steam zurueck.
+// Sword, Route und Helfer waren die ganze Zeit da; nur der Eingang fehlte.
+
+test('Der Docker-Tab entscheidet sich am Stack, nicht am Rack', async () => {
+  const q = await js();
+  assert.match(q, /function tabsForStack\(sword, rack\)/,
+    'es gibt keine Funktion, die das Sword kennt - dann kann der Tab nur vom Rack abhaengen');
+  // Nicht das Wort pruefen, sondern die WIRKUNG: die Funktion ausfuehren und
+  // sehen, was sie fuer ein Dienst-Rack mit Docker-Sword zurueckgibt. Ein
+  // assert.match auf "docker" blieb gruen, als ich die Pruefung auf
+  // `const kind = null` setzte - das Wort stand weiter in der Datei.
+  const start = q.indexOf('function tabsForStack');
+  const ende = q.indexOf('function tabsForRack');
+  assert.ok(start > 0 && ende > start, 'tabsForStack nicht gefunden');
+  const quelle = "const ARCHIVE_TAB = 'upload'; const METHOD_TO_TAB = {docker:'docker',github:'github',steamcmd:'steam'};\n"
+    + q.slice(start, ende) + '\nreturn tabsForStack;';
+  const tabsForStack = new Function(quelle)();
+  const mitStack = tabsForStack({ control: { type: 'docker' } }, { installMethod: null });
+  assert.deepEqual(mitStack, ['upload', 'docker'],
+    'ein Docker-Stack bekommt ohne installMethod am Rack keinen Docker-Tab');
+  const ohneStack = tabsForStack({}, { installMethod: 'steamcmd' });
+  assert.deepEqual(ohneStack, ['steam', 'upload'],
+    'ein Steam-Rack darf sich nicht veraendern');
+  assert.match(q, /if \(kind === 'docker'\) return \[ARCHIVE_TAB, 'docker'\];/,
+    'der Docker-Stack bekommt den Docker-Tab nicht');
+});
+
+test('applyRackTabs bekommt das Sword durchgereicht', async () => {
+  const q = await js();
+  assert.match(q, /function applyRackTabs\(rack, sword = null\)/,
+    'applyRackTabs nimmt kein Sword entgegen');
+  assert.match(q, /selectedRack = null;.*\n\s*applyRackTabs\(swordRack, sword\);/,
+    'beim Oeffnen wird das Sword nicht uebergeben - der Docker-Tab bleibt unsichtbar');
+});
+
+test('Der spaetere upTab-Aufruf nutzt dieselbe Quelle wie applyRackTabs', async () => {
+  const q = await js();
+  // Er ueberschrieb die Wahl aus applyRackTabs und war der zweite Grund,
+  // warum der Docker-Tab nie aktiv wurde.
+  assert.match(q, /upTab\(tabsForStack\(sword, swordRack\)\[0\]\);/,
+    'der aufrufende Code faellt auf tabsForRack zurueck und waehlt wieder cf');
+});
+
+test('Ein Dienst-Rack mit Docker-Sword zeigt genau Upload und Docker', async () => {
+  const q = await js();
+  const start = q.indexOf('function tabsForStack');
+  const block = q.slice(start, start + 900);
+  const zeile = block.match(/if \(kind === 'docker'\) return \[([^\]]+)\];/);
+  assert.ok(zeile, 'keine Rueckgabe fuer Docker-Stacks');
+  const tabs = zeile[1].split(',').map((s) => s.trim().replace(/'/g, ''));
+  assert.deepEqual(tabs, ['ARCHIVE_TAB', 'docker'],
+    'Docker-Stacks sollen nur Archiv und Docker-Image anbieten - keine unmoeglichen Wege');
+});

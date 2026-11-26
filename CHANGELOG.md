@@ -1,5 +1,54 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.24] - 2026-11-26
+
+### Der Docker-Tab existierte, hing aber am falschen Objekt
+
+**Befund (Felix, live):** *"da steht aber kein Dockertab"*. Nach v1.7.21/1.7.22
+war Tab, Preflight und Route da - im Panel von Nextcloud aber nur CurseForge,
+ZIP, Upload, Steam.
+
+**Ursache:** `tabsForRack()` las `rack.installMethod`. Das Feld gibt es bei
+einem **Dienst**-Rack gar nicht - `racks.js` verbietet es ausdruecklich fuer
+`kind: 'service'` (es beschreibt, *wie installiert* wird; ein uebernommener
+Compose-Stack wird nicht installiert). `nextcloud.rack.json` hat
+`installMethod: null`, also griff `METHOD_TO_TAB[undefined] ?? null` und die
+Wahl fiel auf die Standardliste zurueck.
+
+Mein `METHOD_TO_TAB.docker` aus 1.7.21 war damit toter Code - er konnte nie
+gelesen werden. Der Tab war gebaut und unsichtbar.
+
+**Neu:** `tabsForStack(sword, rack)` fragt zuerst den **Stack**:
+`sword.control.type === 'docker'` -> `['upload', 'docker']`.
+
+Das ist dieselbe Aussage, die der Server fuer die Ausfuehrung benutzt
+(`controlKind` in `app/control.js`). Vorher hing die Anzeige am Rack und die
+Ausfuehrung am Stack - zwei Quellen fuer dieselbe Frage.
+
+Die Reihenfolge hat `upload` vorn: der Docker-Tab wartet auf ein Backup und
+sperrt seinen Knopf, der Dialog soll nicht damit aufgehen.
+
+`tabsForRack(rack)` bleibt als Huelle fuer die Neu-Anlage (dort gibt es noch
+kein Sword).
+
+**Zweiter Fund beim Testen:** der Aufruf `upTab(tabsForRack(swordRack)[0])`
+lief NACH `applyRackTabs` und ueberschrieb die Wahl wieder - selbst ein
+richtiger Tab waere so nicht aktiv geworden.
+
+**Tests:** 4 neue Faelle (680 gesamt). Die erste Fassung prueft
+`assert.match(q, /sword\?\.control\?\.type === 'docker'/)` - und blieb
+**gruen**, als ich die Pruefung auf `const kind = null` setzte. Das Wort stand
+weiter in der Datei. Jetzt wird `tabsForStack` mit der echten app.js-Stelle
+ausgefuehrt und die Rueckgabe verglichen:
+
+    nextcloud.sword -> ["upload","docker"]
+    7d2d (steam)    -> ["steam","upload"]
+    github-rack     -> ["github","upload"]
+
+Mutationsproben: Pruefung auf null (1 rot), falscher Typ `compose` (1 rot),
+Reihenfolge gedreht (2), `docker` aus der Rueckgabe (2),
+`applyRackTabs` ohne Sword (1), spaeterer `upTab` faellt auf das Rack zurueck (1).
+
 ## [1.7.22] - 2026-11-26
 
 ### Der Dialog zeigte beim Docker-Stack den Minecraft-Ablauf

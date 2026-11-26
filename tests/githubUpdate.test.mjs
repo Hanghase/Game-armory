@@ -191,15 +191,25 @@ test('getLatestGithubRelease liefert null statt zu werfen, wenn die URL kein Rep
 async function ladeTabLogik() {
   const src = await quelle('public/app.js');
   const mTab = src.match(/const METHOD_TO_TAB = \{[^}]*\};/);
-  const mTfr = src.match(/const ARCHIVE_TAB = 'upload';\s*function tabsForRack\(rack\) \{[\s\S]*?\n    \}/);
+  // Seit 2026-11-26 heisst die Funktion tabsForStack und kennt das Sword: der
+  // Tab haengt am Stack (sword.control.type), nicht am Rack. tabsForRack ist
+  // nur noch die Rueckwaerts-Huelle fuer die Neu-Anlage.
+  // Zwischen der Konstante und der Funktion steht seit 2026-11-26 ein
+  // Kommentarblock - der Regex darf nicht verlangen, dass beide direkt
+  // hintereinander stehen.
+  const mTfr = src.match(/const ARCHIVE_TAB = 'upload';[\s\S]*?function tabsForStack\(sword, rack\) \{[\s\S]*?\n    \}/);
   assert.ok(mTab, 'METHOD_TO_TAB nicht in app.js gefunden');
-  assert.ok(mTfr, 'tabsForRack nicht in app.js gefunden');
+  assert.ok(mTfr, 'tabsForStack nicht in app.js gefunden');
 
   const { writeFile, unlink } = await import('node:fs/promises');
   const p1 = `/tmp/ts6-m2t-${process.pid}.cjs`;
   const p2 = `/tmp/ts6-tfr-${process.pid}.cjs`;
   await writeFile(p1, `${mTab[0]}\nmodule.exports = METHOD_TO_TAB;\n`);
-  await writeFile(p2, `const METHOD_TO_TAB = require('${p1}');\n${mTfr[0]}\nmodule.exports = tabsForRack;\n`);
+  // tabsForStack erwartet das Sword als erstes Argument. Die Tests unten
+  // rufen weiter mit dem Rack allein - dafuer wird hier eine Huelle gebaut,
+  // die genau das tut, was tabsForRack im Panel tut.
+  await writeFile(p2, `const METHOD_TO_TAB = require('${p1}');\n${mTfr[0]}\n`
+    + `module.exports = (rack) => tabsForStack(null, rack);\n`);
   const tabsForRack = (await import(`file://${p2}?v=${Date.now()}`)).default;
   await unlink(p1).catch(() => {});
   await unlink(p2).catch(() => {});

@@ -2110,7 +2110,7 @@ function arsenalLabel(id) {
       // funktionieren kann. Das Sword kennt sein Rack (sword.rack).
       const swordRack = racksCache.find((r) => r.id === sword.rack) ?? null;
       selectedRack = null;            // Rack-Picker gehoert nur zum Neu-Anlegen
-      applyRackTabs(swordRack);
+      applyRackTabs(swordRack, sword);
       document.getElementById('upTitle').textContent = 'Sword aktualisieren';
       document.getElementById('upStart').textContent = 'Update starten';
       document.getElementById('upRackFields').style.display = 'none';
@@ -2164,7 +2164,7 @@ function arsenalLabel(id) {
           if (ghHint) ghHint.textContent = 'Dieses Rack hat keine GitHub-Quelle.';
         }
       }
-      upTab(tabsForRack(swordRack)[0]);
+      upTab(tabsForStack(sword, swordRack)[0]);
       renderPreflight(sword, stateInfo);
       document.getElementById('updateModal').classList.add('open');
     }
@@ -2901,7 +2901,20 @@ function arsenalLabel(id) {
     // "zip würde ich für jede option möglich machen"). Passt der Rack-Typ
     // selbst aufs Archiv (installMethod url/zip/upload), bleibt nur ein Tab.
     const ARCHIVE_TAB = 'upload';
-    function tabsForRack(rack) {
+    // Welche Tabs ein Stack im Update-Dialog anbietet.
+    //
+    // Die Frage "welcher Tab" haengt am STACK, nicht am Rack (2026-11-26, live
+    // gemeldet: "da steht aber kein Dockertab"). Das Rack eines Dienstes ist
+    // ein Dienst-Rack: es hat kein `installMethod` (das Feld ist Spiel-Racks
+    // vorbehalten, racks.js verbietet es bei kind 'service'). Damit war
+    // `METHOD_TO_TAB[undefined]` immer null und der Docker-Tab erschien nie -
+    // obwohl Sword, Route und Helfer laengst da waren.
+    //
+    // Quelle ist jetzt zuerst sword.control.type: die eine Aussage, die auch
+    // der Server fuer die Ausfuehrung benutzt (controlKind in app/control.js).
+    function tabsForStack(sword, rack) {
+      const kind = sword?.control?.type === 'docker' ? 'docker' : null;
+      if (kind === 'docker') return [ARCHIVE_TAB, 'docker'];
       if (!rack) return ['cf', 'zip', 'upload', 'steam'];
       const primary = METHOD_TO_TAB[rack.installMethod] ?? null;
       if (!primary) return ['cf', 'zip', 'upload', 'steam'];
@@ -2909,8 +2922,13 @@ function arsenalLabel(id) {
       return [primary, ARCHIVE_TAB];
     }
 
-    function applyRackTabs(rack) {
-      const allowed = tabsForRack(rack);
+    // Rueckwaerts-Vertraeglichkeit: die Neu-Anlage kennt noch kein Sword.
+    function tabsForRack(rack) {
+      return tabsForStack(null, rack);
+    }
+
+    function applyRackTabs(rack, sword = null) {
+      const allowed = tabsForStack(sword, rack);
       const tabsEl = document.getElementById('upTabs');
       document.querySelectorAll('#upTabs button').forEach((b) => {
         const ok = allowed.includes(b.dataset.tab);
