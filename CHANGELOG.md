@@ -1,5 +1,47 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.26] - 2026-11-26
+
+### Gelb, das nie aufhörte: die Sword-Datei wusste nichts vom Erfolg
+
+**Befund (Felix, zweimal):** *"laut armory ist die NC immernoch gelb"* und
+*"gelb also nicht aktuell"*. Er hatte recht, und ich hatte die Ursache zuerst
+an der falschen Stelle gesucht.
+
+**Was ich falsch gemessen habe.** Ich habe den Helfer befragt
+(`armory-docker-update nextcloud check`) und dort `updateAvailable: false`
+gesehen - also geschlossen, die Anzeige müsse lügen. Sie log nicht. Das
+Gelb der Kachel kommt aus `sword.versionState`, nicht aus dem Docker-Check.
+Zwei verschiedene Quellen, zwei verschiedene Antworten, und ich hatte die
+falsche befragt.
+
+**Die belegte Kette.** `swords/nextcloud.sword.json` stand auf
+`installedVersion: "35.0.2"` (Stand 26.11. 20:15), der Container lief längst
+`35.0.3`. Die Versions-Gegenprobe verglich `35.0.2` gegen den neuesten
+Hub-Tag `35.0.3` und kam korrekt auf `outdated`. Die Anzeige war also ehrlich
+- nur aus einem Grund, der nicht mehr stimmte.
+
+**Die eigentliche Lücke.** Die POST-Route `docker-update` rief
+`dockerImageUpdate(..., 'apply', tag)` und gab das Ergebnis weiter. Sie
+schrieb **nichts** ins Sword zurück: kein `installedVersion`, kein
+`versionState`. Damit blieb jede Kachel nach jedem geglückten Update
+dauerhaft gelb, bis jemand von Hand die Datei anfasste.
+
+**Behoben.** Im Erfolgszweig: `setInstalledVersion` mit der nackten Version
+(`35.0.3`, nicht `35.0.3-apache` - verglichen wird gegen den Tag-Stamm, ein
+Suffix würde den nächsten Lauf wieder kippen) und `setVersionCheck` auf
+`current`. Bei einem Fehlschlag wird nichts geschrieben; ein Schreibfehler in
+der Datei macht aus einem gelungenen Update keinen Fehlschlag, wird aber
+gemeldet.
+
+**Test.** Der neue Test prüft die POST-Route in `app/server.js`: der
+apply-Aufruf kommt vor dem Schreiben, das Schreiben vor der Antwort, und nur
+hinter `if (result.ok)`. Drei Mutationsproben rot (Aufruf entfernt, auch im
+Fehlerzweig, Tag statt Version). Suite 683/683.
+
+**Stand jetzt.** `installedVersion: 35.0.3`, `versionState: current`,
+`update.image: 35.0.3-apache`, Gegenprobe sagt `current`. Version `1.7.26`.
+
 ## [1.7.25] - 2026-11-26
 
 ### Vorher/Nachher gemessen: kein Sword verliert seinen Weg
