@@ -1107,7 +1107,7 @@ installRouter.post('/installs', requirePerm('sword.create'), async (req, res) =>
       const workDir = `${rackRoot.replace(/\/+$/, '')}/${id}`;
       try {
         result = await installFromTarball(
-          { id, name, port, tarballPath: dl.path, workDir, configFile: rack?.configFile ?? 'tsserver.yaml', configTemplate: rack?.configTemplate ?? null, installedVersion: dl.tag ?? null, installedVersionSource: dl.tag ? 'github-release' : null },
+          { id, name, port, tarballPath: dl.path, workDir, configFile: rack?.configFile ?? 'tsserver.yaml', configTemplate: rack?.configTemplate ?? null, installedVersion: dl.tag ?? null, installedVersionSource: dl.tag ? 'github-release' : null, repo },
           { log },
         );
       } finally {

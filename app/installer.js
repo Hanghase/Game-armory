@@ -1027,7 +1027,7 @@ export async function renderConfigTemplate(templateName, vars) {
 // bereits, wird ABGEBROCHEN - es wird nie ueberschrieben. Damit ist eine von
 // Hand installierte Instanz im selben Pfad geschuetzt.
 export async function installFromTarball(
-  { id, name, port, tarballPath, workDir, configFile = 'tsserver.yaml', configTemplate = null, log = () => {}, installedVersion = null, installedVersionSource = null },
+  { id, name, port, tarballPath, workDir, configFile = 'tsserver.yaml', configTemplate = null, log = () => {}, installedVersion = null, installedVersionSource = null, repo = null },
   { log: log2 = () => {} } = {},
 ) {
   const logFn = (m) => { log(m); log2(m); };
@@ -1163,8 +1163,18 @@ export async function installFromTarball(
       logs: { type: 'file', path: logFilePath },
       rcon: null,
       update: {
+        // 2026-11-26: hier stand 'url'. Das ist KEINE Update-Quelle - siehe
+        // versionCheck.js (steam|github|docker|curseforge|modrinth|ftb|local)
+        // und updater.js. Folge live am TS6-Sword: der Dispatcher fiel in den
+        // manual-Zweig und meldete "Pruefung unbekannt", obwohl das Rack die
+        // Release-URL laengst kannte. Der Updater kam nur durch, weil er
+        // zusaetzlich rack.source.url liest - deshalb fiel es lange nicht auf.
+        //
+        // Die Quelle wird mitgeschrieben, nicht nur der Typ: damit steht im
+        // Sword, WOHER die Version kommt, ohne dass man das Rack nachschlagen
+        // muss. Ohne repo (Aufruf ohne Angabe) bleibt url leer und Rack gilt.
         source: 'github',
-        url: null,                  // Release-URL liegt im Rack; Panel kann sie dort lesen
+        url: repo ?? null,
         enabled: true,
         keep: [configFile, 'files', 'sql'],
         backupBeforeUpdate: true,

@@ -1,5 +1,59 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.19] - 2026-11-26
+
+### Der Erstinstaller schrieb eine Update-Quelle, die es nicht gibt
+
+**Befund:** `installFromTarball` (GitHub-Racks, z.B. TeamSpeak 6) schrieb
+`update.source = "url"` ins Sword. `"url"` ist **keine** Update-Quelle:
+`versionCheck.js` verzweigt auf `steam`, `github`, `docker`, `curseforge` und
+faellt sonst in den manual-Zweig. Der TS6-Sword stand live mit `"url"` da.
+
+**Wirkung, live beobachtet:** die Versionspruefung meldete "unbekannt", obwohl
+das Rack die Release-URL besass. Nur der Updater kam durch, weil er zusaetzlich
+`rack.source.url` liest - der Fehler war deshalb unsichtbar, bis man ihn suchte.
+
+**Behoben:**
+
+- `installFromTarball` schreibt `source: 'github'` und die Repo-URL direkt ins
+  Sword (`url: repo ?? null`) statt `url: null`. Damit steht im Sword, woher
+  die Version kommt, ohne dass man das Rack nachschlagen muss.
+- `installRoutes.js` reicht `repo` an `installFromTarball` durch.
+
+Das Schema bleibt bei seinem `url`-Eintrag: bestehende Sword-Dateien sollen
+weiter gueltig sein. Der Unterschied zwischen Schema und Dispatcher ist genau
+der Punkt, an dem der Fehler entstand.
+
+### Der Test dazu - und warum er dreimal falsch war
+
+`tests/installerSwordSource.test.mjs` (5 Faelle). Der Weg dahin:
+
+| Entwurf | Warum unbrauchbar |
+|---|---|
+| Pruefung "`url` steht nicht im Schema-Enum" | falsche Aussage - das Schema fuehrt `url` zu Recht (Altdaten); der Test war von Anfang an rot |
+| `update: {...source: 'x'}` ein einziges Mal matchen | landete auf dem **CurseForge**-Block (Z. 470) statt auf dem Tarball-Block (Z. 1176); Mutation `source:'url'` blieb gruen |
+| echter Lauf mit `assert.rejects` | brach an der Pfad-Whitelist ab, **bevor** ein Sword geschrieben wurde - jede Mutation blieb gruen |
+
+Jetzt: alle `update`-Bloecke im Modul (nicht der erste), zusaetzlich der Abgleich
+gegen die Dispatcher-Zweige, und Parameterliste/Rumpf von `installFromTarball`
+einzeln geprueft.
+
+**Mutationsproben (alle greifen jetzt):**
+
+| Mutation | Ergebnis |
+|---|---|
+| `source: 'github'` -> `'url'` | 2 rot |
+| `url: repo ?? null` -> `url: null` | 1 rot |
+| `repo`-Parameter entfernt | 1 rot (via Parameterliste) |
+| Aufrufer reicht `repo` nicht durch | 1 rot |
+| `url`-Zweig in `versionCheck.js` erfunden | 1 rot (Befund waere nicht mehr gueltig) |
+
+Suite **654/654**, Produktions-DB unberuehrt (`md5 9cc46a1...`).
+
+**Offen:** der bestehende `teamspeak6.sword.json` im Betrieb traegt `"url"` noch.
+Er heilt sich beim naechsten Install ueber diesen Pfad; ein Umbau der laufenden
+Datei waere ein Eingriff ohne Not (der Workaround im Dispatcher greift).
+
 ## [1.7.18] - 2026-11-26
 
 ### Tests schreiben nicht mehr in die Betriebs-Datenbank
