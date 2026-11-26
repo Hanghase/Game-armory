@@ -1,0 +1,376 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Game-Armory Sword-Instanz",
+  "description": "Konkrete, laufende Server-Instanz (Sword), die aus einem Rack (racks/<id>.rack.json) hervorgegangen ist. Enthält Steuerung, Logs, RCON-Zugang, Update-Verhalten sowie den ermittelten Java-Stand (javaRequired, javaInstalled, javaWarning).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "rack",
+    "name",
+    "port",
+    "protocol",
+    "control",
+    "logs",
+    "update",
+    "tier",
+    "javaWarning",
+    "installedVersion"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Pfad oder URL zum Schema dieser Datei, ueblicherweise \"./sword.schema.json\"."
+    },
+    "id": {
+      "type": "string",
+      "description": "Eindeutige Kennung der Sword-Instanz (Dateiname ohne Endung), z.B. \"atm10\".",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "rack": {
+      "type": "string",
+      "description": "ID der zugehoerigen Rack-Schablone, z.B. \"atm10\".",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Anzeigename der Instanz, z.B. \"AllTheMods 10\".",
+      "minLength": 1
+    },
+    "port": {
+      "type": "integer",
+      "description": "Vom Server belegter Netzwerk-Port.",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "protocol": {
+      "type": "string",
+      "description": "Transportprotokoll des Server-Ports.",
+      "enum": [
+        "tcp",
+        "udp"
+      ]
+    },
+    "control": {
+      "type": "object",
+      "description": "Angaben zur Prozesssteuerung der Instanz.",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Art der Prozesssteuerung.",
+          "enum": [
+            "systemd",
+            "screen",
+            "tmux",
+            "docker",
+            "process"
+          ]
+        },
+        "service": {
+          "type": "string",
+          "description": "Name der Steuerungseinheit, z.B. \"atm11.service\".",
+          "minLength": 1
+        },
+        "user": {
+          "type": "string",
+          "description": "Systembenutzer, unter dem der Server laeuft, z.B. \"atm11\".",
+          "minLength": 1
+        },
+        "workingDir": {
+          "type": "string",
+          "description": "Arbeitsverzeichnis der Instanz, z.B. \"/opt/minecraft/atm11\".",
+          "pattern": "^/"
+        },
+        "startScript": {
+          "type": "string",
+          "description": "Startskript innerhalb des Arbeitsverzeichnisses, z.B. \"startserver.sh\".",
+          "minLength": 1
+        },
+        "compose": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absoluter Pfad zur docker-compose.yml (nur bei type=docker)."
+        },
+        "services": {
+          "type": "array",
+          "description": "Erwartete Dienste im Compose-Stack (nur bei type=docker).",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "description": "systemd (Standard): Service, User, Arbeitsverzeichnis und Startskript.",
+          "required": [
+            "type",
+            "service",
+            "user",
+            "workingDir",
+            "startScript"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "systemd",
+                "screen",
+                "tmux",
+                "process"
+              ]
+            }
+          }
+        },
+        {
+          "description": "docker: Compose-Datei und die erwarteten Dienste. Kein systemd-Service.",
+          "required": [
+            "type",
+            "compose"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "docker"
+              ]
+            },
+            "compose": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Absoluter Pfad zur docker-compose.yml.",
+              "pattern": "^/"
+            },
+            "services": {
+              "type": "array",
+              "description": "Erwartete Dienste im Stack. Leer = alle aus der Compose-Datei.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "service": {
+              "type": "string",
+              "minLength": 1
+            },
+            "user": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workingDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "startScript": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "logs": {
+      "type": "object",
+      "description": "Angaben zur Log-Quelle der Instanz.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "path"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Art der Log-Quelle.",
+          "enum": [
+            "file",
+            "journal",
+            "docker"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "description": "Pfad zur Log-Datei, z.B. \"/var/log/atm11/atm11.log\".",
+          "minLength": 1
+        }
+      }
+    },
+    "rcon": {
+      "type": "object",
+      "description": "RCON-Zugang der Instanz zur Steuerung des laufenden Servers.",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "port",
+        "passwordFile"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Hostname oder IP des RCON-Endpunkts, z.B. \"127.0.0.1\".",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "description": "Port des RCON-Endpunkts.",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "passwordFile": {
+          "type": "string",
+          "description": "Pfad zur Datei mit dem RCON-Passwort, z.B. \"/opt/game-armory/data/atm11-rcon.password\".",
+          "pattern": "^/"
+        }
+      }
+    },
+    "update": {
+      "type": "object",
+      "description": "Verhalten beim Aktualisieren des Server-Packs.",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "enabled"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Bezugsquelle fuer Updates. github/steam/docker seit 2026-11-26 im Schema: der Code kennt sie laenger (versionCheck.js:418/425/430, installRoutes.js:943/948), nur das Schema nicht.",
+          "enum": [
+            "curseforge",
+            "modrinth",
+            "ftb",
+            "url",
+            "local",
+            "github",
+            "docker",
+            "steam"
+          ]
+        },
+        "projectId": {
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ],
+          "description": "Projektkennung bei der Quelle (kann null sein)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "True, wenn Updates fuer diese Instanz erlaubt sind."
+        },
+        "keep": {
+          "type": "array",
+          "description": "Dateien und Ordner, die beim Update erhalten bleiben (nicht ueberschrieben werden).",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "backupBeforeUpdate": {
+          "type": "boolean",
+          "description": "True, wenn vor jedem Update automatisch ein Backup erstellt wird."
+        },
+        "keepGenerations": {
+          "type": "integer",
+          "description": "Anzahl der aufzubewahrenden Backup-Generationen.",
+          "minimum": 0
+        },
+        "image": {
+          "type": "string",
+          "description": "Docker-Image inkl. Tag, z.B. \"nextcloud:35.0.2-apache\" (source=docker). Der Tag ist der Versionsstand - ein beweglicher Tag wie \"stable\" macht die Pruefung unmoeglich.",
+          "minLength": 1
+        },
+        "appId": {
+          "type": "string",
+          "description": "Steam-App-ID (source=steam), z.B. \"294420\" fuer 7 Days to Die.",
+          "pattern": "^[0-9]{1,10}$"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Steam-Branch (source=steam), leer/weggelassen = oeffentlicher Zweig."
+        },
+        "keepConfigs": {
+          "type": "boolean",
+          "description": "Konfigurationsdateien zusaetzlich zum keep-Array erhalten (curseforge)."
+        }
+      }
+    },
+    "tier": {
+      "type": "string",
+      "description": "Lizenzstufe der Instanz.",
+      "enum": [
+        "free",
+        "premium"
+      ]
+    },
+    "javaRequired": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Vom Pack verlangte Java-Hauptversion (aus startserver.sh erkannt), z.B. 25. null, wenn nicht erkannt.",
+      "minimum": 1
+    },
+    "javaInstalled": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Auf dem System erkannte installierte Java-Hauptversion, z.B. 25. null, wenn nicht erkannt.",
+      "minimum": 1
+    },
+    "javaWarning": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Warnhinweis, wenn die installierte Java-Version nicht zur Anforderung passt, z.B. \"Pack verlangt Java 25, installiert ist Java 21\". null, wenn kein Konflikt besteht."
+    },
+    "installedVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Installierte Version der Instanz. AUTOMATISCH ermittelt aus Dateiname/CurseForge/GitHub-Tag/Steam-Build (z.B. \"8.1\", \"6.0.0-beta13.1\", \"neoforge 21.1.251\"). Ist sie nicht erkennbar, MUSS sie haendisch im Panel eingetragen werden - ein leeres Feld ist nicht zulaessig (Pflichtfeld)."
+    },
+    "installedVersionSource": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Woher installedVersion stammt: \"curseforge\", \"filename\", \"github-release\", \"neoforge-startscript\", \"steam-appmanifest\", \"binary-version\" (automatisch) oder \"manual\" (haendisch im Panel eingetragen)."
+    },
+    "installedVersionAt": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Zeitpunkt (Unix ms) der letzten Ermittlung von installedVersion."
+    },
+    "game": {
+      "type": "string",
+      "description": "Spiel der Instanz. Wird normalerweise NICHT in der Sword-Datei gepflegt, sondern beim Laden aus dem Rack abgeleitet (siehe swords.js); hier nur erlaubt fuer Altbestaende/Overrides.",
+      "enum": [
+        "minecraft",
+        "7d2d",
+        "teamspeak3",
+        "teamspeak6"
+      ]
+    },
+    "telnet": {
+      "type": "object",
+      "description": "Telnet/RCON-Ersatz fuer native Server (z.B. 7 Days to Die). Optional.",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "passwordFile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

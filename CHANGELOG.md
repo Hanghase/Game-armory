@@ -1,5 +1,58 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.17] - 2026-11-26
+
+### Das Sword-Schema kannte die eigenen Dateien nicht
+
+**Befund:** `swords/sword.schema.json` erlaubte in `update.source` nur
+`curseforge`, `modrinth`, `ftb`, `url`, `local`. Im Betrieb standen dort aber
+`steam` (7d2d), `github` (teamspeak6) und `docker` (nextcloud) - alle drei
+Quellen kennt der Code laenger (`versionCheck.js:418/425/430`,
+`installRoutes.js:943/948`). Dazu fehlten im `update`-Block die Felder `image`
+(nextcloud), `appId`/`branch` (7d2d) und `keepConfigs` (atm10), obwohl der
+Block `additionalProperties: false` setzt: jede dieser Dateien war nach dem
+eigenen Schema ungueltig.
+
+**Warum nichts passiert ist:** `app/swords.js` prueft nur Pflichtfelder
+(`id`, `name`, `control`) und `installedVersion` - das JSON-Schema wird
+nirgends geladen. Es ist reine Dokumentation, und Dokumentation ohne Test
+veraltet still.
+
+**Behoben:**
+
+- `update.source` kennt jetzt acht Quellen: `curseforge`, `modrinth`, `ftb`,
+  `url`, `local`, `github`, `docker`, `steam`.
+- `update` deklariert `image`, `appId`, `branch` und `keepConfigs`.
+- `required` im `update`-Block ist von sieben auf `source` und `enabled`
+  geschrumpft. `projectId` war Pflicht, nextcloud und 7d2d haben es nicht.
+  Ein Schema, das die eigenen Dateien ablehnt, ist kein Schema.
+
+**Ablage:** `swords/` steht in `.gitignore` (Betriebsdaten). Der pruefbare
+Stand liegt deshalb als versionierter Spiegel in `docs/sword.schema.json`; die
+Laufzeitkopie daneben muss gleich sein.
+
+**Neuer Test `tests/swordUpdateSchema.test.mjs` (6 Faelle):** Quellen im Schema
+gegen Quellen im Code, Felder im Schema gegen Felder in den echten
+Sword-Dateien, `required` gegen die Dateien, und der Spiegel gegen die
+Laufzeitkopie.
+
+**Mutationsproben (alle drei greifen):**
+
+| Mutation | Ergebnis |
+|---|---|
+| `docker` aus dem Enum entfernt | 3 Tests rot |
+| `image` aus den properties entfernt | 1 Test rot |
+| Laufzeitkopie weicht ab | 1 Test rot |
+
+**Eine Falle im ersten Testversuch:** der Test las auch `installRoutes.js` und
+meldete `zip` und `upload` als fehlende Quellen. Das sind **Install**-Quellen
+(`installRoutes.js:1058/1061`), keine Update-Quellen - der Ausschnitt war zu
+weit, nicht das Schema zu eng. Der Test liest jetzt nur noch `versionCheck.js`
+und `updater.js`.
+
+Suite danach: **643/643** vor diesem Test, **649/649** mit ihm (gemessen,
+nicht gerechnet - der erste Entwurf hier schrieb 654).
+
 ## [1.7.16] - 2026-11-26
 
 ### Die Testsuite hat Nextcloud neugestartet - jetzt nicht mehr
