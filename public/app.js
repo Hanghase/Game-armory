@@ -1625,6 +1625,7 @@ function arsenalLabel(id) {
     // Fragt beim Oeffnen des Tabs den Helfer (GET /api/swords/:id/docker-update).
     // Faellt die Abfrage aus, steht das da - statt einer leeren Box, die wie
     // "kein Update" aussieht.
+    let upStateInfo = {};        // letzter Zustand aus openUpdateModal
     let dockerStand = null;      // Antwort des Helfers, fuer buildSource
     let dockerDienst = null;     // welcher Dienst (nc-app)
     async function dockerTabLaden(neu = true) {
@@ -1674,6 +1675,11 @@ function arsenalLabel(id) {
       if (startBtn) {
         startBtn.disabled = !d.updateAvailable || !d.backupPath;
         startBtn.textContent = d.updateAvailable ? 'Update auf ' + d.latestTag + ' starten' : 'Bereits aktuell';
+      }
+      // Der Preflight wurde beim Oeffnen gerendert - da war dockerStand noch
+      // null. Ohne diesen Nachlauf fehlen Image-Stand und Backup-Zeile darin.
+      if (upMode === 'update' && upSword && controlKindVonSword(upSword) === 'docker') {
+        renderPreflight(upSword, upStateInfo);
       }
     }
 
@@ -2095,6 +2101,7 @@ function arsenalLabel(id) {
       stopPolling();
       upMode = 'update';
       upSword = sword;
+      upStateInfo = stateInfo;   // fuer den Docker-Preflight-Nachlauf
       cfState = { mod: null, file: null };
 
       // Tab-Auswahl an das Rack des Swords binden (2026-10-18). Vorher wurde
@@ -2170,6 +2177,19 @@ function arsenalLabel(id) {
       const box = document.getElementById('upPreflight');
       const txt = document.getElementById('upPreflightText');
       if (!box || !txt) return;
+
+      // Docker-Stack (2026-11-26, live gemeldet): hier standen "ZIP entpacken",
+      // "Neoforge pruefen" und "auf Done ( warten" - der Ablauf eines
+      // Minecraft-Archivs. Bei Nextcloud ist das nicht ungenau, sondern falsch:
+      // es wird kein ZIP entpackt und kein Java-Server gewartet.
+      //
+      // Der Preflight zeigt bei Docker, was der Helfer WIRKLICH tut. Die
+      // Reihenfolge stammt aus armory-docker-update, nicht aus der Vorstellung.
+      if (controlKindVonSword(sword) === 'docker') {
+        dockerPreflight(sword, stateInfo);
+        return;
+      }
+
       const keep = Array.isArray(sword.update?.keep) && sword.update.keep.length
         ? sword.update.keep
         : null;
@@ -2199,6 +2219,54 @@ function arsenalLabel(id) {
           : '')
         + running;
       box.style.display = 'block';
+    }
+
+    // Kontrolltyp eines Swords: 'docker' fuer Compose-Stacks, sonst null.
+    // Dieselbe Aussage wie controlKind im Server (app/control.js) - hier nur
+    // fuer die Anzeige, damit der Preflight den richtigen Ablauf zeigt.
+    function controlKindVonSword(sword) {
+      return sword?.control?.type === 'docker' ? 'docker' : null;
+    }
+
+    // Preflight fuer einen Docker-Stack. Die Schritte stehen so im Helfer
+    // /usr/local/bin/armory-docker-update - keine erfundene Liste.
+    function dockerPreflight(sword, stateInfo = {}) {
+      const txt = document.getElementById('upPreflightText');
+      if (!txt) return;
+      const dienste = Array.isArray(sword.control?.services) ? sword.control.services : [];
+      const bleibt = dienste.filter((d) => d !== dockerDienst);
+      const d = dockerStand;
+      const steps = [
+        'Prüfen, ob ein frisches DB-Backup existiert – sonst Abbruch, bevor etwas angefasst wird',
+        'Alte <code class="pathhint">docker-compose.yml</code> sichern und das laufende Image als <code class="pathhint">&lt;tag&gt;-preupdate</code> markieren',
+        'Neuen Image-Tag in die Compose-Datei schreiben',
+        'Image ziehen (<code class="pathhint">docker compose pull</code>)',
+        bleibt.length
+          ? 'Nur <code class="pathhint">' + esc(dockerDienst ?? 'den Dienst') + '</code> neu erstellen - ' +
+            esc(bleibt.join(', ')) + ' laufen weiter'
+          : 'Container neu erstellen',
+        'Nextcloud hebt beim Start die Datenbank auf das neue Schema',
+      ];
+      const stand = d
+        ? `<div class="meta">Image: <code class="pathhint">${esc(d.currentTag ?? '—')}</code>`
+          + (d.updateAvailable ? ` → <code class="pathhint">${esc(d.latestTag ?? '—')}</code>` : ' (aktuell)')
+          + `</div>`
+        : '';
+      const backup = d?.backupPath
+        ? `<div class="meta">Rückweg: DB-Backup von vor ${esc(String(d.backupAgeHours))} h (<code class="pathhint">${esc(d.backupPath.split('/').pop())}</code>)</div>`
+        : '<div class="meta">Rückweg: <b>kein DB-Backup vorhanden</b> - der Helfer lehnt dann ab.</div>';
+      const running = stateInfo.running
+        ? `<div class="meta" style="margin-top:8px;">${esc(sword.name)} läuft gerade und ist während des Updates für ~1–2 Minuten nicht erreichbar.</div>`
+        : `<div class="meta" style="margin-top:8px;">${esc(sword.name)} ist aktuell gestoppt.</div>`;
+      txt.innerHTML =
+        `<div style="font-weight:600;margin-bottom:6px;">Ablauf beim Start</div>`
+        + `<ol style="margin:0 0 8px 18px;padding:0;font-size:13px;">`
+        + steps.map((s) => `<li>${s}</li>`).join('')
+        + `</ol>`
+        + stand + backup
+        + `<div class="meta" style="margin-top:4px;">Ein Zurück auf das alte Image ist nach dem Schema-Upgrade nicht möglich - der Rückweg ist das Backup.</div>`
+        + running;
+      document.getElementById('upPreflight').style.display = 'block';
     }
 
     // --- Sword entfernen + EULA nachtragen (nur Admin) ---------------------

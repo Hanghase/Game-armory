@@ -1,5 +1,41 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.22] - 2026-11-26
+
+### Der Dialog zeigte beim Docker-Stack den Minecraft-Ablauf
+
+**Befund (Felix, Screenshot):** *"der modal in der ui beim updaten passt so aber
+nicht"*. Im Update-Dialog von Nextcloud standen fuenf Schritte:
+"Server stoppen", "ZIP entpacken und Inhalte ersetzen",
+"Neoforge-Version pruefen", "auf `Done (` warten".
+
+Das ist kein Schoenheitsfehler. Nextcloud hat kein ZIP, kein Neoforge und
+keinen Java-Server, der `Done (` schreibt. Der Preflight kannte nur einen
+Ablauf, den des Archiv-Updates, und zeichnete ihn unabhaengig vom Tab.
+
+**Ursache:** `renderPreflight()` war nie verzweigt. `tabsForRack` waehlt den
+richtigen Tab, aber der Ablauf darueber blieb derselbe.
+
+**Neu:** `dockerPreflight()` zeigt, was `/usr/local/bin/armory-docker-update`
+wirklich tut - Backup-Pruefung, Compose-Sicherung, Image markieren, Tag
+schreiben, `docker compose pull`, nur den einen Dienst neu erstellen, das
+Schema-Upgrade der Datenbank. Plus Image-Stand und Rueckweg:
+
+    Image: 35.0.2-apache → 35.0.3-apache
+    Rückweg: DB-Backup von vor 100 h (nextcloud-db-2026-11-22_0300.sql.gz)
+    Ein Zurück auf das alte Image ist nach dem Schema-Upgrade nicht möglich —
+    der Rückweg ist das Backup.
+
+**Zweiter Fehler, der beim Testen auffiel:** der Preflight wird beim Oeffnen
+gezeichnet, da ist `dockerStand` noch `null` - Stand und Backup-Zeile waeren
+leer geblieben. `dockerTabLaden()` zeichnet ihn nach dem Abruf neu, dafuer
+merkt sich `openUpdateModal()` den Lauf-Zustand in `upStateInfo`.
+
+**Tests:** 4 neue Faelle (676 gesamt). Mutationsproben: Docker-Zweig entfernt
+(1 rot), Docker-Zweig hinter die ZIP-Liste geschoben (1 - die Reihenfolge ist
+die halbe Pruefung), ZIP-Schritt in den Docker-Ablauf eingeschmuggelt (1),
+Nachlauf im `dockerTabLaden` entfernt (1), `upStateInfo` nicht gesetzt (1).
+
 ## [1.7.21] - 2026-11-26
 
 ### Der Updater war fertig, aber im Panel nicht erreichbar

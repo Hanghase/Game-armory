@@ -99,3 +99,50 @@ test('Der Reset beim Oeffnen verwirft einen alten Docker-Stand', async () => {
   assert.match(rumpf, /dockerStand = null/,
     'ein alter Stand des vorigen Swords wuerde im neuen Dialog stehen');
 });
+
+// --- Preflight-Ablauf (2026-11-26, live von Felix gemeldet) ------------------
+//
+// Im Dialog stand bei einem Docker-Stack der Ablauf eines Minecraft-Archivs:
+// "ZIP entpacken", "Neoforge-Version prüfen", "auf Done ( warten". Bei
+// Nextcloud ist das nicht bloss ungenau, sondern falsch - es wird kein ZIP
+// entpackt und kein Java-Server abgewartet.
+
+test('Preflight: Docker-Sworte bekommen einen eigenen Ablauf, keinen ZIP-Weg', async () => {
+  const q = await js();
+  assert.match(q, /if \(controlKindVonSword\(sword\) === 'docker'\) \{\s*\n\s*dockerPreflight\(sword, stateInfo\);\s*\n\s*return;/,
+    'renderPreflight muss bei Docker VOR der ZIP-Schrittliste abzweigen und zurueckkehren');
+  // Die Reihenfolge trennt die beiden Wege: kaeme der Docker-Zweig nach den
+  // ZIP-Schritten, waere er wirkungslos.
+  const iDocker = q.indexOf("controlKindVonSword(sword) === 'docker'");
+  const iZip = q.indexOf("'ZIP entpacken und Inhalte ersetzen'");
+  assert.ok(iDocker > 0 && iZip > iDocker,
+    'der Docker-Zweig steht hinter der ZIP-Liste und greift damit nie');
+});
+
+test('Docker-Preflight nennt keine ZIP- oder Minecraft-Schritte', async () => {
+  const q = await js();
+  const start = q.indexOf('function dockerPreflight');
+  assert.ok(start > 0, 'dockerPreflight fehlt');
+  const block = q.slice(start, start + 2600);
+  for (const verboten of ['ZIP entpacken', 'Neoforge', 'Done (', 'libraries/']) {
+    assert.ok(!block.includes(verboten),
+      `der Docker-Preflight enthaelt "${verboten}" - das ist der Minecraft-Ablauf`);
+  }
+  for (const muss of ['docker compose pull', 'Datenbank', 'Backup']) {
+    assert.ok(block.includes(muss), `der Docker-Preflight nennt "${muss}" nicht`);
+  }
+});
+
+test('Docker-Preflight wird nach dem Laden des Stands neu gezeichnet', async () => {
+  const q = await js();
+  const start = q.indexOf('async function dockerTabLaden');
+  assert.ok(start > 0, 'dockerTabLaden fehlt');
+  const block = q.slice(start, start + 3000);
+  assert.match(block, /if \(upMode === 'update' && upSword && controlKindVonSword\(upSword\) === 'docker'\) \{\s*\n\s*renderPreflight\(upSword, upStateInfo\);/,
+    'beim Oeffnen ist dockerStand noch null - ohne Nachlauf fehlen Stand und Backup im Preflight');
+});
+
+test('openUpdateModal merkt sich den Lauf-Zustand fuer den Preflight', async () => {
+  const q = await js();
+  assert.match(q, /upStateInfo = stateInfo;/, 'upStateInfo wird nicht gesetzt');
+});
