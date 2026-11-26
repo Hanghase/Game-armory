@@ -11,7 +11,7 @@ import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { loadSwords, getSwords, getSword, setVersionCheck } from './swords.js';
+import { loadSwords, getSwords, getSword, setVersionCheck, setInstalledVersion } from './swords.js';
 import { checkSwordVersion } from './versionCheck.js';
 import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
@@ -307,6 +307,33 @@ app.post('/api/swords/:id/docker-update', requireAuth, async (req, res) => {
   laeufendeDockerUpdates.add(sword.id);
   try {
     const result = await dockerImageUpdate(sword.control, dienst, 'apply', tag);
+
+    // Nachziehen, was jetzt laeuft (2026-11-26).
+    //
+    // Live-Fall: das Image-Update auf 35.0.3 lief durch, der Container war
+    // gesund - aber die Sword-Kachel blieb GELB, weil hier nichts
+    // zurueckgeschrieben wurde. `installedVersion` stand weiter auf 35.0.2,
+    // und die Versions-Gegenprobe verglich 35.0.2 gegen den neuesten Tag 35.0.3
+    // -> "outdated". Die Anzeige war also ehrlich, nur aus dem falschen Grund:
+    // die Datei wusste nichts vom Erfolg.
+    //
+    // Nur bei Erfolg, und nur die nackte Version ("35.0.3", nicht "35.0.3-apache"):
+    // verglichen wird gegen den Tag-Stamm, ein Suffix im Feld wuerde den
+    // Vergleich beim naechsten Lauf wieder kippen.
+    if (result.ok) {
+      const gelaufen = result.info?.latestVersion ?? String(tag ?? '').split('-')[0];
+      if (gelaufen) {
+        try {
+          await setInstalledVersion(sword.id, { version: gelaufen, source: 'docker', by: req.user?.username ?? null });
+          // Der Zustand ist damit belegt aktuell - nicht neu raten.
+          await setVersionCheck(sword.id, { state: 'current', available: tag ?? null });
+        } catch (err) {
+          // Das Update ist gelungen; ein Schreibfehler in der Sword-Datei darf
+          // daraus keinen Fehlschlag machen. Aber er muss sichtbar sein.
+          console.warn(`[armory] Docker-Update ${sword.id}: Version nicht nachgetragen: ${err.message}`);
+        }
+      }
+    }
     return res.status(result.ok ? 200 : 500).json(result);
   } finally {
     laeufendeDockerUpdates.delete(sword.id);

@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 const wegwerfDb = fs.mkdtempSync(path.join(os.tmpdir(), 'docker-update-'));
 process.env.ARMORY_DB_PATH = path.join(wegwerfDb, 'test.db');
@@ -175,4 +176,40 @@ test('Die Route /docker-update ruft dockerImageUpdate auf und prueft die Berecht
     'GET-Route ruft dockerImageUpdate nicht wirklich auf');
   assert.match(blockPost, /const result = await dockerImageUpdate\(sword\.control, dienst, 'apply', tag\)/,
     'POST-Route ruft dockerImageUpdate nicht wirklich auf');
+});
+
+// --- Nach dem Update muss die gefahrene Version im Sword stehen (2026-11-26) --
+//
+// Live-Fall: das Image-Update auf 35.0.3 lief durch, der Container war gesund,
+// aber die Sword-Kachel blieb GELB. `installedVersion` stand weiter auf 35.0.2,
+// die Versions-Gegenprobe verglich 35.0.2 gegen 35.0.3 -> "outdated".
+// Die Route schrieb nach dem apply nichts zurueck.
+//
+// Die Probe liest den Quelltext der POST-Route und verlangt die beiden
+// Schreibaufrufe IM Erfolgszweig - und zwar vor der Rueckgabe der Antwort.
+test('Docker-apply traegt die neue Version ins Sword ein', async () => {
+  const server = await readFile(new URL('../app/server.js', import.meta.url), 'utf8');
+  const start = server.indexOf("app.post('/api/swords/:id/docker-update'");
+  assert.ok(start > 0, 'POST-Route fehlt');
+  const ende = server.indexOf('laeufendeDockerUpdates = new Set', start);
+  const route = server.slice(start, ende > 0 ? ende : start + 4000);
+
+  const iApply = route.indexOf("dockerImageUpdate(sword.control, dienst, 'apply', tag)");
+  const iSet = route.indexOf('setInstalledVersion(');
+  const iReturn = route.indexOf('return res.status(result.ok');
+
+  assert.ok(iApply > 0, 'apply-Aufruf nicht gefunden');
+  assert.ok(iSet > 0, 'setInstalledVersion wird nach dem Update nicht aufgerufen');
+  assert.ok(iReturn > 0, 'Rueckgabe der Route nicht gefunden');
+  assert.ok(iApply < iSet && iSet < iReturn,
+    'setInstalledVersion muss NACH dem apply und VOR der Antwort stehen');
+
+  // Nur im Erfolgszweig - bei einem Fehlschlag darf keine Version geschrieben
+  // werden, sonst behauptet das Sword einen Stand, der nicht laeuft.
+  assert.match(route.slice(iApply, iSet), /if \(result\.ok\)/,
+    'Version wird auch bei fehlgeschlagenem Update geschrieben');
+
+  // Die nackte Version, nicht der Tag mit Variante.
+  assert.match(route, /latestVersion/,
+    'es wird der Tag statt der nackten Version geschrieben - der naechste Vergleich kippt');
 });
