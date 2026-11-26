@@ -616,14 +616,14 @@ function arsenalLabel(id) {
           <td class="name-cell" data-name="${u.id}" title="Verlauf anzeigen">
             <span class="caret">▶</span> ${esc(u.username)}${u.id === me.id ? ' (du)' : ''}
           </td>
-          <td class="last-login">${u.last_login
-            ? esc(new Date(u.last_login).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }))
-            : '<span class="nie">noch nie</span>'}</td>
           <td>
             <select data-uid="${u.id}" class="roleSel">
               ${Object.entries(RANGEN).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
             </select>
           </td>
+          <td class="last-login">${u.last_login
+            ? esc(new Date(u.last_login).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }))
+            : '<span class="nie">noch nie</span>'}</td>
           <td>${can('user.email')
             ? `<input class="emailInp" data-uid="${u.id}" type="email" value="${esc(u.email ?? '')}" placeholder="keine E-Mail" />`
             : esc(u.email ?? '–')}</td>

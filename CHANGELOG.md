@@ -1,5 +1,34 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.30] - 2026-11-26
+
+### Spalten unter falscher Ueberschrift
+
+Felix, sofort nach dem Einbau: *"die Spalten zuweisung passt nicht bei Rang
+steht jetzt nicht eingeloggt und bei zuletzt gesehen stehen jetzt die
+Rechte."*
+
+Er hatte recht. Ich hatte beim Einbau der neuen Spalte die Login-Zelle **vor**
+das Rang-Auswahlfeld gesetzt, die Kopfzeile aber mit `Rang` begonnen. Die
+Tabelle rendert trotzdem — jeder Wert steht nur unter der falschen
+Ueberschrift. Ein Screenshot sieht plausibel aus, die Daten sind verdreht.
+
+**Die Fehlerklasse ist wichtiger als der Fehler.** Pruefungen auf Anwesenheit
+(`assert.match(quelle, /last-login/)`) werden bei einer vertauschten Zelle
+nie rot: das Feld ist ja da. Was fehlt, ist der Vergleich der **Reihenfolge**.
+
+Der neue Test liest die `<th>`-Kopfzeile und die `<td>`-Zellen, ordnet jeder
+Zelle ihren Kopf zu (ueber `name-cell`, `roleSel`, `emailInp`, `last-login`)
+und vergleicht beide Listen mit `deepEqual`. Probe: den alten Fehler wieder
+eingebaut — Test rot, genau dieser eine.
+
+### Korrektur
+
+Zellenreihenfolge jetzt Name -> Rang -> Zuletzt angemeldet -> E-Mail ->
+Aktionen, wie die Kopfzeile.
+
+698/698.
+
 ## [1.7.29] - 2026-11-26
 
 ### "Zuletzt angemeldet"

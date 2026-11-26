@@ -244,3 +244,30 @@ test('die Nutzerliste traegt last_login ein', async () => {
   // Ein Fehler in der Spur darf die Liste nicht kippen.
   assert.match(block, /try\s*\{/);
 });
+
+// --- Kopf und Zellen muessen zusammenpassen --------------------------------
+// Beim Einbau der Spalte "Zuletzt angemeldet" habe ich die Login-Zelle VOR das
+// Rang-Feld gesetzt. Niemand hat es gemerkt: die Tabelle rendert, die Werte
+// stehen nur unter der falschen Ueberschrift ("Rang: noch nie"). Ein Test, der
+// nur auf Anwesenheit prueft, sieht das nie. Dieser hier vergleicht die
+// Reihenfolge, nicht das Vorhandensein.
+test('Nutzer-Tabelle: Kopf und Zellen in derselben Reihenfolge', async () => {
+  const quelle = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const kopf = quelle.match(/<thead><tr>(.*?)<\/tr><\/thead>/)[1];
+  const spalten = [...kopf.matchAll(/<th>(.*?)<\/th>/g)].map((m) => m[1]);
+  assert.deepEqual(spalten, ['Benutzer', 'Rang', 'Zuletzt angemeldet', 'E-Mail', '']);
+
+  const zeile = quelle.match(/<tr class="user-row"[\s\S]*?<\/tr>`\)/)[0];
+  // Jede Zelle mit ihrem Kennzeichen: class-Attribut oder das Element darin.
+  const zellen = [];
+  const teile = zeile.split('<td').slice(1);
+  for (const teil of teile) {
+    if (teil.includes('class="name-cell"')) zellen.push('Benutzer');
+    else if (teil.includes('class="last-login"')) zellen.push('Zuletzt angemeldet');
+    else if (teil.includes('class="row-actions"')) zellen.push('');
+    else if (teil.includes('roleSel')) zellen.push('Rang');
+    else if (teil.includes('emailInp')) zellen.push('E-Mail');
+    else zellen.push('?');
+  }
+  assert.deepEqual(zellen, spalten, 'Zellen folgen nicht der Kopfzeile');
+});
