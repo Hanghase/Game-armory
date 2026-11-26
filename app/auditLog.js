@@ -227,6 +227,24 @@ export function listAuditForUser(username, userId, { limit = 50 } = {}) {
   return rows.map(detailLesen);
 }
 
+// Letzte erfolgreiche Anmeldung je Nutzer, in EINER Abfrage fuer die ganze
+// Liste. Nicht aus sessions: die verschwinden beim Abmelden und beim
+// Aufraeumen, die Spur bleibt. Ergebnis: { 'root': 1795721969000, ... }
+//
+// login.fail zaehlt bewusst nicht - "zuletzt online" ist keine Aussage
+// darueber, wer sich vertippt hat.
+export function letzteAnmeldungen() {
+  const zeilen = db.prepare(`
+    SELECT username, MAX(at) AS at
+    FROM audit_log
+    WHERE action = ? AND result = 'ok' AND username IS NOT NULL
+    GROUP BY username
+  `).all('login.ok');
+  const karte = {};
+  for (const z of zeilen) karte[z.username] = z.at;
+  return karte;
+}
+
 export function countAudit() {
   return db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n;
 }

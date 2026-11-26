@@ -1,5 +1,62 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.29] - 2026-11-26
+
+### "Zuletzt angemeldet"
+
+Felix' Antwort auf die Frage, ob Logins in den Verlauf gehören: *"mir würde
+last Login reichen."* Richtige Entscheidung — und der Unterschied ist wichtig.
+
+Ein Verlauf **an der Zeile** beantwortet "wer hat an diesem Konto etwas
+geändert". Ein Login beantwortet "war er da". Zwei Fragen, zwei Orte. Hätte
+ich die Logins in die Aufklappzeile gemischt, wäre sie bei jedem aktiven
+Nutzer voll von Anmeldungen — und die Änderungen gingen unter. Genau das war
+der Einwand, den ich nicht selbst gelöst habe.
+
+Also eine **Spalte** in der Tabelle: `Zuletzt angemeldet`.
+
+### Woher die Zeit kommt
+
+Nicht aus `sessions`. Die Session verschwindet beim Abmelden und wird beim
+Aufräumen gelöscht — "nie angemeldet" wäre dann für jeden eine falsche
+Antwort. Die Zeit kommt aus der Spur: `MAX(at) WHERE action='login.ok'`.
+Die bleibt, auch wenn längst niemand mehr angemeldet ist.
+
+**Zwei Details, die den Unterschied machen:**
+
+- **`login.fail` zählt nicht.** Wer sich vertippt, war nicht online.
+- **`result='ok'` muss stimmen.** Sonst zählt ein gesperrter Versuch als
+  Anmeldung — und die Spalte lügt mit einer Uhrzeit für einen Vorgang, der
+  nicht stattgefunden hat.
+
+Eine Abfrage für die ganze Liste (`GROUP BY username`), nicht eine je Nutzer.
+
+### Ein Fehler in der Spur kippt die Nutzerliste nicht
+
+`try/catch` um die Anmeldungs-Abfrage, Fehler auf stderr. Wenn die Spur
+klemmt, bleibt die Spalte eben leer — die Kontenverwaltung muss deshalb nicht
+stehen.
+
+### Live gesehen
+
+```
+root       (nie)
+Kaiser     (nie)
+Lukatsch   (nie)
+logintest  26.11.2026 20:51     <- echter Login ueber HTTP
+```
+
+Probe-Konto `logintest` angelegt, sich wirklich angemeldet, Zeit erschienen,
+danach gelöscht. Nur wer sich anmeldet, bekommt eine Zeit.
+
+697/697, drei Mutationsproben rot: Fehlversuche mitgezählt, `MIN` statt `MAX`
+(erster statt letzter Login), `last_login` weggelassen.
+
+Nebenbei: im CSS hatte ich `users-jtbl` statt `users-tbl` getippt — eine
+Regel, die auf keine Tabelle zeigt und deshalb still nichts tut. Gefunden
+beim Prüfen der Spaltenbreiten, nicht durch einen Test. Ein Tippfehler im
+Selektor ist ein Test, der immer grün ist.
+
 ## [1.7.28] - 2026-11-26
 
 ### Wohin der Bildschirm gehört

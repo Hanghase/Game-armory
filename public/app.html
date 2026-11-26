@@ -308,10 +308,18 @@
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
     /* Nutzerverwaltung: feste Spaltenbreiten + saubere Felder statt Gequetsche */
-    table.users-tbl th:nth-child(1), table.users-tbl td:nth-child(1) { width: 30%; }
-    table.users-tbl th:nth-child(2), table.users-tbl td:nth-child(2) { width: 20%; }
-    table.users-tbl th:nth-child(3), table.users-tbl td:nth-child(3) { width: 30%; }
-    table.users-tbl th:last-child, table.users-tbl td:last-child { width: 20%; white-space: nowrap; }
+    /* Fuenf Spalten seit "Zuletzt angemeldet" (2026-11-26): der Name bekommt
+       den meisten Platz, die Zeit eine feste Breite, damit die Schreibweise
+       (28.11., 20:39) nicht umbricht. Die Quetsch-Regel von Zeile 310 gilt
+       weiter: keine Auto-Breiten, sonst drueckt die E-Mail den Namen weg. */
+    table.users-tbl th:nth-child(1), table.users-tbl td:nth-child(1) { width: 24%; }
+    table.users-tbl th:nth-child(2), table.users-tbl td:nth-child(2) { width: 17%; }
+    table.users-tbl th:nth-child(3), table.users-tbl td:nth-child(3) { width: 17%; white-space: nowrap; }
+    table.users-tbl th:nth-child(4), table.users-tbl td:nth-child(4) { width: 27%; }
+    table.users-tbl th:last-child, table.users-tbl td:last-child { width: 15%; white-space: nowrap; }
+    table.users-tbl td.last-login { color: var(--muted); font-size: 12px;
+      font-variant-numeric: tabular-nums; }
+    table.users-tbl td.last-login .nie { opacity: .65; font-style: italic; }
     table.users-tbl input[type=email] { width: 100%; box-sizing: border-box; padding: 6px 8px;
       background: var(--ctl); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
       font: inherit; font-size: 12.5px; }

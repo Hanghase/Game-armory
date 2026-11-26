@@ -205,3 +205,42 @@ test('Verlauf-Route verlangt user.read', async () => {
   const block = quelle.slice(i, bis > 0 ? bis : i + 900);
   assert.match(block, /requirePerm\('user\.read'\)/);
 });
+
+// --- Zuletzt angemeldet (2026-11-26) ---------------------------------------
+// Die Spalte darf nur erfolgreiche Anmeldungen zeigen. Ein Fehlversuch ist
+// keine Anmeldung - wer sich vertippt hat, war nicht online.
+test('letzteAnmeldungen nimmt nur erfolgreiche Logins', async () => {
+  await mitDb(async (m) => {
+    m.audit({ action: m.AUDIT_ACTIONS.LOGIN_FAIL, user: { id: 2, username: 'Ziel' }, result: 'fail', ip: '::1' });
+    m.audit({ action: m.AUDIT_ACTIONS.LOGIN_OK, user: { id: 2, username: 'Ziel' }, ip: '::1' });
+    m.audit({ action: m.AUDIT_ACTIONS.LOGIN_OK, user: { id: 3, username: 'Anders' }, ip: '::1' });
+
+    const karte = m.letzteAnmeldungen();
+    assert.deepEqual(Object.keys(karte).sort(), ['Anders', 'Ziel']);
+    assert.equal(typeof karte.Ziel, 'number');
+  });
+});
+
+test('letzteAnmeldungen kennt nur den letzten Eintrag je Nutzer', async () => {
+  await mitDb(async (m) => {
+    for (let i = 0; i < 3; i++) {
+      m.audit({ action: m.AUDIT_ACTIONS.LOGIN_OK, user: { id: 2, username: 'Ziel' } });
+      await new Promise((r) => setTimeout(r, 3));
+    }
+    const karte = m.letzteAnmeldungen();
+    assert.equal(Object.keys(karte).length, 1, 'ein Eintrag je Nutzer');
+    const rows = m.listAuditForUser('Ziel', 2);
+    assert.equal(rows[0].at, karte.Ziel, 'die neueste Zeit, nicht irgendeine');
+  });
+});
+
+test('die Nutzerliste traegt last_login ein', async () => {
+  const quelle = await readFile(new URL('../app/authRoutes.js', import.meta.url), 'utf8');
+  const i = quelle.indexOf("authRouter.get('/users'");
+  assert.ok(i > 0, 'Route fehlt');
+  const block = quelle.slice(i, i + 800);
+  assert.match(block, /letzteAnmeldungen\(\)/, 'Route muss die Spur fragen');
+  assert.match(block, /last_login:/, 'Feld muss gesetzt werden');
+  // Ein Fehler in der Spur darf die Liste nicht kippen.
+  assert.match(block, /try\s*\{/);
+});

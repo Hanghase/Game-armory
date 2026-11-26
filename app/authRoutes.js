@@ -14,7 +14,7 @@ import {
 } from './auth.js';
 import { getLoginGuardConfig } from './settings.js';
 import { getPermissionsForRole, getMatrix, setPermission, roleHasPerm, ROLES, PERMISSIONS } from './permissions.js';
-import { audit, AUDIT_ACTIONS } from './auditLog.js';
+import { audit, AUDIT_ACTIONS, letzteAnmeldungen } from './auditLog.js';
 
 const COOKIE_NAME = 'armory_session';
 
@@ -241,7 +241,14 @@ authRouter.put('/prefs', requireAuth, (req, res) => {
 // --- User-Verwaltung (nur Admin) ------------------------------------------
 
 authRouter.get('/users', requirePerm('user.read'), (req, res) => {
-  res.json(listUsers());
+  // "Zuletzt angemeldet" kommt aus der Spur, nicht aus sessions: die Session
+  // verschwindet beim Abmelden, der Eintrag bleibt. Ein Fehler in der Spur
+  // darf die Nutzerliste nicht kippen - dann bleibt das Feld eben leer.
+  let letzte = {};
+  try { letzte = letzteAnmeldungen(); } catch (err) {
+    console.error(`[audit] letzte Anmeldungen: ${err.message}`);
+  }
+  res.json(listUsers().map((u) => ({ ...u, last_login: letzte[u.username] ?? null })));
 });
 
 authRouter.post('/users', requirePerm('user.create'), async (req, res) => {

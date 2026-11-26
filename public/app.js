@@ -611,11 +611,14 @@ function arsenalLabel(id) {
       const { data } = await api('/api/auth/users');
       const el = document.getElementById('usersList');
       if (!Array.isArray(data)) { el.textContent = 'Keine Daten.'; return; }
-      el.innerHTML = `<table class="users-tbl"><thead><tr><th>Benutzer</th><th>Rang</th><th>E-Mail</th><th></th></tr></thead><tbody>
+      el.innerHTML = `<table class="users-tbl"><thead><tr><th>Benutzer</th><th>Rang</th><th>Zuletzt angemeldet</th><th>E-Mail</th><th></th></tr></thead><tbody>
         ${data.map((u) => `<tr class="user-row" data-uid="${u.id}">
           <td class="name-cell" data-name="${u.id}" title="Verlauf anzeigen">
             <span class="caret">▶</span> ${esc(u.username)}${u.id === me.id ? ' (du)' : ''}
           </td>
+          <td class="last-login">${u.last_login
+            ? esc(new Date(u.last_login).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }))
+            : '<span class="nie">noch nie</span>'}</td>
           <td>
             <select data-uid="${u.id}" class="roleSel">
               ${Object.entries(RANGEN).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
@@ -649,7 +652,7 @@ function arsenalLabel(id) {
 
           const detail = document.createElement('tr');
           detail.className = 'verlauf';
-          detail.innerHTML = '<td colspan="4"><span class="verlauf-leer">lade …</span></td>';
+          detail.innerHTML = '<td colspan="5"><span class="verlauf-leer">lade …</span></td>';
           zeile.after(detail);
 
           const antwort = await api(`/api/auth/users/${encodeURIComponent(id)}/audit?limit=30`);
