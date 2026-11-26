@@ -1,5 +1,52 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.15] - 2026-11-26
+
+### Nextcloud-Version pruefen: Docker-Quelle
+
+Nach 1.7.14 fragte Felix: "für NC könnten wir es direkt angehen". Der Sword
+stand auf `34.0.5`, waehrend `nc-app` live `nextcloud:35.0.2-apache` fuehrt
+(`occ status`: 35.0.2). Die Pruefung fiel in den manual-Zweig, weil
+`update.source: "docker"` im Dispatcher keinen Zweig hatte.
+
+**Neu: `checkDocker()`.** Fragt die Docker-Hub-Tagliste (ohne Key, unter einer
+Sekunde - kein `docker pull`, kein Registry-Login). Aus dem eigenen Tag wird
+der Stamm gelesen (`35.0.2-apache` -> `35.0.2` + Suffix `-apache`), Kandidaten
+muessen **denselben Suffix und dieselbe Hauptversion** haben. Sortiert wird
+**numerisch** - als String waere `35.0.9` groesser als `35.0.10`. Alias-Tags
+(`stable-apache`, `apache`) werden abgelehnt: sie nennen keine Version, also
+"unknown" statt einer falschen Zahl.
+
+**Live gemessen (2026-11-26):**
+`nextcloud:35.0.2-apache` -> `outdated`, verfuegbar `35.0.3-apache`
+(Hub-Stand 24.11.). Zweiter Lauf nach dem Schreiben des Swords:
+`{ state: "outdated", installed: "35.0.2", available: "35.0.3-apache",
+source: "docker-hub" }`.
+
+**Zwei Widersprueche geradegezogen:**
+
+1. Der Sword nannte als `image` den beweglichen Zeiger `nextcloud:stable-apache`.
+   Damit ist keine Pruefung moeglich (Alias, keine Version). Jetzt steht der
+   konkrete getaggte Stand `nextcloud:35.0.2-apache` - derselbe, mit dem der
+   Container tatsaechlich laeuft.
+2. `installedVersion` war `34.0.5` und damit veraltet (Quelle `docker`).
+   Nachgezogen auf `35.0.2`, belegt ueber `occ status` im Container.
+
+**Dazu ein Fallback fuer den Erstinstaller:** Er schreibt GitHub-Racks mit
+`source: "url"` (der TS6-Sword stand live so), der Dispatcher kennt nur
+`github`. Jetzt gilt: `url` PLUS eine Rack-Quelle heisst - das Rack weiss,
+woher die Version kommt. Dann zaehlt das Rack, sonst weiterhin manual. Ohne
+das haette ein frisch installiertes GitHub-Rack dauerhaft "keine Soll-Version"
+gemeldet, bis ein Mensch die Sword-Datei von Hand anfasst.
+
+`update.enabled` bleibt bei **false** - die Pruefung sagt "es gibt 35.0.3",
+das Update selbst startet weiterhin niemand automatisch.
+
+**Tests:** `tests/dockerVersionCheck.test.mjs` (12 Faelle, drei
+Mutationsproben belegt: String-Sortierung -> rot, Hauptversions-Filter weg ->
+rot, url-Fallback weg -> rot). Suite: 643 pass, 0 fail. Der bestehende
+Umlaut-Test hat dabei eine ASCII-Meldung von mir erwischt - Fix uebernommen.
+
 ## [1.7.14] - 2026-11-26
 
 ### Versionspruefung liest das Release, nicht den Tag

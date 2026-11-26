@@ -269,6 +269,105 @@ export async function checkCurseForge({ projectId, installed }) {
   }
 }
 
+// --- Docker (Container-Images) --------------------------------------------
+// Quelle: Docker Hub. Gefragt wird nach TAGS, nicht nach einem Manifest -
+// dieselbe Ueberlegung wie bei GitHub: `stable-apache` ist ein beweglicher
+// Zeiger, `35.0.3-apache` ist ein Stand.
+//
+// Warum der Umweg ueber die Hub-API und nicht `docker pull`:
+//   * die Pruefung laeuft in einem Timer, ein Pull wuerde Images ueber Nacht
+//     die Platte fuellen;
+//   * `docker manifest inspect` braucht eine Registry-Anmeldung und ist
+//     langsam; die Hub-API antwortet ohne Key in unter einer Sekunde.
+//
+// Gelesen wird der Tag-Stamm (siehe dockerTagFamily): aus `nextcloud:35.0.2-apache`
+// wird der Stamm `nextcloud` + Suffix `-apache`, gesucht wird nach
+// `35.0.3-apache`. Der bewegliche Tag (`stable-apache`) wird ausgeschlossen,
+// weil er keine Version nennt - er taugt zum Installieren, nicht zum Pruefen.
+export function parseImageRef(image) {
+  if (!image) return null;
+  const s = String(image).trim();
+  const ohneDigest = s.split('@')[0];
+  const ohneRegistry = ohneDigest.replace(/^(docker\.io|index\.docker\.io|registry-1\.docker\.io)\//, '');
+  const letzterSlash = ohneRegistry.lastIndexOf('/');
+  const nameTeil = letzterSlash >= 0 ? ohneRegistry.slice(letzterSlash + 1) : ohneRegistry;
+  const userTeil = letzterSlash >= 0 ? ohneRegistry.slice(0, letzterSlash) : 'library';
+  const [repo, tag = 'latest'] = nameTeil.split(':');
+  if (!repo) return null;
+  return { user: userTeil, repo, tag };
+}
+
+// Zerlegt einen Tag in Versionsstamm und Suffix: "35.0.3-apache" ->
+// { base: "35.0.3", suffix: "-apache" }, "34-apache" -> { base: "34", suffix: "-apache" }.
+// Null, wenn der Tag nicht mit einer Zahl beginnt (dann ist es ein Alias wie
+// "stable" oder "apache").
+export function dockerTagFamily(tag) {
+  const m = String(tag ?? '').match(/^(\d+(?:\.\d+)*)(.*)$/);
+  if (!m) return null;
+  return { base: m[1], suffix: m[2] };
+}
+
+export async function checkDocker({ image, installed }) {
+  const ref = parseImageRef(image);
+  if (!ref) return { state: 'unknown', reason: 'kein Image im Sword/Rack genannt', installed: installed ?? null };
+  const eigen = dockerTagFamily(ref.tag);
+  if (!eigen) {
+    return {
+      state: 'unknown',
+      reason: `Image-Tag ist kein Versionsstand (${ref.tag}) - Prüfung braucht einen Tag wie 35.0.2-apache`,
+      installed: installed ?? null,
+    };
+  }
+  try {
+    // 100 ist das Maximum pro Seite bei der Hub-API. Mehr braucht es nicht:
+    // bei Nextcloud sind selbst mit allen Nebenversionen unter 40 Tags aktuell.
+    const j = await fetchJson(
+      `https://hub.docker.com/v2/repositories/${ref.user}/${ref.repo}/tags?page_size=100`,
+      { Accept: 'application/json' },
+    );
+    const tags = Array.isArray(j?.results) ? j.results.map((t) => t?.name).filter(Boolean) : [];
+    if (tags.length === 0) {
+      return { state: 'unknown', reason: 'Docker Hub lieferte keine Tags', installed: installed ?? null };
+    }
+    // Kandidaten: gleicher Suffix (-apache), Versionsstamm vorhanden, und die
+    // Hauptnummer muss passen (35er Image sucht 35er Tags, nicht 34er).
+    const eigeneMajor = eigen.base.split('.')[0];
+    const kandidaten = tags
+      .map((name) => ({ name, fam: dockerTagFamily(name) }))
+      .filter((c) => c.fam && c.fam.suffix === eigen.suffix && c.fam.base.split('.')[0] === eigeneMajor);
+    if (kandidaten.length === 0) {
+      return {
+        state: 'unknown',
+        reason: `kein Tag mit Muster *${eigen.suffix} und Hauptversion ${eigeneMajor} in Docker Hub gefunden`,
+        installed: installed ?? null,
+      };
+    }
+    // Numerisch sortieren, nicht alphabetisch: "35.0.10" > "35.0.9", aber
+    // als String waere es kleiner. Genau dieser Vergleich entscheidet, was
+    // "das Neueste" ist.
+    const cmpBase = (a, b) => {
+      const pa = a.split('.').map(Number);
+      const pb = b.split('.').map(Number);
+      for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+        const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+        if (d !== 0) return d;
+      }
+      return 0;
+    };
+    kandidaten.sort((a, b) => cmpBase(b.fam.base, a.fam.base));
+    const neuester = kandidaten[0];
+    const state = compareVersions(installed, neuester.fam.base) === 'equal' ? 'current' : 'outdated';
+    return {
+      state,
+      installed: installed ?? null,
+      available: neuester.name,
+      source: 'docker-hub',
+    };
+  } catch (err) {
+    return { state: 'unknown', reason: `Docker Hub nicht erreichbar: ${err.message}`, installed: installed ?? null };
+  }
+}
+
 // --- Manuell --------------------------------------------------------------
 // Der Mensch traegt die Soll-Version ein; wir vergleichen nur.
 export function checkManual({ expected, installed }) {
@@ -298,8 +397,9 @@ export function checkManual({ expected, installed }) {
 // Entscheidet anhand des Sword/Rack, welche Quelle gilt. Reihenfolge:
 //   1) update.source == 'steam'      -> Steam
 //   2) update.source == 'github'     -> GitHub
-//   3) update.source == 'curseforge' -> CurseForge (oder manual, wenn kein Key)
-//   4) sonst                         -> manual
+//   3) update.source == 'docker'     -> Docker Hub
+//   4) update.source == 'curseforge' -> CurseForge (oder manual, wenn kein Key)
+//   5) sonst                         -> manual
 //
 // sword: das geladene Sword-Objekt
 // rack:  optional, das Rack (fuer appId/source-Details)
@@ -307,7 +407,13 @@ export function checkManual({ expected, installed }) {
 export async function checkSwordVersion(sword, { rack = null, installDir = null } = {}) {
   const src = sword?.update ?? {};
   const installed = sword?.installedVersion ?? null;
-  const type = src.source ?? rack?.source?.type ?? null;
+  // 2026-11-26: Der Erstinstaller schreibt GitHub-Racks mit source "url" (der
+  // TS6-Sword stand live so). Der Dispatcher kannte kein "url" und fiel in den
+  // manual-Zweig - Pruefung "unbekannt", waehrend der Updater den Release
+  // laengst kannte. "url" PLUS eine Rack-Quelle heisst: das Rack weiss, woher
+  // die Version kommt. Dann gilt das Rack, sonst manual.
+  let type = src.source ?? rack?.source?.type ?? null;
+  if (type === 'url' && rack?.source?.type) type = rack.source.type;
 
   if (type === 'steam') {
     const appId = src.appId ?? rack?.source?.appId ?? null;
@@ -319,6 +425,12 @@ export async function checkSwordVersion(sword, { rack = null, installDir = null 
   if (type === 'github') {
     const repo = repoFromUrl(src.url ?? rack?.source?.url);
     return { ...(await checkGithub({ repo, installed })), checkedAt: Date.now() };
+  }
+
+  if (type === 'docker') {
+    // Image: Sword zuerst (konkreter Stand wie 35.0.2-apache), dann Rack.
+    const image = src.image ?? rack?.source?.image ?? null;
+    return { ...(await checkDocker({ image, installed })), checkedAt: Date.now() };
   }
 
   if (type === 'curseforge') {
