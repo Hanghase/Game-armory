@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { loadSwords, getSwords, getSword, setVersionCheck, setInstalledVersion } from './swords.js';
+import { audit, AUDIT_ACTIONS, listAudit, countAudit } from './auditLog.js';
 import { checkSwordVersion } from './versionCheck.js';
 import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
@@ -24,7 +25,7 @@ import { installRouter } from './installRoutes.js';
 import { arsenalRouter } from './arsenalRoutes.js';
 import { adoptRouter } from './adoptroutes.js';
 import { pruefeHandshake, registriere, verarbeiteNachricht, leitungWeg } from './arsenalSocket.js';
-import { getSessionUser, requireAuth, cleanupExpiredSessions,  cleanupLoginAttempts,
+import { getSessionUser, requireAuth, requirePerm, cleanupExpiredSessions,  cleanupLoginAttempts,
 } from './auth.js';
 import { roleHasPerm } from './permissions.js';
 import { cleanupOldUploads } from './uploads.js';
@@ -334,9 +335,38 @@ app.post('/api/swords/:id/docker-update', requireAuth, async (req, res) => {
         }
       }
     }
+    // Jedes Image-Update wird gespurt. Das ist die Aktion, die einen Dienst
+    // kurz anhaelt - wer sie ausgeloest hat, muss nachlesbar sein.
+    audit({
+      action: AUDIT_ACTIONS.DOCKER_UPDATE,
+      result: result.ok ? 'ok' : 'fail',
+      user: req.user ?? null,
+      target: `sword:${sword.id}`,
+      detail: { dienst, tag: tag ?? null, info: result.info ?? null, fehler: result.error ?? null },
+      ip: req.ip,
+    });
     return res.status(result.ok ? 200 : 500).json(result);
   } finally {
     laeufendeDockerUpdates.delete(sword.id);
+  }
+});
+
+// Audit-Spur lesen (2026-11-26). Nur lesend, eigene Tabelle, eigenes Recht.
+//
+// Warum ein eigenes Recht und nicht nur 'settings.read': die Spur enthaelt
+// Benutzernamen und IP-Adressen. Wer Fehler lesen darf, muss nicht zwingend
+// sehen, wer sich wann eingeloggt hat.
+app.get('/api/audit', requirePerm('settings.read'), async (req, res) => {
+  try {
+    const limit = Number(req.query.limit ?? 100);
+    const rows = listAudit({
+      limit,
+      action: req.query.action ? String(req.query.action) : null,
+      username: req.query.username ? String(req.query.username) : null,
+    });
+    res.json({ total: countAudit(), rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -1,5 +1,69 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.27] - 2026-11-26
+
+### Die Frage, die ich nicht beantworten konnte
+
+**Anlass (Felix):** *"hast du die beiden User angelegt?"* — zu `d2tmp` und
+`test-action-safety-2439338`.
+
+Ich konnte es nicht beantworten. Nicht weil ich es vergessen hätte, sondern
+weil das Panel es nie aufgeschrieben hat. Es gab eine Fehlertabelle
+(`errorLog.js`, aus dem Audit vom 2026-10-22) — die kennt Fehler. Wer ein
+Konto anlegt, löscht, eine Rolle ändert oder ein Update fährt: davon blieb
+nichts, außer einer Zeile im Log, die beim Rotieren verschwindet.
+
+Ein Konto mit **Superuser**-Rechten zu löschen, ohne zu wissen, wer es
+angelegt hat, ist genau der Fall, für den es ein Audit gibt.
+
+### Neu: `app/auditLog.js`
+
+Eigene Tabelle `audit_log` (id, at, action, user_id, username, target, result,
+detail, ip, request_id), drei Indizes auf at/action/username, Grenze 20 000
+Zeilen, älteste fliegen raus. Bauart bewusst wie `errorLog.js`: eine Domäne,
+eine kleine Datei, eigene Abschaltung von Geheimnissen über Feldnamen.
+
+Zwei Regeln, die den Unterschied machen:
+
+- **Ein Audit-Fehler bringt nie eine Aktion zum Scheitern.** Schreiben in
+  try/catch, Fehler nur auf stderr. Ein Audit, das den Vorgang blockiert,
+  weil die Platte voll ist, wäre schlimmer als keines.
+- **Aktionen sind fest benannt** (`AUDIT_ACTIONS`), kein Freitext. Ein
+  Tippfehler im Aktionsnamen macht die Spur sonst unauffindbar.
+
+### Was jetzt gespurt wird
+
+`login.ok`, `login.fail` (mit `result: 'fail'`), `logout`, `user.create`,
+`user.role` (von → auf), `user.delete`, `docker.update` (Dienst, Tag,
+Ergebnis). Je nach Aktion **nach** der Änderung und **vor** der Antwort —
+sonst protokolliert die Zeile einen Vorgang, der noch scheitern kann.
+
+Dazu `GET /api/audit` (Recht `settings.read`), damit die Spur lesbar ist.
+Eine Spur ohne Anzeige ist Papier.
+
+### Test: 691/691, vier Mutationsproben
+
+Der Aufrufer-Test blieb in der ersten Fassung **grün, obwohl der
+Audit-Aufruf entfernt war**. Zwei Fehler übereinander:
+
+1. Das Suchmuster begann am Import-Block — `deleteUser` steht auch in
+   Zeile 10 (`import { … deleteUser … }`), nicht nur im Aufruf. Der Test
+   prüfte den Import.
+2. Die Mutation benannte `USER_DELETE` in `USER_DELETE_X` um — und
+   `USER_DELETE` ist ein **Präfix** davon. `indexOf` fand den verstümmelten
+   Namen weiterhin, der Fehler war nie eingebaut.
+
+Erst nach beiden Korrekturen wird der Test bei entfernter Spur rot. Die
+Lehre ist die alte: prüfen, ob die Probe den Fehler **wirklich** einbaut,
+nicht ob der Test rot wird.
+
+### Aufgeräumt
+
+`d2tmp` (id 50, admin) und `test-action-safety-2439338` (id 57, superuser)
+gelöscht — 0 Sessions, 0 Tokens, nie benutzt. Sicherung vorher:
+`/root/armory-sicherungen/armory.db.vor-userloeschung-20261126-203225`.
+`root` unangetastet, per ID gelöscht, nie nach Namensmuster.
+
 ## [1.7.26] - 2026-11-26
 
 ### Gelb, das nie aufhörte: die Sword-Datei wusste nichts vom Erfolg

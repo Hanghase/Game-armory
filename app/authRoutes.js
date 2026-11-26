@@ -14,6 +14,7 @@ import {
 } from './auth.js';
 import { getLoginGuardConfig } from './settings.js';
 import { getPermissionsForRole, getMatrix, setPermission, roleHasPerm, ROLES, PERMISSIONS } from './permissions.js';
+import { audit, AUDIT_ACTIONS } from './auditLog.js';
 
 const COOKIE_NAME = 'armory_session';
 
@@ -182,6 +183,15 @@ authRouter.post('/login', async (req, res) => {
     // Zusaetzlich die menschenlesbare Warnung fuer das normale Log.
     console.warn(`ARMORY_LOGIN_FAIL ip=${ip} user=${String(username ?? '').slice(0, 32)}`);
     console.warn(`[auth] Login fehlgeschlagen: user=${String(username ?? '').slice(0, 32)} ip=${ip}${banned ? ' -> IP gesperrt' : ''}`);
+    // Auch ins Audit: das Log rotiert, die Spur bleibt. Ein Fehlversuch ist
+    // genau die Zeile, die man nach einem Vorfall sucht.
+    audit({
+      action: AUDIT_ACTIONS.LOGIN_FAIL,
+      result: 'fail',
+      target: `login:${String(username ?? '').slice(0, 32)}`,
+      detail: { gesperrt: banned },
+      ip,
+    });
     // Bei erreichter Sperre dieselbe 429-Meldung wie oben liefern.
     if (banned) {
       return res.status(429).json({ error: 'Zu viele Versuche, versuche es später wieder' });
@@ -191,11 +201,14 @@ authRouter.post('/login', async (req, res) => {
   clearLoginFailures(ip);
   const token = createSession(user.id);
   res.cookie(COOKIE_NAME, token, cookieOptions(req));
+  audit({ action: AUDIT_ACTIONS.LOGIN_OK, user, ip });
   res.json({ ok: true, user });
 });
 
 authRouter.post('/logout', (req, res) => {
+  const wer = getSessionUser(req.cookies?.[COOKIE_NAME]);
   destroySession(req.cookies?.[COOKIE_NAME]);
+  if (wer) audit({ action: AUDIT_ACTIONS.LOGOUT, user: wer, ip: req.ip });
   res.clearCookie(COOKIE_NAME, { path: '/' });
   res.json({ ok: true });
 });
@@ -237,6 +250,14 @@ authRouter.post('/users', requirePerm('user.create'), async (req, res) => {
     // E-Mail nur uebernehmen, wenn der Anlegende auch user.email darf.
     const mail = roleHasPerm(req.user?.role, 'user.email') ? email : null;
     const user = await createUser(username, password, role ?? 'friend', mail);
+    // Wer hat wen angelegt? Ohne diese Zeile war die Frage nicht beantwortbar.
+    audit({
+      action: AUDIT_ACTIONS.USER_CREATE,
+      user: req.user,
+      target: `user:${user.id}`,
+      detail: { username: user.username, role: user.role },
+      ip: req.ip,
+    });
     res.status(201).json(user);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -293,6 +314,13 @@ authRouter.patch('/users/:id', requirePerm('user.role'), (req, res) => {
       });
     }
     setRole(id, role);
+    audit({
+      action: AUDIT_ACTIONS.USER_ROLE,
+      user: req.user,
+      target: `user:${id}`,
+      detail: { username: getUserById(id)?.username ?? null, von: current, auf: role },
+      ip: req.ip,
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -311,7 +339,15 @@ authRouter.delete('/users/:id', requirePerm('user.delete'), (req, res) => {
         error: 'Der letzte Superuser kann nicht gelöscht werden - sonst wäre die Armory nicht mehr administrierbar.',
       });
     }
+    const geloescht = getUserById(id);
     deleteUser(id);
+    audit({
+      action: AUDIT_ACTIONS.USER_DELETE,
+      user: req.user,
+      target: `user:${id}`,
+      detail: { username: geloescht?.username ?? null, role: geloescht?.role ?? null },
+      ip: req.ip,
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
