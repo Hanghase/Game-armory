@@ -248,3 +248,32 @@ export function letzteAnmeldungen() {
 export function countAudit() {
   return db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n;
 }
+
+// --- Sichtbarkeit nach Recht (2026-11-26) ----------------------------------
+// Felix wollte die Spur als vergebbares Recht. Damit entsteht eine Frage, die
+// beim festen superuser-Rang nicht existierte: was sieht jemand, dem ich das
+// Recht gebe, aber der kein superuser ist?
+//
+// Die Antwort ist nicht "alles" - die Spur enthaelt Zeilen, die eine hoehere
+// Vertrauensstufe verlangen:
+//
+//   * Passwort-Aenderungen: sie zeigen, WANN ein Konto uebernommen werden
+//     konnte. Wer das sieht, ohne Konten verwalten zu duerfen, hat einen
+//     Zeitstrahl fuer einen Angriff, aber keine Moeglichkeit einzugreifen.
+//   * IP-Adressen: sie gehoeren einer Person, nicht dem Panel. Fuer die
+//     Frage "wer hat das geaendert" ist der Name genug.
+//
+// Sichtbar bleibt, DASS etwas geschah (Aktion, Handelnder, Zeit, Ergebnis).
+// Das Recht gibt Einblick, nicht Durchgriff.
+const NUR_SUPERUSER = new Set(['user.password']);
+
+export function spurenSichtbar(rows, { voll = false } = {}) {
+  if (voll) return rows;
+  return rows.map((z) => {
+    const raus = { ...z, ip: null };
+    if (NUR_SUPERUSER.has(z.action)) {
+      raus.detail = { geschuetzt: true };
+    }
+    return raus;
+  });
+}

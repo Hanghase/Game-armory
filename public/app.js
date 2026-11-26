@@ -611,6 +611,14 @@ function arsenalLabel(id) {
       const { data } = await api('/api/auth/users');
       const el = document.getElementById('usersList');
       if (!Array.isArray(data)) { el.textContent = 'Keine Daten.'; return; }
+      if (!can('user.read')) {
+        // Wer nur die Spur lesen darf, sieht hier keine Konten - aber er soll
+        // nicht auf eine leere Seite schauen. Der Reiter bleibt offen, damit
+        // das Recht nicht wie ein Fehler aussieht.
+        el.innerHTML = '<p class="hinweis">Kein Zugriff auf die Kontenverwaltung. '
+          + 'Du darfst die Audit-Spur lesen, aber keine Konten sehen oder ändern.</p>';
+        return;
+      }
       el.innerHTML = `<table class="users-tbl"><thead><tr><th>Benutzer</th><th>Rang</th><th>Zuletzt angemeldet</th><th>E-Mail</th><th></th></tr></thead><tbody>
         ${data.map((u) => `<tr class="user-row" data-uid="${u.id}">
           <td class="name-cell" data-name="${u.id}" title="Verlauf anzeigen">
@@ -1261,7 +1269,10 @@ function arsenalLabel(id) {
 
     function initProfile() {
       document.querySelectorAll('#profileTabs button[data-need]').forEach((b) => {
-        b.style.display = can(b.dataset.need) ? 'inline-block' : 'none';
+        // "a|b" heisst: eines von beiden genuegt. Ein Reiter kann zwei Wege
+        // haben - Konten verwalten ODER die Spur lesen.
+        const eines = b.dataset.need.split('|').some((n) => can(n));
+        b.style.display = eines ? 'inline-block' : 'none';
       });
       document.getElementById('profileName').textContent = me ? me.username : '–';
       document.getElementById('profileRole').textContent = me ? (RANGEN[me.role] ?? me.role) : '–';

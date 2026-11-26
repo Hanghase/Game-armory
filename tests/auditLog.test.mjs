@@ -197,13 +197,17 @@ test('detail kommt als Objekt, nicht als Text', async () => {
   });
 });
 
-test('Verlauf-Route verlangt user.read', async () => {
+// Ursprünglich (v1.7.28) hing diese Route an user.read. Seit v1.7.31 ist
+// audit.read ein eigenes, vergebbares Recht - die alte Erwartung ist damit
+// veraltet, nicht der Code. Wer nur Konten verwalten darf, muss nicht
+// zwingend sehen, wer sich wann eingeloggt hat - und umgekehrt.
+test('Verlauf-Route verlangt audit.read', async () => {
   const quelle = await readFile(new URL('../app/server.js', import.meta.url), 'utf8');
   const i = quelle.indexOf("'/api/auth/users/:id/audit'");
   assert.ok(i > 0, 'Route fehlt');
   const bis = quelle.indexOf('app.', i);
   const block = quelle.slice(i, bis > 0 ? bis : i + 900);
-  assert.match(block, /requirePerm\('user\.read'\)/);
+  assert.match(block, /requirePerm\('audit\.read'\)/);
 });
 
 // --- Zuletzt angemeldet (2026-11-26) ---------------------------------------
@@ -270,4 +274,88 @@ test('Nutzer-Tabelle: Kopf und Zellen in derselben Reihenfolge', async () => {
     else zellen.push('?');
   }
   assert.deepEqual(zellen, spalten, 'Zellen folgen nicht der Kopfzeile');
+});
+
+// --- audit.read als vergebbares Recht (2026-11-26) -------------------------
+// Felix: "ich wuerde das wieder als Vergebbares recht eintragen". Damit
+// entsteht die Frage, die es vorher nicht gab: was sieht jemand, der das
+// Recht hat, aber kein superuser ist?
+test('audit.read steht im Katalog und ist nicht am Rang festgenagelt', async () => {
+  const p = await import('../app/permissions.js');
+  assert.ok(p.PERMISSIONS.some((x) => x.perm === 'audit.read'), 'Katalog-Eintrag fehlt');
+  // Startbelegung: nur superuser - die anderen Rollen bekommen es NICHT.
+  assert.ok(!p.DEFAULT_MATRIX.admin.includes('audit.read'), 'admin darf es nicht automatisch haben');
+  assert.ok(!p.DEFAULT_MATRIX.moderator.includes('audit.read'));
+  assert.ok(!p.DEFAULT_MATRIX.friend.includes('audit.read'));
+  assert.ok(p.DEFAULT_MATRIX.superuser.includes('audit.read'));
+});
+
+test('die Routen pruefen audit.read, nicht settings.read/user.read', async () => {
+  const quelle = await readFile(new URL('../app/server.js', import.meta.url), 'utf8');
+  for (const muster of [/app\.get\('\/api\/audit',\s*requirePerm\('audit\.read'\)/,
+    /app\.get\('\/api\/auth\/users\/:id\/audit',\s*requirePerm\('audit\.read'\)/]) {
+    assert.match(quelle, muster);
+  }
+  // Alte Anbindung darf nicht mehr stehen.
+  assert.doesNotMatch(quelle, /app\.get\('\/api\/audit',\s*requirePerm\('settings\.read'\)/);
+  assert.doesNotMatch(quelle, /users\/:id\/audit',\s*requirePerm\('user\.read'\)/);
+});
+
+test('spurenSichtbar schuetzt IP und Passwort-Zeilen vor Nicht-Superuser', async () => {
+  await mitDb(async (m) => {
+    m.audit({ action: m.AUDIT_ACTIONS.LOGIN_OK, user: { id: 2, username: 'A' }, ip: '10.1.2.3' });
+    m.audit({
+      action: m.AUDIT_ACTIONS.USER_PASSWORD,
+      user: { id: 1, username: 'root' },
+      target: 'user:2',
+      detail: { Ziel: 'A' },
+      ip: '10.1.2.3',
+    });
+    const roh = m.listAudit({ limit: 10 });
+
+    const fremd = m.spurenSichtbar(roh);
+    assert.equal(fremd.length, roh.length, 'es darf keine Zeile verschwinden');
+    for (const z of fremd) assert.equal(z.ip, null, 'IP muss weg sein');
+    const pw = fremd.find((z) => z.action === 'user.password');
+    assert.deepEqual(pw.detail, { geschuetzt: true }, 'Passwort-Detail muss geschuetzt sein');
+    // Die Wirkung bleibt sichtbar: DASS jemand ein Passwort gesetzt hat.
+    assert.equal(pw.username, 'root');
+    assert.equal(pw.target, 'user:2');
+    assert.ok(pw.at > 0);
+
+    const voll = m.spurenSichtbar(roh, { voll: true });
+    assert.equal(voll[0].ip, '10.1.2.3', 'superuser sieht alles');
+    assert.notDeepEqual(voll.find((z) => z.action === 'user.password').detail, { geschuetzt: true });
+  });
+});
+
+// --- Der Aufrufer muss den Rang auch wirklich weitergeben ------------------
+// Probe M3 hat gezeigt, warum das hier stehen muss: setzt man in server.js
+// "voll: false" statt "req.user?.role === 'superuser'", blieben alle Tests
+// gruen - spurenSichtbar() war ja korrekt. Ein Test der Funktion beweist
+// nicht, dass die Route sie richtig aufruft. Dieselbe Luecke wie bei
+// dockerReihenfolge/dockerStatus am 2026-11-07.
+test('die Route gibt den superuser-Rang an spurenSichtbar weiter', async () => {
+  const quelle = await readFile(new URL('../app/server.js', import.meta.url), 'utf8');
+
+  // Beide Routen, die die Spur ausliefern, muessen den Rang uebergeben.
+  const stellen = [
+    ["app.get('/api/audit'", 'allgemeine Spur'],
+    ["app.get('/api/auth/users/:id/audit'", 'Verlauf eines Kontos'],
+  ];
+  for (const [anker, name] of stellen) {
+    const i = quelle.indexOf(anker);
+    assert.ok(i > 0, `${name}: Route fehlt`);
+    // Ausschnitt bis zur naechsten Route (naechstes "app.get("), nicht bis zum
+    // ersten "\n});" - der Block ist laenger als der innerste try/catch.
+    const naechste = quelle.indexOf('app.get(', i + anker.length);
+    const block = quelle.slice(i, naechste > 0 ? naechste : i + 2000);
+    const aufruf = block.match(/spurenSichtbar\([^)]*\{[^}]*\}/);
+    assert.ok(aufruf, `${name}: spurenSichtbar wird nicht aufgerufen`);
+    assert.match(
+      aufruf[0],
+      /voll:\s*req\.user\?\.role\s*===\s*'superuser'/,
+      `${name}: Maskierung muss vom Rang abhaengen, nicht fest an/aus sein. Gesehen: ${aufruf[0]}`,
+    );
+  }
 });

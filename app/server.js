@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { loadSwords, getSwords, getSword, setVersionCheck, setInstalledVersion } from './swords.js';
-import { audit, AUDIT_ACTIONS, listAudit, listAuditForUser, countAudit } from './auditLog.js';
+import { audit, AUDIT_ACTIONS, listAudit, listAuditForUser, countAudit, spurenSichtbar } from './auditLog.js';
 import { checkSwordVersion } from './versionCheck.js';
 import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
@@ -357,7 +357,7 @@ app.post('/api/swords/:id/docker-update', requireAuth, async (req, res) => {
 //
 // Dieselbe Rechtepruefung wie die allgemeine Spur: der Verlauf enthaelt
 // IP-Adressen und wer wann was geaendert hat.
-app.get('/api/auth/users/:id/audit', requirePerm('user.read'), async (req, res) => {
+app.get('/api/auth/users/:id/audit', requirePerm('audit.read'), async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Ungültige Nutzer-ID' });
@@ -366,7 +366,8 @@ app.get('/api/auth/users/:id/audit', requirePerm('user.read'), async (req, res) 
     // in der Spur steht. Das ist der Fall, der zaehlt: "wer war das?"
     const username = u?.username ?? (typeof req.query.username === 'string' ? req.query.username : null);
     if (!username && !u) return res.status(404).json({ error: 'Nutzer nicht gefunden' });
-    res.json({ rows: listAuditForUser(username, id, { limit: req.query.limit }) });
+    const gelesen = listAuditForUser(username, id, { limit: req.query.limit });
+    res.json({ rows: spurenSichtbar(gelesen, { voll: req.user?.role === 'superuser' }) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -377,14 +378,18 @@ app.get('/api/auth/users/:id/audit', requirePerm('user.read'), async (req, res) 
 // Warum ein eigenes Recht und nicht nur 'settings.read': die Spur enthaelt
 // Benutzernamen und IP-Adressen. Wer Fehler lesen darf, muss nicht zwingend
 // sehen, wer sich wann eingeloggt hat.
-app.get('/api/audit', requirePerm('settings.read'), async (req, res) => {
+app.get('/api/audit', requirePerm('audit.read'), async (req, res) => {
   try {
     const limit = Number(req.query.limit ?? 100);
-    const rows = listAudit({
+    const gelesen = listAudit({
       limit,
       action: req.query.action ? String(req.query.action) : null,
       username: req.query.username ? String(req.query.username) : null,
     });
+    // Voll sieht nur der superuser (FIXED_ROLE, immer alle Rechte). Wer das
+    // Recht bekommen hat, sieht DASS etwas geschah - nicht die IP und nicht
+    // die Passwort-Zeilen im Detail.
+    const rows = spurenSichtbar(gelesen, { voll: req.user?.role === 'superuser' });
     res.json({ total: countAudit(), rows });
   } catch (err) {
     res.status(500).json({ error: err.message });

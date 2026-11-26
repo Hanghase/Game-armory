@@ -1,5 +1,73 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.31] - 2026-11-26
+
+### Audit-Spur als vergebbares Recht
+
+Felix: *"ich wuerde das wieder als Vergebbares recht eintragen :)"*
+
+Zu Recht. Der Kommentar an der Route sagte seit heute Mittag *"Warum ein
+eigenes Recht"* — und darunter stand `requirePerm('settings.read')`. Ich hatte
+die Begruendung geschrieben und dann das Naechstbeste genommen.
+
+Neu im Katalog: **`audit.read`** — "Audit-Spur lesen", Gruppe
+"Einstellungen & System". Beide Routen (`/api/audit` und
+`/api/auth/users/:id/audit`) haengen jetzt daran. Startbelegung **nur
+superuser** — sie steht deshalb bewusst nicht in `ADMIN_PERMS`. Wer es
+braucht, vergibt es in der Rechteverwaltung; Seed-Version 8.
+
+### Die Frage, die es vorher nicht gab
+
+Solange die Spur fest am superuser-Rang hing, war "was sieht der Leser" keine
+Frage — ein superuser sieht alles. Mit einem **vergebbaren** Recht entsteht
+sie sofort: was sieht ein moderator, dem ich `audit.read` gebe?
+
+Meine Antwort, nachgefragt statt angenommen: **Einblick, nicht Durchgriff.**
+
+| sichtbar fuer audit.read | nur superuser |
+|---|---|
+| Aktion, Handelnder, Zeit, Ergebnis, Ziel | IP-Adresse |
+| dass ein Passwort gesetzt wurde | die Detailfelder dazu |
+
+Der Grund: eine IP gehoert einer Person, nicht dem Panel. Fuer die Frage "wer
+hat das geaendert" ist der Name genug. Und Passwort-Zeilen zeigen, *wann* ein
+Konto uebernehmbar war — wer das sieht, aber keine Konten verwalten darf, hat
+einen Zeitstrahl ohne Handhabe. Keine Zeile verschwindet: `spurenSichtbar()`
+maskiert, es filtert nicht.
+
+### Live gesehen (nicht nur getestet)
+
+Kaiser (moderator) testweise **nur** `audit.read` gegeben, `user.read`
+entzogen, echte Sitzung:
+
+```
+/api/audit          -> 200   (10 Zeilen, alle IPs null)
+/api/auth/users     -> 403   (Konten: nein)
+root auf derselben Spur:
+  gleiche Zeilenzahl (10/10)
+  IPs: 127.0.0.1, 92.208.223.224, ...
+```
+
+Gleiche Zeilen, gleiche Anzahl — nur die IP fehlt. Danach Rechte und Sessions
+zurueck, Nutzer unveraendert 3.
+
+### Eine Luecke, die eine Probe aufgedeckt hat
+
+Probe M3 (Route gibt `voll: false` statt des Rangs weiter) blieb **gruen**.
+Mein Test prueft `spurenSichtbar` direkt — die Funktion war korrekt, der
+Aufrufer nicht geprueft. Dieselbe Luecke wie `dockerReihenfolge`/`dockerStatus`
+am 2026-11-07: die Kette ist so stark wie ihr ungepruefter Abschnitt.
+
+Der neue Test liest den Routenblock und prueft den **Aufruf**. Beim ersten
+Versuch war er selbst kaputt (Ausschnitt endete am inneren `\n});`, bevor
+`spurenSichtbar` kam) — rot ohne Mutation. Behoben, indem der Ausschnitt bis
+zur naechsten Route geht und die Fehlermeldung den gefundenen Text zeigt.
+
+702/702. Fuenf Mutationsproben, alle rot: IP nicht maskiert, Passwort-Detail
+nicht geschuetzt, Rang nicht weitergegeben, Route wieder an `settings.read`,
+`audit.read` an admin vergeben. Ein alter Test ("Route verlangt user.read")
+war eine veraltete Erwartung und wurde nachgezogen, nicht der Code.
+
 ## [1.7.30] - 2026-11-26
 
 ### Spalten unter falscher Ueberschrift

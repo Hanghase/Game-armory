@@ -64,6 +64,11 @@ export const PERMISSIONS = [
   // Die Routen pruefen zusaetzlich requireRole('superuser') - das Recht regelt
   // die Anzeige und macht sichtbar, wer es haette.
   { perm: 'system.logs',            label: 'Logs & Fehlerprotokoll',    group: 'Einstellungen & System' },
+  // Audit-Spur (2026-11-26). Die Spur enthaelt Benutzernamen und IP-Adressen;
+  // wer Fehler lesen darf, muss nicht zwingend sehen, wer sich wann anmeldete.
+  // Startbelegung NUR superuser - steht deshalb bewusst NICHT in ADMIN_PERMS.
+  // Betreiber koennen es in der Rechteverwaltung weitergeben.
+  { perm: 'audit.read',             label: 'Audit-Spur lesen',          group: 'Einstellungen & System' },
   // Nutzer
   { perm: 'user.read',              label: 'Nutzer lesen',              group: 'Nutzer' },
   { perm: 'user.create',            label: 'Nutzer anlegen',            group: 'Nutzer' },
@@ -156,7 +161,10 @@ export const DEFAULT_MATRIX = {
 // Stand: superuser bekommt neue Rechte zwar immer (FIXED_ROLES -> PERM_NAMES),
 // aber die Matrix-Anzeige und die 'seed'-Zeilen anderer Rollen wuerden den
 // neuen Katalogeintrag nicht kennen.
-export const PERMISSIONS_SEED_VERSION = 7;
+// 8 (2026-11-26): Recht audit.read aufgenommen (Audit-Spur lesen). Nur
+//   superuser in der Startbelegung; die Routen pruefen ab jetzt dieses Recht
+//   statt settings.read/user.read, damit es sichtbar und vergebbar ist.
+export const PERMISSIONS_SEED_VERSION = 8;
 
 // --- Migration / Init (deterministisch, selbstheilend, idempotent) ---------
 // Mechanismus (Begruendung):
