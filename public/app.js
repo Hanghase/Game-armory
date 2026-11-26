@@ -578,13 +578,44 @@ function arsenalLabel(id) {
     setInterval(() => { if (ws) updateConsoleStatus(); }, 5000); // "letzte vor Xs" aktualisieren
 
     // --- Nutzerverwaltung ---------------------------------------------------
+    // Audit-Zeile in lesbaren Text. Rohe Schluessel wie "user.role" liest
+    // niemand - und der Verlauf soll ohne Nachschlagen verstaendlich sein.
+    const AUDIT_TEXTE = {
+      'login.ok': 'angemeldet',
+      'login.fail': 'Anmeldung fehlgeschlagen',
+      'logout': 'abgemeldet',
+      'user.create': 'Konto angelegt',
+      'user.role': 'Rang geändert',
+      'user.delete': 'Konto gelöscht',
+      'user.password': 'Passwort geändert',
+      'sword.update': 'Sword aktualisiert',
+      'sword.config': 'Sword-Konfiguration geändert',
+      'docker.update': 'Docker-Update gefahren',
+      'rack.change': 'Rack geändert',
+      'settings.change': 'Einstellungen geändert',
+      'self.update': 'Selbst-Update',
+    };
+
+    function auditText(r) {
+      const basis = AUDIT_TEXTE[r.action] ?? r.action ?? '?';
+      const d = r.detail && typeof r.detail === 'object' ? r.detail : null;
+      const teile = [];
+      if (d?.username) teile.push(esc(d.username));
+      if (d?.von && d?.auf) teile.push(`${esc(d.von)} → ${esc(d.auf)}`);
+      if (d?.tag) teile.push(`Tag ${esc(d.tag)}`);
+      if (d?.stack) teile.push(esc(d.stack));
+      return teile.length ? `${basis}: ${teile.join(', ')}` : basis;
+    }
+
     async function loadUsers() {
       const { data } = await api('/api/auth/users');
       const el = document.getElementById('usersList');
       if (!Array.isArray(data)) { el.textContent = 'Keine Daten.'; return; }
       el.innerHTML = `<table class="users-tbl"><thead><tr><th>Benutzer</th><th>Rang</th><th>E-Mail</th><th></th></tr></thead><tbody>
-        ${data.map((u) => `<tr>
-          <td>${esc(u.username)}${u.id === me.id ? ' (du)' : ''}</td>
+        ${data.map((u) => `<tr class="user-row" data-uid="${u.id}">
+          <td class="name-cell" data-name="${u.id}" title="Verlauf anzeigen">
+            <span class="caret">▶</span> ${esc(u.username)}${u.id === me.id ? ' (du)' : ''}
+          </td>
           <td>
             <select data-uid="${u.id}" class="roleSel">
               ${Object.entries(RANGEN).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
@@ -599,6 +630,52 @@ function arsenalLabel(id) {
           </td>
         </tr>`).join('')}
       </tbody></table>`;
+
+      // Verlauf je Nutzer (2026-11-26): Klick auf den Namen klappt eine Zeile
+      // direkt darunter auf. Kein eigenes Fenster, kein neuer Tab - die Frage
+      // "wer hat das angelegt?" entsteht an dieser Zeile, also wird sie hier
+      // beantwortet. Ein zweiter Klick schliesst wieder.
+      el.querySelectorAll('td.name-cell').forEach((zelle) => {
+        zelle.addEventListener('click', async () => {
+          const id = zelle.dataset.name;
+          const zeile = zelle.closest('tr');
+          const offen = zeile.nextElementSibling;
+          if (offen && offen.classList.contains('verlauf')) {
+            offen.remove();
+            zeile.classList.remove('geoeffnet');
+            return;
+          }
+          zeile.classList.add('geoeffnet');
+
+          const detail = document.createElement('tr');
+          detail.className = 'verlauf';
+          detail.innerHTML = '<td colspan="4"><span class="verlauf-leer">lade …</span></td>';
+          zeile.after(detail);
+
+          const antwort = await api(`/api/auth/users/${encodeURIComponent(id)}/audit?limit=30`);
+          const ziel = detail.querySelector('td');
+          if (antwort.status !== 200) {
+            ziel.innerHTML = '<span class="verlauf-leer">Verlauf nicht abrufbar: '
+              + esc(antwort.data?.error ?? ('HTTP ' + antwort.status)) + '</span>';
+            return;
+          }
+          const zeilen = antwort.data?.rows ?? [];
+          if (zeilen.length === 0) {
+            ziel.innerHTML = '<span class="verlauf-leer">Kein Eintrag. Die Spur beginnt am 26.11.2026 — '
+              + 'was davor geschah, hat das Panel nicht aufgezeichnet.</span>';
+            return;
+          }
+          ziel.innerHTML = '<ul class="verlauf-liste">' + zeilen.map((r) => {
+            const wann = r.at ? new Date(r.at).toLocaleString('de-DE') : '?';
+            const was = auditText(r);
+            const wer = r.username ? esc(r.username) : '(unbekannt)';
+            const ton = r.result && r.result !== 'ok' ? ' fail' : '';
+            return `<li><span class="wann">${esc(wann)}</span>`
+              + `<span class="was${ton}">${was}</span>`
+              + `<span class="wer">von ${wer}</span></li>`;
+          }).join('') + '</ul>';
+        });
+      });
 
       el.querySelectorAll('.roleSel').forEach((sel) => {
         sel.addEventListener('change', async () => {

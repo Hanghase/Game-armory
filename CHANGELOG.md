@@ -1,5 +1,58 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.28] - 2026-11-26
+
+### Wohin der Bildschirm gehört
+
+Die Spur war geschrieben, aber unsichtbar. Eine Spur ohne Anzeige ist Papier.
+Felix' Frage — *"wo würdest du denn den Bildschirm hin packen?"* — ist die
+eigentliche Designfrage, und die Antwort steht nicht im Code:
+
+**An die Stelle, an der die Frage entsteht.** Nicht als eigener Tab.
+"Wer hat diesen Nutzer angelegt?" fragt man, während man auf **diesen
+Nutzer** sieht — nicht, während man ein Protokoll durchblättert.
+
+Deshalb: Klick auf den Namen in der Nutzerverwaltung, darunter klappt der
+Verlauf auf. Kein neues Fenster, kein neuer Menüpunkt. Zuklappen mit demselben
+Klick.
+
+### Zwei Richtungen, nicht eine
+
+Eine Audit-Zeile betrifft einen Menschen auf zwei Arten: er **hat gehandelt**
+(`username`), oder es wurde **an ihm** gehandelt (`target: 'user:58'`).
+`listAuditForUser()` sucht beides. Wer nur auf den Handelnden sieht, verpasst
+genau den Eintrag, der die Frage ausgelöst hat — das Anlegen.
+
+Dieselbe Route beantwortet auch die Frage nach einem **gelöschten** Konto:
+`GET /api/auth/users/:id/audit?username=d2tmp`. Das ist der Fall, der zählt.
+
+### detail ist jetzt ein Objekt
+
+Die Tabelle speichert JSON-Text; die Lesefunktionen geben geparste Felder
+zurück. Wer die API benutzt, soll nicht jedes Mal selbst `JSON.parse` fahren.
+Ein kaputter Eintrag kippt die Anzeige nicht — dann bleibt der Rohtext stehen.
+
+### Live gesehen, nicht nur getestet
+
+```
+26.11.2026, 20:39:29 | user.create | user:58 | {"username":"verlaufsprobe","role":"friend"}
+26.11.2026, 20:39:29 | user.role   | user:58 | {"von":"friend","auf":"moderator"}
+```
+
+Angelegt und Rolle geändert über HTTP durch das echte Backend, zurückgelesen
+über die neue Route. Im Panel steht dann: *"Rang geändert: verlaufsprobe,
+friend → moderator — von root"*. Das Probe-Konto ist wieder gelöscht
+(User gesamt 3).
+
+694/694, drei Mutationsproben rot: nur eine Richtung gesucht, `detail` nicht
+geparst, Route ohne `user.read`.
+
+### Aufgeräumt
+
+Vier Compose-Sicherungen nach `/root/nextcloud-compose-sicherungen/`
+archiviert, vier alte Nextcloud-Images gelöscht — **4,5 GB frei**.
+Nextcloud unberührt: HTTP 200, `35.0.3.2`.
+
 ## [1.7.27] - 2026-11-26
 
 ### Die Frage, die ich nicht beantworten konnte

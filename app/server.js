@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { loadSwords, getSwords, getSword, setVersionCheck, setInstalledVersion } from './swords.js';
-import { audit, AUDIT_ACTIONS, listAudit, countAudit } from './auditLog.js';
+import { audit, AUDIT_ACTIONS, listAudit, listAuditForUser, countAudit } from './auditLog.js';
 import { checkSwordVersion } from './versionCheck.js';
 import { getNumericSetting } from './settings.js';
 import { loadPendingRestarts, getPendingRestart, clearPendingRestart } from './pendingRestart.js';
@@ -25,7 +25,7 @@ import { installRouter } from './installRoutes.js';
 import { arsenalRouter } from './arsenalRoutes.js';
 import { adoptRouter } from './adoptroutes.js';
 import { pruefeHandshake, registriere, verarbeiteNachricht, leitungWeg } from './arsenalSocket.js';
-import { getSessionUser, requireAuth, requirePerm, cleanupExpiredSessions,  cleanupLoginAttempts,
+import { getSessionUser, requireAuth, requirePerm, cleanupExpiredSessions,  cleanupLoginAttempts, getUserById,
 } from './auth.js';
 import { roleHasPerm } from './permissions.js';
 import { cleanupOldUploads } from './uploads.js';
@@ -348,6 +348,27 @@ app.post('/api/swords/:id/docker-update', requireAuth, async (req, res) => {
     return res.status(result.ok ? 200 : 500).json(result);
   } finally {
     laeufendeDockerUpdates.delete(sword.id);
+  }
+});
+
+// Verlauf eines Kontos (2026-11-26). Steht VOR der allgemeinen /api/audit-Route,
+// sonst schluckt der Parameter ':id' nicht - hier ist der Pfad ohnehin
+// eindeutig, aber die Reihenfolge bleibt so lesbar.
+//
+// Dieselbe Rechtepruefung wie die allgemeine Spur: der Verlauf enthaelt
+// IP-Adressen und wer wann was geaendert hat.
+app.get('/api/auth/users/:id/audit', requirePerm('user.read'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Ungültige Nutzer-ID' });
+    const u = getUserById(id);
+    // Gelöschte Konten gibt es nicht mehr - dann nach dem Namen suchen, der
+    // in der Spur steht. Das ist der Fall, der zaehlt: "wer war das?"
+    const username = u?.username ?? (typeof req.query.username === 'string' ? req.query.username : null);
+    if (!username && !u) return res.status(404).json({ error: 'Nutzer nicht gefunden' });
+    res.json({ rows: listAuditForUser(username, id, { limit: req.query.limit }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

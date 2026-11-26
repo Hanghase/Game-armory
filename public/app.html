@@ -318,6 +318,23 @@
     table.users-tbl input[type=email]:focus { outline: none; border-color: var(--accent); }
     table.users-tbl input[type=email]::placeholder { color: var(--muted); opacity: .8; }
     table.users-tbl select { width: 100%; box-sizing: border-box; }
+    /* Verlauf je Nutzer (2026-11-26): aufklappbare Zeile, kein eigener Tab.
+       Eine Zeile traegt colspan=4 und wird per Klick auf den Namen geoeffnet. */
+    table.users-tbl td.name-cell { cursor: pointer; }
+    table.users-tbl td.name-cell:hover { color: var(--accent); }
+    table.users-tbl td.name-cell .caret { display: inline-block; width: 12px; color: var(--muted);
+      transition: transform .12s ease; font-size: 10px; }
+    table.users-tbl tr.geoeffnet td.name-cell .caret { transform: rotate(90deg); }
+    table.users-tbl tr.verlauf > td { background: var(--ctl); padding: 10px 12px; }
+    .verlauf-liste { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+    .verlauf-liste li { padding: 3px 0; border-bottom: 1px solid var(--border);
+      display: flex; gap: 10px; align-items: baseline; }
+    .verlauf-liste li:last-child { border-bottom: none; }
+    .verlauf-liste .wann { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .verlauf-liste .was { flex: 1; }
+    .verlauf-liste .wer { color: var(--muted); font-size: 11.5px; }
+    .verlauf-liste .fail { color: var(--warn); }
+    .verlauf-leer { color: var(--muted); font-size: 12px; font-style: italic; }
     th { color: var(--muted); font-weight: 500; }
     .row-actions button { padding: 4px 9px; font-size: 12px; }
     /* Rechte-Matrix: Raster aus Rollen (Spalten) x Rechte (Zeilen).

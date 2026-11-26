@@ -182,6 +182,18 @@ export function auditRoute(action, beschreibe) {
   };
 }
 
+// detail liegt in der Tabelle als JSON-Text. Wer die Spur liest, will die
+// Felder, nicht den Text - und ein kaputter Eintrag darf die Anzeige nicht
+// kippen, dann bleibt eben der Rohtext stehen.
+function detailLesen(zeile) {
+  if (!zeile || typeof zeile.detail !== 'string' || zeile.detail === '') return zeile;
+  try {
+    return { ...zeile, detail: JSON.parse(zeile.detail) };
+  } catch {
+    return zeile;
+  }
+}
+
 export function listAudit({ limit = 100, action = null, username = null } = {}) {
   const n = Math.max(1, Math.min(Number(limit) || 100, 1000));
   const wo = [];
@@ -192,7 +204,27 @@ export function listAudit({ limit = 100, action = null, username = null } = {}) 
     + (wo.length ? ' WHERE ' + wo.join(' AND ') : '')
     + ' ORDER BY id DESC LIMIT ?';
   args.push(n);
-  return db.prepare(sql).all(...args);
+  return db.prepare(sql).all(...args).map(detailLesen);
+}
+
+// Verlauf EINES Kontos. Zwei Quellen, denn eine Zeile betrifft einen Nutzer
+// auf zwei Arten: er HAT gehandelt (username) oder es wurde AN ihm gehandelt
+// (target "user:57"). Wer nur auf den Handelnden sieht, verpasst genau die
+// Frage "wer hat den angelegt?".
+export function listAuditForUser(username, userId, { limit = 50 } = {}) {
+  const n = Math.max(1, Math.min(Number(limit) || 50, 500));
+  const ziel = userId == null ? null : `user:${userId}`;
+  const rows = db.prepare(`
+    SELECT * FROM audit_log
+    WHERE username = ? OR (? IS NOT NULL AND target = ?)
+    ORDER BY id DESC LIMIT ?
+  `).all(
+    typeof username === 'string' ? username : '',
+    ziel,
+    ziel,
+    n,
+  );
+  return rows.map(detailLesen);
 }
 
 export function countAudit() {

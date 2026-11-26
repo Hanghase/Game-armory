@@ -51,7 +51,7 @@ test('audit schreibt eine Zeile und listAudit liest sie', async () => {
     assert.equal(rows[0].user_id, 7);
     assert.equal(rows[0].target, 'user:57');
     assert.equal(rows[0].result, 'ok');
-    assert.match(rows[0].detail, /"role":"admin"/);
+    assert.deepEqual(rows[0].detail, { username: 'neu', role: 'admin' });
   });
 });
 
@@ -68,10 +68,12 @@ test('Geheimnisse landen nicht in detail', async () => {
       },
     });
     const row = m.listAudit({ limit: 1 })[0];
-    assert.doesNotMatch(row.detail, /DAS-DARF-NICHT-REIN/);
-    assert.doesNotMatch(row.detail, /geheim/);
-    assert.doesNotMatch(row.detail, /abc123/);
-    assert.match(row.detail, /darf rein/);
+    // detail ist ein Objekt - die Schwaerzung muss sich darin zeigen, nicht im Rohtext.
+    const roh = JSON.stringify(row.detail);
+    assert.doesNotMatch(roh, /DAS-DARF-NICHT-REIN/);
+    assert.doesNotMatch(roh, /geheim/);
+    assert.doesNotMatch(roh, /abc123/);
+    assert.match(roh, /darf rein/);
   });
 });
 
@@ -162,4 +164,44 @@ test('die Lese-Route ist vorhanden und verlangt ein Recht', async () => {
   assert.ok(zeile, 'GET /api/audit fehlt');
   assert.match(zeile, /requirePerm\(/,
     'Lese-Route ohne Rechtepruefung - die Spur enthaelt Benutzernamen und IPs');
+});
+
+// --- Verlauf je Nutzer (2026-11-26) ----------------------------------------
+// Die Frage, die den ganzen Bau ausgeloest hat, lautet: "wer hat DIESEN
+// Nutzer angelegt?" Sie richtet sich an eine Zeile, nicht an das Panel.
+// Deshalb muss der Verlauf beide Richtungen kennen: was der Nutzer getan hat
+// UND was an ihm getan wurde. Wer nur auf den Handelnden sieht, verpasst
+// genau den Anlege-Eintrag.
+test('Verlauf eines Kontos kennt beide Richtungen', async () => {
+  await mitDb(async (m) => {
+    m.audit({ action: m.AUDIT_ACTIONS.USER_CREATE, user: { id: 1, username: 'root' },
+      target: 'user:9', detail: { username: 'Ziel' } });
+    m.audit({ action: m.AUDIT_ACTIONS.LOGIN_OK, user: { id: 9, username: 'Ziel' } });
+
+    const aktionen = m.listAuditForUser('Ziel', 9).map((r) => r.action).sort();
+    assert.deepEqual(aktionen, ['login.ok', 'user.create']);
+
+    // Nur ueber target erreichbar: er hat selbst nichts getan.
+    const nurZiel = m.listAuditForUser('Niemand', 9).map((r) => r.action);
+    assert.deepEqual(nurZiel, ['user.create']);
+  });
+});
+
+test('detail kommt als Objekt, nicht als Text', async () => {
+  await mitDb(async (m) => {
+    m.audit({ action: m.AUDIT_ACTIONS.USER_ROLE, user: { id: 1, username: 'root' },
+      target: 'user:9', detail: { von: 'friend', auf: 'admin' } });
+    const [zeile] = m.listAuditForUser('root', 1);
+    assert.equal(typeof zeile.detail, 'object', 'detail muss geparst sein');
+    assert.equal(zeile.detail.auf, 'admin');
+  });
+});
+
+test('Verlauf-Route verlangt user.read', async () => {
+  const quelle = await readFile(new URL('../app/server.js', import.meta.url), 'utf8');
+  const i = quelle.indexOf("'/api/auth/users/:id/audit'");
+  assert.ok(i > 0, 'Route fehlt');
+  const bis = quelle.indexOf('app.', i);
+  const block = quelle.slice(i, bis > 0 ? bis : i + 900);
+  assert.match(block, /requirePerm\('user\.read'\)/);
 });
