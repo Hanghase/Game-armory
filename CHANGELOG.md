@@ -1,5 +1,46 @@
 Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.7.18] - 2026-11-26
+
+### Tests schreiben nicht mehr in die Betriebs-Datenbank
+
+**Befund:** `tests/actionSafety.test.mjs` oeffnete `data/armory.db` **schreibend**
+- die laufende Datenbank des Panels. Es legte eine Session-Zeile fuer `user_id=1`
+an (angenommen: der erste Nutzer ist superuser) und loeschte sie am Ende wieder.
+Es fiel nicht auf, weil WAL mehrere Verbindungen zulaesst und die Zeile
+kurzlebig war. Aber ein Test mit Schreibrecht auf Betriebsdaten ist eine
+Fehlerquelle: ein abgebrochener Lauf hinterlaesst eine echte Session, ein
+Tippfehler im `DELETE` trifft echte Zeilen.
+
+**Behoben:**
+
+- `app/settings.js`, `app/errorLog.js` und `app/permissions.js` lesen jetzt
+  `process.env.ARMORY_DB_PATH || '/opt/game-armory/data/armory.db'`.
+  `auth.js` und `arsenalStore.js` konnten das schon - der Kommentar dort
+  („damit Tests gegen eine Wegwerf-DB laufen") war nur nie eingeloest.
+  Ohne die Variable verhaelt sich jedes Modul exakt wie vorher.
+- Der Test legt eine Wegwerf-DB an und setzt `ARMORY_DB_PATH`, **bevor** das
+  erste Modul importiert wird (die Verbindung entsteht beim Import).
+- Der Testnutzer wird mit `createUser(name, passwort, 'superuser')` angelegt
+  statt `user_id=1` anzunehmen - eine frische DB hat keinen Nutzer.
+
+**Beweis:** `md5sum data/armory.db` vor und nach dem Lauf identisch
+(`9cc46a1...`), `sessions` bleibt bei 3. Mutationsprobe: die
+`ARMORY_DB_PATH`-Zeile entfernt -> **7 Tests rot** (der Test kann ohne
+Umlenkung nicht arbeiten), zurueck 24/24. Volle Suite **649/649**.
+
+**Vier Fehler auf dem Weg, alle im Code kommentiert:**
+
+| Fehler | Wirkung | Ursache |
+|---|---|---|
+| `test.after()` fuers Aufraeumen | 7 Tests rot, „directory does not exist" | `after`-Hooks laufen in Registrierungs-Reihenfolge, nicht als Stack; der Hook ganz unten (`process.exit`) lief zuerst und loeschte das Verzeichnis |
+| `createUser()` ohne `await` | Nutzer fehlt, ID `undefined` | die Funktion ist `async` (Passwort-Hashing) |
+| `setRole(name, ...)` | still keine Zeile getroffen | `setRole` nimmt die **ID**, nicht den Namen |
+| `catch {}` um `createUser` | echter Grund verschluckt | Passwort-Policy: 3 von 4 Zeichengruppen, `fehler: "nur-ein-test-passwort"` zu schwach |
+
+Der letzte ist der lehrreichste: das stille `catch` machte aus „Passwort zu
+schwach" ein „Nutzer fehlt in der DB" - eine falsche Spur, drei Runden lang.
+
 ## [1.7.17] - 2026-11-26
 
 ### Das Sword-Schema kannte die eigenen Dateien nicht

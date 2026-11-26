@@ -30,6 +30,38 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer as createHttpServer } from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+// Wegwerf-DB statt Produktions-DB (2026-11-26).
+//
+// Vorher oeffnete mitSession() schreibend `data/armory.db` - die Laufzeit-DB
+// des laufenden Panels. INSERT einer Session, DELETE am Ende. Es funktionierte
+// (WAL laesst mehrere Verbindungen zu, und die Zeile war kurzlebig), aber ein
+// Test mit Schreibrecht auf die Betriebsdatenbank ist eine eigene Fehlerquelle:
+// ein abgebrochener Lauf hinterlaesst eine Session, ein Tippfehler im DELETE
+// trifft echte Zeilen.
+//
+// Alle DB-Module lesen jetzt ARMORY_DB_PATH (auth.js und arsenalStore.js
+// konnten das schon, settings.js/errorLog.js/permissions.js seit dieser
+// Aenderung). Die Variable muss stehen, BEVOR irgendein Modul importiert wird -
+// die DB-Verbindung entsteht beim Import, nicht beim Aufruf.
+const wegwerfDb = fs.mkdtempSync(path.join(os.tmpdir(), 'action-safety-'));
+process.env.ARMORY_DB_PATH = path.join(wegwerfDb, 'test.db');
+
+// Aufraeumen NICHT ueber test.after(): node:test fuehrt after-Hooks in der
+// REIHENFOLGE ihrer Registrierung aus, nicht als Stack. Der Hook ganz unten
+// beendet den Prozess per process.exit - er lief hier zuerst, und danach war
+// das Verzeichnis weg, waehrend die Tests noch ihre Session brauchten
+// ("Cannot open database because the directory does not exist", 7 rote Tests).
+// Live gemessen: mkdtempSync legte das Verzeichnis an, beim ersten
+// mitSession()-Aufruf war es bereits geloescht.
+//
+// Deshalb haengt das Aufraeumen am Prozess-Ende, hinter allem anderen.
+process.on('exit', () => {
+  try { fs.rmSync(wegwerfDb, { recursive: true, force: true }); } catch { /* egal */ }
+});
 
 const controlPath = new URL('../app/control.js', import.meta.url);
 
@@ -331,17 +363,61 @@ EIGEN = `http://127.0.0.1:${eigenerServer.address().port}`;
 process.on('exit', () => { try { eigenerServer?.close(); } catch { /* egal */ } });
 test.after(() => new Promise((res) => eigenerServer.close(res)));
 
-// Kurzlebige Session fuer user_id=1 (superuser -> hat alle Rechte). Die Zeile
-// wird am Ende wieder entfernt; die Session-Tabelle bleibt sonst sauber.
+// Kurzlebige Session fuer einen superuser (Level 4 -> hat alle Rechte).
+//
+// Seit 2026-11-26 gegen die Wegwerf-DB (siehe oben). Der superuser wird hier
+// angelegt, statt user_id=1 anzunehmen: eine frische DB hat keinen Nutzer, und
+// eine angenommene ID waere eine stillschweigende Abhaengigkeit von der
+// Reihenfolge, in der andere Tests schreiben.
 async function mitSession(fn) {
   const Database = (await import('better-sqlite3')).default;
-  const dbPath = new URL('../data/armory.db', import.meta.url).pathname;
+  const dbPath = process.env.ARMORY_DB_PATH;
+
+  // Die Tabellen legt auth.js beim Import selbst an. Wir brauchen nur den
+  // Nutzer - und den mit passendem Rang, sonst antwortet die Route 403 statt
+  // die Steuerung zu pruefen.
+  //
+  // Zwei Fallstricke, beide beim ersten Versuch getroffen:
+  //   - createUser ist ASYNC (es hasht das Passwort), ein Aufruf ohne await
+  //     legt nichts an und die ID-Suche findet null.
+  //   - setRole nimmt die USER-ID, nicht den Namen. Mit dem Namen lief
+  //     "UPDATE users SET role=? WHERE id=?" gegen 'test-action-safety-<pid>'
+  //     und traf still keine Zeile - kein Fehler, nur falscher Rang.
+  const { createUser, setRole } = await import('../app/auth.js');
+  const name = `test-action-safety-${process.pid}`;
+  let uid;
+  try {
+    // Rolle direkt mitgeben - createUser(username, password, role).
+    // Das Passwort muss die Policy erfuellen (3 von 4 Gruppen). Beim ersten
+    // Versuch war "nur-ein-test-passwort" zu schwach; der catch{} darunter hat
+    // den echten Grund verschluckt und der Fehler kam erst als "Nutzer fehlt".
+    // Ein stilles catch in einem Test ist derselbe Fehler wie ein Test ohne
+    // Aussagekraft - deshalb pruefen wir danach die ID statt den Fehler zu
+    // schlucken, und das Passwort ist gueltig.
+    const angelegt = await createUser(name, 'Test-Armory-2026!', 'superuser');
+    uid = angelegt?.id;
+  } catch (err) {
+    // Schon vorhanden (mehrere Aufrufe im selben Prozess).
+    if (!String(err.message).includes('bereits vergeben')) throw err;
+  }
+  if (!Number.isInteger(uid)) {
+    const db0 = new Database(dbPath);
+    try {
+      uid = db0.prepare('SELECT id FROM users WHERE username = ?').get(name)?.id;
+    } finally {
+      db0.close();
+    }
+  }
+  assert.ok(Number.isInteger(uid), 'Testnutzer muss in der Wegwerf-DB liegen');
+  // Bei vorhandenem Nutzer den Rang sicherstellen (setRole nimmt die ID).
+  try { setRole(uid, 'superuser'); } catch { /* egal */ }
+
   const token = `test-action-safety-${process.pid}-${Date.now()}`;
   const now = Date.now();
   const db = new Database(dbPath);
   try {
     db.prepare('INSERT OR REPLACE INTO sessions (token,user_id,created_at,expires_at) VALUES (?,?,?,?)')
-      .run(token, 1, now, now + 120_000);
+      .run(token, uid, now, now + 120_000);
   } finally {
     db.close();
   }

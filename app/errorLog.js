@@ -16,7 +16,11 @@
 //     Geheimnisse gehoeren gar nicht erst in Fehlertexte.
 import Database from 'better-sqlite3';
 
-const DB_PATH = '/opt/game-armory/data/armory.db';
+// DB-Pfad: im Betrieb der feste Pfad. Ueber ARMORY_DB_PATH umlenkbar,
+// damit Tests gegen eine Wegwerf-DB laufen und nie die echte Datenbank
+// anfassen (seit 2026-11-26 in ALLEN DB-Modulen gleich, nach dem Muster
+// von auth.js und arsenalStore.js).
+const DB_PATH = process.env.ARMORY_DB_PATH || '/opt/game-armory/data/armory.db';
 const MAX_ROWS = 5000;
 const MAX_TEXT = 4000;
 
